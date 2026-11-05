@@ -1,0 +1,9 @@
+# Môi trường phát triển cục bộ (laptop): platform + ml + simulator + test/lint + firmware CLI
+-r requirements.txt
+-r ../ml/requirements.txt
+-r ../tools/simulator/requirements.txt
+
+pytest==9.2.0
+pytest-asyncio==1.4.1.post1
+ruff==0.17.3
+platformio==6.2.0

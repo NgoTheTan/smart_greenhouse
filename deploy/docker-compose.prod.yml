@@ -1,0 +1,11 @@
+# Override cho AWS EC2 (t3.small).
+# Mosquitto dùng lại chứng chỉ Let's Encrypt do Caddy cấp (mount chỉ đọc).
+# Trong .env: MQTT_TLS_CERTFILE=/caddy-data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/<DOMAIN>/<DOMAIN>.crt
+#             MQTT_TLS_KEYFILE =/caddy-data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/<DOMAIN>/<DOMAIN>.key
+# Sau khi Caddy gia hạn: cron hằng tháng `docker compose ... restart mosquitto`.
+services:
+  mosquitto:
+    volumes:
+      - caddy_data:/caddy-data:ro
+    depends_on:
+      - caddy

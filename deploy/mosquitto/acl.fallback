@@ -1,0 +1,21 @@
+# Fallback khi Dynamic Security gặp vấn đề (spec 3.1): password file + ACL file.
+# Bật bằng cách thay khối plugin trong mosquitto.conf bằng:
+#   password_file /mosquitto/config/passwd
+#   acl_file /mosquitto/config/acl
+# Tạo user: mosquitto_passwd -b /mosquitto/config/passwd <user> <password>
+#
+# Mẫu ACL (%u = username; quy ước username gateway = gw-<farm_id>-<greenhouse_id> không khả thi
+# vì topic cần farm/gh tách riêng -> liệt kê tường minh từng gateway):
+
+user worker
+topic readwrite gh/#
+
+# user gw-<id>
+# topic read  gh/<farm_id>/<greenhouse_id>/cmd/#
+# topic read  gh/<farm_id>/<greenhouse_id>/cfg
+# topic write gh/<farm_id>/<greenhouse_id>/telemetry/#
+# topic write gh/<farm_id>/<greenhouse_id>/status
+# topic write gh/<farm_id>/<greenhouse_id>/event
+# topic write gh/<farm_id>/<greenhouse_id>/discovery
+# topic write gh/<farm_id>/<greenhouse_id>/ack/#
+

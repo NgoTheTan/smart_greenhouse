@@ -1,0 +1,8 @@
+{
+  "name": "gh_common",
+  "version": "1.0.0",
+  "description": "GreenHub - struct gói tin ESP-NOW, hằng số, tiện ích dùng chung cho node và gateway",
+  "frameworks": "arduino",
+  "platforms": "espressif32"
+}
+

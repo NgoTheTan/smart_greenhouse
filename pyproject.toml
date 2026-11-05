@@ -1,0 +1,16 @@
+# Cấu hình công cụ dùng chung (không phải package cài đặt).
+# Backend chạy với platform/ là gốc import (api, worker, core) - xem docs/DECISIONS.md
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["platform", "."]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+pythonpath = ["platform", "."]
+testpaths = ["platform/tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

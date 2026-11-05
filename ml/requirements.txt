@@ -1,0 +1,3 @@
+# Huấn luyện offline (laptop). Dùng chung phiên bản với platform để artifact joblib tương thích.
+-r ../platform/requirements.txt
+matplotlib==3.11.2

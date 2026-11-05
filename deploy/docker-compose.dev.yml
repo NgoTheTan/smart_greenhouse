@@ -1,0 +1,17 @@
+# Override cho laptop (phát triển).
+# Cổng phụ chỉ bind 127.0.0.1; chứng chỉ MQTT tự ký từ deploy/certs (gen-dev-certs.sh).
+services:
+  timescaledb:
+    ports:
+      - "127.0.0.1:5432:5432"   # cho ml/ và công cụ DB trên laptop
+
+  mosquitto:
+    volumes:
+      - ./certs:/certs:ro
+    ports:
+      - "127.0.0.1:1883:1883"   # debug bằng mosquitto_sub/pub trên laptop
+
+  api:
+    ports:
+      - "127.0.0.1:8000:8000"   # gọi API trực tiếp / Vite dev proxy
+

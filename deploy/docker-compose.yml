@@ -1,0 +1,121 @@
+# GreenHub - Docker Compose (dùng chung dev + prod)
+#   Dev : docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml up -d --build
+#   Prod: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml up -d --build
+# Biến môi trường lấy từ ../.env (env_file) - không dùng interpolation ${} trong file này.
+name: greenhub
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:2.17.2-pg16
+    env_file: ../.env
+    command: ["postgres", "-c", "shared_buffers=256MB", "-c", "max_connections=50"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 640m
+
+  mosquitto:
+    image: eclipse-mosquitto:2.0.20
+    env_file: ../.env
+    entrypoint: ["/bin/sh", "/greenhub-entrypoint.sh"]
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/docker-entrypoint.sh:/greenhub-entrypoint.sh:ro
+      - mosquitto_data:/mosquitto/data
+    ports:
+      - "8883:8883"   # MQTT TLS cho gateway (1883 chỉ dùng trong mạng Docker)
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_ctrl -h 127.0.0.1 -p 1883 -u \"$${MQTT_ADMIN_USER}\" -P \"$${MQTT_ADMIN_PASSWORD}\" dynsec getDefaultACLAccess >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+
+  api:
+    build:
+      context: ..
+      dockerfile: platform/Dockerfile
+    image: greenhub-platform:latest
+    command: ["api"]
+    env_file: ../.env
+    volumes:
+      - models:/models
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 384m
+
+  worker:
+    build:
+      context: ..
+      dockerfile: platform/Dockerfile
+    image: greenhub-platform:latest
+    command: ["worker"]
+    env_file: ../.env
+    volumes:
+      - models:/models
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+      api:
+        condition: service_healthy   # api chạy migration trước
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  caddy:
+    build:
+      context: ..
+      dockerfile: deploy/caddy/Dockerfile
+    image: greenhub-caddy:latest
+    env_file: ../.env
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+
+volumes:
+  pgdata:
+  mosquitto_data:
+  models:
+  caddy_data:
+  caddy_config:
+
