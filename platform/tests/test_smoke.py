@@ -11,8 +11,11 @@ def test_settings_load():
 def test_api_app_routes():
     from api.main import app
 
-    paths = {r.path for r in app.routes}
+    paths = set(app.openapi()["paths"].keys())
     assert "/api/health" in paths
+    assert "/api/auth/login" in paths
+    assert "/api/greenhouses/{gh_id}/commands" in paths
+    assert "/api/nodes/{mac}/pair" in paths
 
 
 def test_worker_subscriptions():

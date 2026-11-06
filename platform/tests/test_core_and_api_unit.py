@@ -1,0 +1,83 @@
+"""Unit tests cho bảo mật, crop templates, schemas, ACL Dynamic Security và ngân sách bộ nhớ API."""
+
+import sys
+import uuid
+
+import pytest
+from pydantic import ValidationError
+
+from api.provisioning import build_gateway_dynsec_commands
+from core.crop_templates import SYSTEM_CROP_TEMPLATES, CropParameters
+from core.schemas import CommandCreateRequest, normalize_mac
+from core.security import (
+    create_access_token,
+    decode_access_token,
+    hash_password,
+    verify_password,
+)
+from worker.commands import _parse_side_effect
+from worker.main import parse_gh_topic
+
+
+def test_password_hash_and_jwt_roundtrip() -> None:
+    uid = uuid.uuid4()
+    fid = uuid.uuid4()
+    pw_hash = hash_password("secret-123")
+    assert verify_password("secret-123", pw_hash)
+    assert not verify_password("wrong", pw_hash)
+
+    token = create_access_token(uid, fid, "owner")
+    claims = decode_access_token(token)
+    assert claims["sub"] == str(uid)
+    assert claims["farm_id"] == str(fid)
+    assert claims["role"] == "owner"
+
+
+def test_system_crop_templates_valid() -> None:
+    assert len(SYSTEM_CROP_TEMPLATES) == 4
+    varieties = {(t["crop_name"], t["variety"]) for t in SYSTEM_CROP_TEMPLATES}
+    assert varieties == {
+        ("Cà chua bi", "real"),
+        ("Cà chua bi", "demo"),
+        ("Dâu tây", "real"),
+        ("Dâu tây", "demo"),
+    }
+    for tpl in SYSTEM_CROP_TEMPLATES:
+        parsed = CropParameters.model_validate(tpl["parameters_json"])
+        assert parsed.schema_version == 1
+
+
+def test_mac_normalization_and_command_validation() -> None:
+    assert normalize_mac("aa-bb-cc-dd-ee-01") == "AA:BB:CC:DD:EE:01"
+    with pytest.raises(ValueError):
+        normalize_mac("invalid-mac")
+
+    with pytest.raises(ValidationError):
+        CommandCreateRequest(actuator="fan", action="on", duration_s=None)
+
+    ok_off = CommandCreateRequest(actuator="fan", action="off")
+    assert ok_off.duration_s is None
+
+
+def test_dynsec_acl_topic_isolation_and_topic_parser() -> None:
+    farm_id = uuid.uuid4()
+    gh_id = uuid.uuid4()
+    cmds = build_gateway_dynsec_commands(farm_id, gh_id, "gw_test", "pw123")
+    create_role = next(c for c in cmds if c["command"] == "createRole")
+    prefix = f"gh/{farm_id}/{gh_id}/"
+    for acl in create_role["acls"]:
+        assert acl["topic"].startswith(prefix)
+
+    parsed = parse_gh_topic(f"gh/{farm_id}/{gh_id}/telemetry/2")
+    assert parsed == (farm_id, gh_id, ["telemetry", "2"])
+    assert parse_gh_topic("other/topic") is None
+    assert _parse_side_effect("mist_off") == ("mist", "off")
+    assert _parse_side_effect("pump_1_off") == ("pump_1", "off")
+
+
+def test_api_process_does_not_import_heavy_ml_libraries() -> None:
+    """Bảo vệ RAM trên EC2 t3.small: tiến trình `api` không nạp LightGBM/sklearn/pandas."""
+    import api.main  # noqa: F401
+
+    for heavy_pkg in ("lightgbm", "sklearn", "pandas"):
+        assert heavy_pkg not in sys.modules, f"api.main không được import {heavy_pkg}"
