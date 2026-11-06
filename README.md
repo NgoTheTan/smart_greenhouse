@@ -53,8 +53,9 @@ python -m tools.gen_vapid           # chép 2 dòng VAPID_* vào .env
 # 3. Chứng chỉ TLS dev cho Mosquitto (thêm IP LAN của laptop nếu dùng gateway thật)
 python -m tools.gen_dev_certs 192.168.1.10   # hoặc: bash deploy/scripts/gen-dev-certs.sh 192.168.1.10
 
-# 4. Chạy stack
+# 4. Chạy stack và tạo dữ liệu mẫu dev (owner@greenhub.vn / greenhub123)
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml up -d --build
+python -m tools.seed_dev
 #    https://localhost          -> web console (Caddy, chứng chỉ nội bộ)
 #    https://localhost/api/docs -> OpenAPI
 #    mqtts://localhost:8883     -> broker cho gateway/simulator
@@ -86,7 +87,7 @@ python -m ml.train --task risk_forecast --zone all
 python -m tools.simulator --farms 2 --gateways 5 --nodes-per-gw 2 --interval 10 --scenario normal
 ```
 
-Khi chạy Python ngoài Docker, đổi host trong `.env`: `DATABASE_URL=...@localhost:5432/...`, `MQTT_HOST=localhost`.
+Khi chạy Python ngoài Docker, đổi host trong `.env`: `DATABASE_URL=...@127.0.0.1:15432/...`, `MQTT_HOST=127.0.0.1` (`tools.seed_dev` tự chuyển đổi sẵn).
 
 ## Triển khai AWS (prod)
 

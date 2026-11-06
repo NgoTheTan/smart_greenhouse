@@ -3,7 +3,7 @@
 services:
   timescaledb:
     ports:
-      - "127.0.0.1:5432:5432"   # cho ml/ và công cụ DB trên laptop
+      - "127.0.0.1:15432:5432"   # cho ml/, seed_dev và công cụ DB trên laptop (tránh đụng 5432 Windows)
 
   mosquitto:
     volumes:

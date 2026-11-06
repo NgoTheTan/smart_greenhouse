@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+.dev-gateway.json
 *.pem
 *.key
 deploy/certs/

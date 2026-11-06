@@ -14,3 +14,6 @@ pythonpath = ["platform", "."]
 testpaths = ["platform/tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "integration: kiểm thử tích hợp cần Docker Compose (TimescaleDB + Mosquitto + API + Worker)",
+]

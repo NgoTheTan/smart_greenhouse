@@ -15,4 +15,8 @@ Một dòng cho mỗi quyết định khi spec chưa rõ (spec mục 0). Định
 - 2026-11-05 – [web] Recharts v3 (v2 đã ngừng hỗ trợ), vẫn giữ React 18 theo spec.
 - 2026-11-05 – [firmware] Hỗ trợ cả AHT20 (env `node`/`node_demo`) và SHT30 (env `node_sht30`, cờ `USE_SHT30`) – điểm mở #1 spec 17.
 - 2026-11-05 – [firmware] Gateway dùng partition `min_spiffs.csv` – WiFiManager + TLS cần nhiều flash cho app.
+- 2026-11-05 – [platform] Giao tiếp `api` → `worker` dùng PostgreSQL `LISTEN/NOTIFY` trên kênh `worker_events` kèm vòng quét bù 5 giây – phát lệnh `cmd` và cấu hình `cfg` tức thời không cần Redis.
+- 2026-11-05 – [platform] Endpoint `POST /api/nodes/{mac}/pair` hỗ trợ cả ghép node đã `discovered` lẫn khởi tạo trực tiếp MAC nhập thủ công – đáp ứng đồng thời tự phát hiện và fallback MVP (điểm mở #4 spec 17).
+- 2026-11-05 – [db] Tách migration tạo continuous aggregates (`readings_1m`, `readings_1h`) sang file riêng dùng `autocommit_block()` – TimescaleDB không cho phép tạo continuous aggregate trong transaction block.
+
 
