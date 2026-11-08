@@ -1,0 +1,9 @@
+# Hướng dẫn Coding Assistant – `platform/tests/`
+
+Thư mục này chứa toàn bộ unit tests và integration tests của GreenHub (cấu hình chạy trong `pyproject.toml`: `pythonpath = ["platform", "."]`, `asyncio_mode = "auto"`).
+
+- Tài liệu chi tiết: [FEATURE_TESTING_AND_ACCEPTANCE.md](./FEATURE_TESTING_AND_ACCEPTANCE.md)
+- Bất biến quan trọng:
+  - Test tích hợp cần Docker stack thật phải gắn `@pytest.mark.integration` và tự `skip` nếu cổng `8000` / `8883` chưa mở.
+  - Trên Windows, `conftest.py` đặt `WindowsSelectorEventLoopPolicy` để `aiomqtt` hoạt động trong test async.
+  - Khi unit test coroutine trên máy không muốn mở socket loop, giữ helper `_run_coro` hoặc pytest-asyncio hợp lệ; luôn giữ unit test chạy nhanh, không phụ thuộc mạng ngoài.
