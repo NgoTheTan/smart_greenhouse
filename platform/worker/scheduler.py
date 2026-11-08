@@ -1,4 +1,4 @@
-"""APScheduler định kỳ của worker: quét timeout lệnh, gửi bù lệnh/cfg, hết hạn manual (spec 6)."""
+"""APScheduler định kỳ: timeout lệnh, gửi bù lệnh/cfg, hết hạn manual, tick rules (spec 6)."""
 
 import logging
 from collections.abc import Callable
@@ -7,11 +7,13 @@ import aiomqtt
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from core.db import SessionLocal
+from worker.alerts import escalate_alerts
 from worker.commands import (
     dispatch_pending_commands,
     expire_manual_modes,
     expire_timed_out_commands,
 )
+from worker.rules import RuleEngine
 from worker.shadow import ShadowPublisher
 
 log = logging.getLogger("worker.scheduler")
@@ -20,6 +22,7 @@ log = logging.getLogger("worker.scheduler")
 def create_worker_scheduler(
     get_mqtt_client: Callable[[], aiomqtt.Client | None],
     shadow_pub: ShadowPublisher,
+    rule_engine: RuleEngine | None = None,
 ) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler()
 
@@ -29,6 +32,9 @@ def create_worker_scheduler(
             try:
                 await expire_timed_out_commands(session)
                 await expire_manual_modes(session)
+                if rule_engine is not None:
+                    await rule_engine.tick_5s(session, client)
+                await escalate_alerts(session)
                 if client is not None:
                     await dispatch_pending_commands(client, session)
                     await shadow_pub.sync_unsynced(client, session)

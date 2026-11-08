@@ -29,6 +29,8 @@ from core.schemas import (
     normalize_mac,
 )
 from core.vpd import calc_vpd
+from worker.alerts import raise_alert, resolve_alert
+from worker.rules import RuleEngine
 from worker.shadow import ensure_device_state
 
 log = logging.getLogger("worker.ingest")
@@ -37,8 +39,13 @@ log = logging.getLogger("worker.ingest")
 class IngestService:
     """Quản lý bộ nhớ ngắn hạn cho kiểm tra chất lượng dữ liệu A1 và xử lý gói MQTT đến."""
 
-    def __init__(self) -> None:
+    def __init__(self, rule_engine: RuleEngine | None = None) -> None:
         self._trackers: dict[uuid.UUID, ZoneQualityTracker] = {}
+        self.rule_engine = rule_engine or RuleEngine()
+        self._get_mqtt_client = None
+
+    def set_mqtt_client_getter(self, getter) -> None:
+        self._get_mqtt_client = getter
 
     def _tracker(self, zone_id: uuid.UUID) -> ZoneQualityTracker:
         tracker = self._trackers.get(zone_id)
@@ -73,6 +80,8 @@ class IngestService:
             ]
             self._tracker(zid).warm_up(samples)
         log.info("Warmed up A1 trackers for %d zones", len(zone_ids))
+        await self.rule_engine.warm_up(session)
+
 
     async def handle_telemetry(
         self,
@@ -202,6 +211,35 @@ class IngestService:
                 },
             },
         )
+
+        reading_obj = Reading(
+            zone_id=zone.id,
+            ts=payload.ts,
+            air_temp=payload.air_t,
+            air_rh=payload.air_rh,
+            vpd=vpd_val,
+            soil_moisture=payload.soil_m,
+            soil_raw=payload.soil_raw,
+            lux=payload.lux,
+            rssi=payload.rssi,
+            seq=payload.seq,
+            quality=quality,
+            source=source,
+        )
+        client = self._get_mqtt_client() if self._get_mqtt_client else None
+        try:
+            await self.rule_engine.evaluate_zone_telemetry(
+                session=session,
+                zone_id=zone.id,
+                greenhouse_id=greenhouse_id,
+                farm_id=farm_id,
+                reading=reading_obj,
+                client=client,
+                now=payload.ts,
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("Lỗi khi evaluate rule engine cho zone %s", zone.id)
+
         return quality
 
     async def handle_status(
@@ -252,6 +290,19 @@ class IngestService:
             if payload.cfg_version is not None:
                 state.cfg_version_reported = payload.cfg_version
             state.updated_at = now
+
+        if payload.online:
+            await resolve_alert(session, f"DEVICE_OFFLINE:{greenhouse_id}", now=now)
+        else:
+            await raise_alert(
+                session=session,
+                greenhouse_id=greenhouse_id,
+                alert_type="DEVICE_OFFLINE",
+                severity="critical",
+                dedupe_key=f"DEVICE_OFFLINE:{greenhouse_id}",
+                payload={"online": False},
+                now=now,
+            )
 
         await pg_notify(
             session,
@@ -374,6 +425,19 @@ class IngestService:
                     reason=f"gateway_event:{payload.detail.get('trigger', payload.type)}",
                 )
             )
+        elif payload.type == "failsafe_start":
+            await raise_alert(
+                session=session,
+                greenhouse_id=greenhouse_id,
+                alert_type="FAILSAFE_ACTIVE",
+                severity="critical",
+                dedupe_key=f"FAILSAFE_ACTIVE:{greenhouse_id}",
+                payload=payload.detail,
+                now=payload.ts,
+            )
+        elif payload.type == "failsafe_stop":
+            await resolve_alert(session, f"FAILSAFE_ACTIVE:{greenhouse_id}", now=payload.ts)
+
         log.info(
             "Gateway event gh=%s type=%s detail=%s", greenhouse_id, payload.type, payload.detail
         )

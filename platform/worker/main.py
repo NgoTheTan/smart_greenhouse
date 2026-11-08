@@ -14,6 +14,7 @@ from core.log import setup_logging
 from core.pubsub import CHANNEL_WORKER, listen_loop
 from worker.commands import dispatch_pending_commands, handle_ack
 from worker.ingest import IngestService
+from worker.rules import RuleEngine
 from worker.scheduler import create_worker_scheduler
 from worker.shadow import ShadowPublisher
 
@@ -44,7 +45,9 @@ def parse_gh_topic(topic: str) -> tuple[uuid.UUID, uuid.UUID, list[str]] | None:
 
 class WorkerRuntime:
     def __init__(self) -> None:
-        self.ingest = IngestService()
+        self.rule_engine = RuleEngine()
+        self.ingest = IngestService(rule_engine=self.rule_engine)
+        self.ingest.set_mqtt_client_getter(self.get_mqtt_client)
         self.shadow_pub = ShadowPublisher()
         self._mqtt_client: aiomqtt.Client | None = None
 
@@ -104,7 +107,9 @@ class WorkerRuntime:
         listener_task = asyncio.create_task(
             listen_loop(s.database_url, CHANNEL_WORKER, self.on_worker_event, stop_event)
         )
-        scheduler = create_worker_scheduler(self.get_mqtt_client, self.shadow_pub)
+        scheduler = create_worker_scheduler(
+            self.get_mqtt_client, self.shadow_pub, rule_engine=self.rule_engine
+        )
         scheduler.start()
 
         backoff = 1
