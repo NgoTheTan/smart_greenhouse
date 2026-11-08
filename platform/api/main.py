@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from sqlalchemy import text
 
-from api.routers import auth, commands, devices, greenhouses, zones
+from api.routers import alerts, auth, commands, devices, greenhouses, push, zones
 from core.db import engine
 from core.log import setup_logging
 
@@ -21,6 +21,8 @@ app.include_router(greenhouses.router, prefix="/api")
 app.include_router(devices.router, prefix="/api")
 app.include_router(zones.router, prefix="/api")
 app.include_router(commands.router, prefix="/api")
+app.include_router(alerts.router, prefix="/api")
+app.include_router(push.router, prefix="/api")
 
 
 @app.get("/api/health", tags=["system"])

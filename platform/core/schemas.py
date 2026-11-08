@@ -360,3 +360,71 @@ class ConfigSyncResponse(BaseModel):
     cfg_version_reported: int
     synced: bool
     updated_at: datetime
+
+
+# ==============================================================================
+# 5. Schemas Cảnh báo & Thông báo (Alerts & Push)
+# ==============================================================================
+
+AlertSeverityType = Literal["info", "warning", "critical"]
+AlertStateType = Literal["raised", "notified", "acknowledged", "resolved"]
+AlertFeedbackType = Literal["true_positive", "false_positive"]
+
+
+class AlertResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    greenhouse_id: uuid.UUID
+    zone_id: uuid.UUID | None
+    alert_type: str
+    severity: str
+    state: str
+    dedupe_key: str
+    payload: dict[str, Any] | None
+    created_at: datetime
+    notified_at: datetime | None
+    escalated_at: datetime | None
+    acknowledged_at: datetime | None
+    acked_by: uuid.UUID | None
+    resolved_at: datetime | None
+    feedback: str | None
+    feedback_at: datetime | None
+
+
+class AlertFeedbackRequest(BaseModel):
+    feedback: AlertFeedbackType
+
+
+class PushPublicKeyResponse(BaseModel):
+    public_key: str
+
+
+class PushSubscriptionKeys(BaseModel):
+    p256dh: str
+    auth: str
+
+
+class PushSubscribeRequest(BaseModel):
+    endpoint: str
+    keys: PushSubscriptionKeys
+
+
+class PushUnsubscribeRequest(BaseModel):
+    endpoint: str
+
+
+class NotificationPrefResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    user_id: uuid.UUID
+    push_enabled: bool
+    email_enabled: bool
+    min_severity: str
+
+
+class NotificationPrefUpdateRequest(BaseModel):
+    push_enabled: bool | None = None
+    email_enabled: bool | None = None
+    min_severity: AlertSeverityType | None = None
+
