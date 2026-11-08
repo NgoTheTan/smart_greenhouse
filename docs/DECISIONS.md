@@ -18,5 +18,8 @@ Một dòng cho mỗi quyết định khi spec chưa rõ (spec mục 0). Định
 - 2026-11-05 – [platform] Giao tiếp `api` → `worker` dùng PostgreSQL `LISTEN/NOTIFY` trên kênh `worker_events` kèm vòng quét bù 5 giây – phát lệnh `cmd` và cấu hình `cfg` tức thời không cần Redis.
 - 2026-11-05 – [platform] Endpoint `POST /api/nodes/{mac}/pair` hỗ trợ cả ghép node đã `discovered` lẫn khởi tạo trực tiếp MAC nhập thủ công – đáp ứng đồng thời tự phát hiện và fallback MVP (điểm mở #4 spec 17).
 - 2026-11-05 – [db] Tách migration tạo continuous aggregates (`readings_1m`, `readings_1h`) sang file riêng dùng `autocommit_block()` – TimescaleDB không cho phép tạo continuous aggregate trong transaction block.
+- 2026-11-08 – [platform] Alert Service dedupe qua partial unique index `alerts_open_dedupe` và Web Push chạy qua `asyncio.to_thread` – tránh tạo alert mở trùng lặp và tránh block event loop worker.
+- 2026-11-08 – [platform] Rule Engine thực thi an toàn thắng thủ công (Kịch bản A) bằng cách phát lệnh `mist off` và khoá `mist_lockout_until` ngay khi quạt tự bật vì rủi ro nấm/nhiệt.
+
 
 
