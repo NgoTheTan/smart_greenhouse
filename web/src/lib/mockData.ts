@@ -15,25 +15,29 @@ export interface ReadingMock {
 export function generateMockReadings(): ReadingMock[] {
   const readings: ReadingMock[] = []
   const now = new Date()
+  let soil = 68.0 // khởi tạo ngoài vòng lặp để giảm dần liên tục
 
   for (let i = 24; i >= 0; i--) {
     const d = new Date(now.getTime() - i * 3600 * 1000)
     const hour = d.getHours()
-    
-    // Nhiệt độ dao động 22 - 32 độ theo giờ
-    const temp = 24 + Math.sin((hour - 6) / 24 * 2 * Math.PI) * 6 + (Math.random() - 0.5)
-    // Ẩm nghịch biến với nhiệt
-    const rh = 85 - Math.sin((hour - 6) / 24 * 2 * Math.PI) * 25 + (Math.random() - 0.5) * 3
-    // VPD tính từ temp và RH
+
+    // Nhiệt độ dao động 22 – 32 độ theo giờ (đỉnh 14h, đáy 4h)
+    const temp = 24 + Math.sin(((hour - 4) / 24) * 2 * Math.PI) * 5
+    // RH nghịch biến với nhiệt, clamp 40 – 95%
+    const rh = Math.min(95, Math.max(40, 85 - Math.sin(((hour - 4) / 24) * 2 * Math.PI) * 22))
+    // VPD tính đúng công thức Tetens
     const vpsat = 0.61078 * Math.exp((17.27 * temp) / (temp + 237.3))
     const vpd = Math.max(0.1, Number((vpsat * (1 - rh / 100)).toFixed(2)))
-    
-    // Đất khô dần, tưới lúc 8h sáng
-    let soil = 65 - ((24 - i) % 12) * 2.5 + (Math.random() - 0.5)
-    const pump = hour === 8 || hour === 17
-    const fan = temp > 29 || vpd < 0.5
 
-    if (pump) soil += 18
+    // Độ ẩm đất giảm dần ~1.2% mỗi giờ; bơm lúc 7h và 16h → tăng 18%
+    const pumpHour = hour === 7 || hour === 16
+    if (!pumpHour) {
+      soil = Math.max(35, soil - 1.2)
+    } else {
+      soil = Math.min(80, soil + 18)
+    }
+
+    const fan = temp > 29 || vpd < 0.5
 
     readings.push({
       time: `${hour.toString().padStart(2, '0')}:00`,
@@ -41,8 +45,10 @@ export function generateMockReadings(): ReadingMock[] {
       air_rh: Number(rh.toFixed(1)),
       vpd,
       soil_m: Number(soil.toFixed(1)),
-      lux: hour >= 6 && hour <= 18 ? Math.round(15000 + Math.sin((hour - 6) / 12 * Math.PI) * 35000) : 0,
-      pump_active: pump,
+      lux: hour >= 6 && hour <= 18
+        ? Math.round(5000 + Math.sin(((hour - 6) / 12) * Math.PI) * 40000)
+        : 0,
+      pump_active: pumpHour,
       fan_active: fan,
     })
   }
