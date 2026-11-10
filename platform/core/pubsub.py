@@ -45,7 +45,7 @@ async def listen_loop(
     while stop_event is None or not stop_event.is_set():
         conn: asyncpg.Connection | None = None
         try:
-            conn = await asyncpg.connect(dsn)
+            conn = await asyncpg.connect(dsn, timeout=2.0)
             await conn.add_listener(channel, _callback)
             log.info("LISTEN %s connected", channel)
             backoff = 1
