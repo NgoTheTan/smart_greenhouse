@@ -9,7 +9,17 @@ from fastapi import FastAPI
 from sqlalchemy import text
 
 from api import ws
-from api.routers import alerts, auth, commands, devices, greenhouses, push, zones
+from api.routers import (
+    alerts,
+    auth,
+    commands,
+    devices,
+    experiments,
+    greenhouses,
+    models,
+    push,
+    zones,
+)
 from core.config import get_settings
 from core.db import engine
 from core.log import setup_logging
@@ -54,6 +64,8 @@ app.include_router(zones.router, prefix="/api")
 app.include_router(commands.router, prefix="/api")
 app.include_router(alerts.router, prefix="/api")
 app.include_router(push.router, prefix="/api")
+app.include_router(models.router, prefix="/api")
+app.include_router(experiments.router, prefix="/api")
 
 
 @app.get("/api/health", tags=["system"])

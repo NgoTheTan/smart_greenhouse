@@ -428,3 +428,72 @@ class NotificationPrefUpdateRequest(BaseModel):
     email_enabled: bool | None = None
     min_severity: AlertSeverityType | None = None
 
+
+# ==============================================================================
+# 6. Schemas AI/ML & Thí nghiệm (Models, Predictions & Experiments)
+# ==============================================================================
+
+
+class PredictionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    zone_id: uuid.UUID
+    task: str
+    ts: datetime
+    model_id: uuid.UUID | None
+    horizon_min: int | None
+    score: float | None
+    value: float | None
+    details: dict[str, Any] | None
+
+
+class MlModelResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    zone_id: uuid.UUID | None
+    task: str
+    version: int
+    artifact_path: str
+    trained_at: datetime
+    train_from: datetime | None
+    train_to: datetime | None
+    n_samples: int | None
+    source_mix: dict[str, Any] | None
+    metrics: dict[str, Any] | None
+    baseline_metrics: dict[str, Any] | None
+    is_active: bool
+    notes: str | None
+
+
+class ExperimentCreateRequest(BaseModel):
+    greenhouse_id: uuid.UUID
+    strategy: StrategyType
+    notes: str | None = None
+
+
+class ExperimentRunResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    greenhouse_id: uuid.UUID
+    strategy: str
+    started_at: datetime
+    ended_at: datetime | None
+    notes: str | None
+
+
+class ExperimentKpiResponse(BaseModel):
+    experiment_id: uuid.UUID
+    greenhouse_id: uuid.UUID
+    strategy: str
+    started_at: datetime
+    ended_at: datetime | None
+    duration_hours: float
+    actuator_cycles_per_hour: dict[str, float]
+    vpd_in_range_pct: dict[str, float]
+    soil_overshoot_pct: dict[str, float]
+    total_pump_duration_s: dict[str, int]
+    false_positive_alerts: int
+
+
