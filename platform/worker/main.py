@@ -13,6 +13,7 @@ from core.db import SessionLocal
 from core.log import setup_logging
 from core.pubsub import CHANNEL_WORKER, listen_loop
 from worker.commands import dispatch_pending_commands, handle_ack
+from worker.inference import InferenceService
 from worker.ingest import IngestService
 from worker.rules import RuleEngine
 from worker.scheduler import create_worker_scheduler
@@ -46,6 +47,7 @@ def parse_gh_topic(topic: str) -> tuple[uuid.UUID, uuid.UUID, list[str]] | None:
 class WorkerRuntime:
     def __init__(self) -> None:
         self.rule_engine = RuleEngine()
+        self.inference = InferenceService()
         self.ingest = IngestService(rule_engine=self.rule_engine)
         self.ingest.set_mqtt_client_getter(self.get_mqtt_client)
         self.shadow_pub = ShadowPublisher()
@@ -68,6 +70,8 @@ class WorkerRuntime:
                 elif kind == "cfg_updated":
                     gh_id = uuid.UUID(str(event["greenhouse_id"]))
                     await self.shadow_pub.publish_cfg(client, session, gh_id, force=True)
+                elif kind == "model_activated":
+                    await self.inference.load_active_models(session)
                 await session.commit()
             except Exception:  # noqa: BLE001
                 await session.rollback()
@@ -102,13 +106,17 @@ class WorkerRuntime:
         s = get_settings()
         async with SessionLocal() as session:
             await self.ingest.warm_up(session)
+            await self.inference.load_active_models(session)
 
         stop_event = asyncio.Event()
         listener_task = asyncio.create_task(
             listen_loop(s.database_url, CHANNEL_WORKER, self.on_worker_event, stop_event)
         )
         scheduler = create_worker_scheduler(
-            self.get_mqtt_client, self.shadow_pub, rule_engine=self.rule_engine
+            self.get_mqtt_client,
+            self.shadow_pub,
+            rule_engine=self.rule_engine,
+            inference_service=self.inference,
         )
         scheduler.start()
 

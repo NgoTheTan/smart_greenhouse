@@ -21,6 +21,7 @@ Một dòng cho mỗi quyết định khi spec chưa rõ (spec mục 0). Định
 - 2026-11-08 – [platform] Alert Service dedupe qua partial unique index `alerts_open_dedupe` và Web Push chạy qua `asyncio.to_thread` – tránh tạo alert mở trùng lặp và tránh block event loop worker.
 - 2026-11-08 – [platform] Rule Engine thực thi an toàn thắng thủ công (Kịch bản A) bằng cách phát lệnh `mist off` và khoá `mist_lockout_until` ngay khi quạt tự bật vì rủi ro nấm/nhiệt.
 - 2026-11-09 – [platform] WebSocket `/ws` phân phối sự kiện đa tenant qua PostgreSQL `ws_events`, kiểm tra JWT token và cô lập hoàn toàn theo `farm_id`.
+- 2026-11-09 – [platform] AI Inference trong worker chạy chu kỳ 60 s ngoại suy rủi ro nấm (cảnh báo sớm mà không can thiệp thiết bị) và tính thời gian còn lại trước khi tưới (irrigation ETA).
 
 
 

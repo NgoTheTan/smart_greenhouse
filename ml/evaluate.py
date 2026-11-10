@@ -7,7 +7,6 @@ Nguyên tắc:
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 
@@ -15,7 +14,7 @@ def calculate_mae(y_true: list[float], y_pred: list[float]) -> float:
     """Tính sai số tuyệt đối trung bình (MAE) tính bằng phút."""
     if not y_true or len(y_true) != len(y_pred):
         return 0.0
-    return sum(abs(t - p) for t, p in zip(y_true, y_pred)) / len(y_true)
+    return sum(abs(t - p) for t, p in zip(y_true, y_pred, strict=False)) / len(y_true)
 
 
 def calculate_baseline_irrigation_eta(
@@ -61,7 +60,7 @@ def calculate_classification_metrics(
 ) -> dict[str, float]:
     """Tính Precision, Recall, F1 score cho bài toán phân loại."""
     tp = fp = fn = tn = 0
-    for t, score in zip(y_true, y_scores):
+    for t, score in zip(y_true, y_scores, strict=False):
         pred = 1 if score >= threshold else 0
         if t == 1 and pred == 1:
             tp += 1

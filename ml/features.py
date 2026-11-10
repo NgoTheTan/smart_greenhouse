@@ -8,7 +8,7 @@ Bao gồm:
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 
@@ -108,7 +108,7 @@ def extract_irrigation_eta_features(
     if isinstance(ts, str):
         ts = datetime.fromisoformat(ts)
     elif not isinstance(ts, datetime):
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
     hour = ts.hour
 
     temp = latest.get("air_temp", 25.0) or 25.0
@@ -159,7 +159,7 @@ def extract_risk_forecast_features(
     if isinstance(ts, str):
         ts = datetime.fromisoformat(ts)
     elif not isinstance(ts, datetime):
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
 
     return {
         "vpd_now": float(vpds[-1]),

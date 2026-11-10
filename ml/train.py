@@ -9,9 +9,7 @@ import argparse
 import json
 import logging
 import math
-import os
-import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ml.evaluate import (
@@ -40,14 +38,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--zone", default="all", help="UUID của Zone hoặc 'all'")
     p.add_argument("--from", dest="date_from", help="Thời gian bắt đầu (ISO 8601 UTC)")
     p.add_argument("--to", dest="date_to", help="Thời gian kết thúc (ISO 8601 UTC)")
-    p.add_argument("--mock-data", action="store_true", help="Sử dụng dữ liệu thực nghiệm mẫu khi chưa kết nối DB")
+    p.add_argument(
+        "--mock-data",
+        action="store_true",
+        help="Sử dụng dữ liệu thực nghiệm mẫu khi chưa kết nối DB",
+    )
     return p.parse_args(argv)
 
 
 def generate_synthetic_training_data(n_samples: int = 120) -> list[dict[str, Any]]:
     """Tạo dữ liệu cảm biến thực nghiệm theo chuỗi thời gian để kiểm tra pipeline."""
     data = []
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     soil = 68.0
 
     for i in range(n_samples):

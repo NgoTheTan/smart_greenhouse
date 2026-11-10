@@ -1,4 +1,4 @@
-"""APScheduler định kỳ: timeout lệnh, gửi bù lệnh/cfg, hết hạn manual, tick rules (spec 6)."""
+"""APScheduler định kỳ: timeout lệnh, bù lệnh/cfg, hết hạn manual, rules, AI (spec 6, 8)."""
 
 import logging
 from collections.abc import Callable
@@ -13,6 +13,7 @@ from worker.commands import (
     expire_manual_modes,
     expire_timed_out_commands,
 )
+from worker.inference import InferenceService
 from worker.rules import RuleEngine
 from worker.shadow import ShadowPublisher
 
@@ -23,6 +24,7 @@ def create_worker_scheduler(
     get_mqtt_client: Callable[[], aiomqtt.Client | None],
     shadow_pub: ShadowPublisher,
     rule_engine: RuleEngine | None = None,
+    inference_service: InferenceService | None = None,
 ) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler()
 
@@ -44,4 +46,24 @@ def create_worker_scheduler(
                 log.exception("Lỗi trong tick 5s của worker")
 
     scheduler.add_job(_tick_5s, "interval", seconds=5, id="worker_tick_5s", max_instances=1)
+
+    if inference_service is not None:
+
+        async def _tick_60s() -> None:
+            async with SessionLocal() as session:
+                try:
+                    await inference_service.run_cycle(session)
+                    await session.commit()
+                except Exception:  # noqa: BLE001
+                    await session.rollback()
+                    log.exception("Lỗi trong chu kỳ suy luận 60s của worker")
+
+        scheduler.add_job(
+            _tick_60s,
+            "interval",
+            seconds=60,
+            id="worker_inference_60s",
+            max_instances=1,
+        )
+
     return scheduler
