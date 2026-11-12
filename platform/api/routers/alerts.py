@@ -1,4 +1,4 @@
-"""Router quản lý cảnh báo: xem danh sách, xác nhận (ack), phản hồi (feedback) (spec 6.6, 9)."""
+"""Router quản lý cảnh báo: xem danh sách và xác nhận (ack) (spec 6.6, 9)."""
 
 import uuid
 from datetime import UTC, datetime
@@ -10,7 +10,7 @@ from sqlalchemy import desc, select
 from api.deps import CurrentOperator, CurrentViewer, DbSession
 from core.models import Alert, Greenhouse
 from core.pubsub import CHANNEL_WS, pg_notify
-from core.schemas import AlertFeedbackRequest, AlertResponse
+from core.schemas import AlertResponse
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
@@ -63,6 +63,12 @@ async def acknowledge_alert(
     if alert is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cảnh báo không tồn tại")
 
+    if alert.state == "resolved":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cảnh báo đã được giải quyết",
+        )
+
     now = datetime.now(UTC)
     if alert.state in ("raised", "notified"):
         alert.state = "acknowledged"
@@ -94,29 +100,5 @@ async def acknowledge_alert(
             },
         )
         await session.commit()
-
-    return alert
-
-
-@router.post("/{alert_id}/feedback", response_model=AlertResponse)
-async def feedback_alert(
-    alert_id: uuid.UUID,
-    body: AlertFeedbackRequest,
-    user: CurrentOperator,
-    session: DbSession,
-) -> Alert:
-    """Gửi phản hồi đúng/sai (true_positive / false_positive) cho cảnh báo."""
-    stmt = (
-        select(Alert)
-        .join(Greenhouse, Alert.greenhouse_id == Greenhouse.id)
-        .where(Alert.id == alert_id, Greenhouse.farm_id == user.farm_id)
-    )
-    alert = (await session.execute(stmt)).scalar_one_or_none()
-    if alert is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cảnh báo không tồn tại")
-
-    alert.feedback = body.feedback
-    alert.feedback_at = datetime.now(UTC)
-    await session.commit()
 
     return alert

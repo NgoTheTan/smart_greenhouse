@@ -105,6 +105,7 @@ async def create_greenhouse(
                 zone_index=z.zone_index,
                 name=z.name,
                 crop_profile_id=z.crop_profile_id,
+                area_m2=z.area_m2,
                 pump_channel=z.pump_channel or z.zone_index,
                 soil_dry_raw=z.soil_dry_raw,
                 soil_wet_raw=z.soil_wet_raw,

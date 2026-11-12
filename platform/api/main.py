@@ -13,11 +13,12 @@ from api.routers import (
     alerts,
     auth,
     commands,
+    cycles,
     devices,
-    experiments,
     greenhouses,
     models,
     push,
+    recommendations,
     zones,
 )
 from core.config import get_settings
@@ -65,7 +66,8 @@ app.include_router(commands.router, prefix="/api")
 app.include_router(alerts.router, prefix="/api")
 app.include_router(push.router, prefix="/api")
 app.include_router(models.router, prefix="/api")
-app.include_router(experiments.router, prefix="/api")
+app.include_router(cycles.router, prefix="/api")
+app.include_router(recommendations.router, prefix="/api")
 
 
 @app.get("/api/health", tags=["system"])

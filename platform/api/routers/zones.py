@@ -56,10 +56,10 @@ async def update_zone(
 
     if body.name is not None:
         zone.name = body.name
+    if body.area_m2 is not None:
+        zone.area_m2 = body.area_m2
     if body.planting_date is not None:
         zone.planting_date = body.planting_date
-    if body.control_strategy is not None:
-        zone.control_strategy = body.control_strategy
     if body.crop_profile_id is not None and body.crop_profile_id != zone.crop_profile_id:
         profile = (
             await session.execute(
@@ -231,7 +231,7 @@ async def update_crop_profile(
     session: DbSession,
 ) -> CropProfile:
     try:
-        validated = CropParameters.model_validate(body.parameters_json).model_dump()
+        validated = CropParameters.model_validate(body.parameters_json).model_dump(by_alias=True)
     except ValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors()
@@ -254,6 +254,7 @@ async def update_crop_profile(
     if profile.farm_id is None:
         cloned = CropProfile(
             farm_id=user.farm_id,
+            crop_code=body.crop_code or profile.crop_code,
             crop_name=body.crop_name or profile.crop_name,
             variety=body.variety if body.variety is not None else profile.variety,
             schema_version=validated["schema_version"],
@@ -283,6 +284,8 @@ async def update_crop_profile(
         await session.refresh(cloned)
         return cloned
 
+    if body.crop_code is not None:
+        profile.crop_code = body.crop_code
     if body.crop_name is not None:
         profile.crop_name = body.crop_name
     if body.variety is not None:
