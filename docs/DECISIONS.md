@@ -22,7 +22,11 @@ Một dòng cho mỗi quyết định khi spec chưa rõ (spec mục 0). Định
 - 2026-11-08 – [platform] Rule Engine thực thi an toàn thắng thủ công (Kịch bản A) bằng cách phát lệnh `mist off` và khoá `mist_lockout_until` ngay khi quạt tự bật vì rủi ro nấm/nhiệt.
 - 2026-11-09 – [platform] WebSocket `/ws` phân phối sự kiện đa tenant qua PostgreSQL `ws_events`, kiểm tra JWT token và cô lập hoàn toàn theo `farm_id`.
 - 2026-11-09 – [platform] AI Inference trong worker chạy chu kỳ 60 s ngoại suy rủi ro nấm (cảnh báo sớm mà không can thiệp thiết bị) và tính thời gian còn lại trước khi tưới (irrigation ETA).
-- 2026-11-09 – [platform] Router Models và Experiments được thực thi bằng truy vấn SQL thuần trên CSDL, bảo vệ ngân sách RAM của tiến trình API.
+- 2026-11-09 – [platform] Router Models được thực thi bằng truy vấn SQL thuần trên CSDL, bảo vệ ngân sách RAM của tiến trình API.
+- 2026-11-11 – [ai] Chuyển sang bài toán AI duy nhất: dự đoán năng suất cây trồng (`task = 'yield'`, target `relative_yield`) và dùng chung mô hình toàn cục cho gợi ý cây trồng; bỏ A2/A3/adaptive/experiment_runs/alert feedback – tập trung dữ liệu gộp từ nhiều nhà kính và giữ kiến trúc đơn giản.
+- 2026-11-11 – [ai] Hàm trích xuất đặc trưng khí hậu (`feature_version = 1`) đặt tại `platform/core/climate_features.py` bằng Python thuần – dùng chung cho `worker`, `ml/` và `tools/simulator`, không kéo pandas/numpy vào core hay `api`.
+- 2026-11-11 – [tenancy] Dữ liệu `yield_samples` gộp đa nhà kính cho huấn luyện mô hình toàn cục và không bao giờ mở endpoint đọc qua API; `GET /models*` chỉ trả metadata tổng hợp – bảo vệ cô lập dữ liệu từng farm.
+- 2026-11-11 – [deploy] Chuyển triển khai chính từ AWS EC2 `t3.small` sang một VPS Linux bất kỳ (≥ 2 vCPU, 2 GB RAM, 2 GB swap, Ubuntu 24.04) với `ufw` + SSH key và prod compose chỉ publish cổng 80/443/8883 – tránh phụ thuộc nhà cung cấp cloud và khắc phục việc Docker publish bỏ qua `ufw`.
 
 
 

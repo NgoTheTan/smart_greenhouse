@@ -4,9 +4,9 @@
 
 ## 1. Mục tiêu & Phạm vi
 
-Quản lý trọn vẹn vòng đời cảnh báo chống trùng lặp (`dedupe`), tự giải quyết theo hysteresis, leo thang cảnh báo nghiêm trọng chưa được xác nhận, thu nhận phản hồi đúng/sai từ người dùng để đánh giá AI, và gửi thông báo đa kênh gồm 4 lớp: **In-app WebSocket**, **Web Push (VAPID)**, **Email (SMTP)**, và **Buzzer tại chỗ** (do gateway tự kích hoạt).
+Quản lý trọn vẹn vòng đời cảnh báo chống trùng lặp (`dedupe`), tự giải quyết theo hysteresis, leo thang cảnh báo nghiêm trọng chưa được xác nhận, và gửi thông báo đa kênh gồm 4 lớp: **In-app WebSocket**, **Web Push (VAPID)**, **Email (SMTP)**, và **Buzzer tại chỗ** (do gateway tự kích hoạt).
 
-- **Ngoài phạm vi:** TUYỆT ĐỐI KHÔNG xây Telegram bot, FCM/Firebase, SMS, hoặc push cho app di động native (spec mục 2.2 & 6.7).
+- **Ngoài phạm vi:** TUYỆT ĐỐI KHÔNG xây Telegram bot, FCM/Firebase, SMS, hoặc push cho app di động native (spec mục 2.2 & 6.7). Không thu nhận phản hồi đúng/sai của người dùng cho cảnh báo (không có cột `alerts.feedback`/`feedback_at`, không có endpoint feedback).
 
 ## 2. Trạng thái hiện thực trong repo
 
@@ -47,18 +47,21 @@ Quản lý trọn vẹn vòng đời cảnh báo chống trùng lặp (`dedupe`)
     2. Gửi **Email SMTP** tới các user của farm có `notification_prefs.email_enabled == True`.
     3. Đặt `escalated_at = now`.
 
-### 3.4 Bảng 8 loại Alert chuẩn (MUST)
+### 3.4 Bảng loại Alert chuẩn (7 MUST + 2 MAY)
 
 | `alert_type` | Phạm vi `dedupe_key` | `severity` mặc định | Nguồn phát sinh | Điều kiện Resolve |
 |---|---|---|---|---|
 | `DISEASE_RISK` | `DISEASE_RISK:{zone_id}` | `critical` | `rules.py` | `vpd >= low_off` & `fungal_minutes` hết |
-| `DISEASE_RISK_FORECAST` | `DISEASE_RISK_FORECAST:{zone_id}` | `warning` | `inference.py` (A3 `score >= 0.7`) | Khi `score < 0.55` (hysteresis) hoặc `DISEASE_RISK` xảy ra |
 | `HEAT_STRESS` | `HEAT_STRESS:{zone_id}` | `critical` | `rules.py` (`air_t >= temp_crit`) | `air_t <= temp_crit - 2` |
 | `SOIL_DRY` | `SOIL_DRY:{zone_id}` | `warning` | `rules.py` (`soil < soil_crit` kéo dài) | `soil >= soil_min` |
 | `SENSOR_FAULT` | `SENSOR_FAULT:{zone_id}` | `warning` | `rules.py` / `ingest.py` (`quality != ok`) | Nhận liên tiếp mẫu `quality == 'ok'` |
 | `DEVICE_OFFLINE` | `DEVICE_OFFLINE:{gh_id}` | `critical` | `ingest.py` (`status.online=false` / LWT) / watchdog | Nhận `status.online=true` hoặc telemetry mới |
 | `FAILSAFE_ACTIVE` | `FAILSAFE_ACTIVE:{gh_id}` | `critical` | `ingest.py` (`event: failsafe_start`) | Nhận `event: failsafe_stop` |
-| `MAINTENANCE` *(MAY)* | `MAINTENANCE:{zone_id}` | `info` | `inference.py` / A1 nâng cao (RSSI thấp, mất gói, drift) | Chỉ số ổn định lại |
+| `MAINTENANCE` *(MAY)* | `MAINTENANCE:{zone_id}` | `info` | kiểm tra chất lượng dữ liệu (luật) nâng cao (RSSI thấp, mất gói, drift cảm biến) | Chỉ số ổn định lại |
+| `YIELD_FORECAST_LOW` *(MAY)* | `YIELD_FORECAST_LOW:{zone_id}` | `info` | `inference.py` (`yield_forecast` của vụ `active` có `relative_yield < 0.6`) | Dự báo kế tiếp có `relative_yield >= 0.6`, hoặc vụ chuyển `harvested`/`abandoned` |
+
+- `YIELD_FORECAST_LOW` chỉ mang tính thông tin: không kích hoạt điều khiển, không leo thang (severity `info`), và SHOULD không phát khi dự báo gắn `low_confidence = true`. Ngưỡng `0.6` SHOULD được đặt thành hằng số cấu hình của `inference.py` (không phải ngưỡng sinh học của crop profile).
+- Ví dụ nội dung tiếng Việt: `"Năng suất dự kiến thấp – Luống Xà lách (Zone 1): 1.6 kg/m² (≈ 53% mức tham chiếu)."`
 
 ## 4. Dịch vụ Thông báo 4 Lớp (`worker/notify.py`, MUST)
 
@@ -90,12 +93,7 @@ Quản lý trọn vẹn vòng đời cảnh báo chống trùng lặp (`dedupe`)
   - Bắt `WebPushException`: nếu `e.response is not None and e.response.status_code in (404, 410)` → **xóa ngay** bản ghi `PushSubscription` đó khỏi DB!
   - Nếu gửi thành công → cập nhật `sub.last_used_at = now`.
 
-## 5. Phản hồi người dùng (`alerts.feedback`)
+## 5. Kiểm tra & Xác nhận
 
-- Operator/Owner bấm nút "Đúng (`true_positive`)" hoặc "Sai (`false_positive`)" trên Web Console → gọi `POST /api/alerts/{id}/feedback`.
-- Giá trị này được dùng trực tiếp bởi tầng A3 (`ml/evaluate.py`) để đo **Alert Precision** và tính KPI số cảnh báo sai trong thí nghiệm `fixed vs adaptive`.
-
-## 6. Kiểm tra & Xác nhận
-
-- Unit tests: dedupe 2 lần cùng `dedupe_key` chỉ tạo 1 bản ghi mở; sau khi `resolve` thì tạo được bản ghi mới; xóa `PushSubscription` khi nhận `WebPushException` 404/410; leo thang gửi email sau `escalate_after_min` khi chưa `acknowledged`.
+- Unit tests: dedupe 2 lần cùng `dedupe_key` chỉ tạo 1 bản ghi mở; sau khi `resolve` thì tạo được bản ghi mới; xóa `PushSubscription` khi nhận `WebPushException` 404/410; leo thang gửi email sau `escalate_after_min` khi chưa `acknowledged`; alert `info` (vd `YIELD_FORECAST_LOW`, nếu hiện thực) không bị leo thang.
 - Demo Kịch bản A: nhận Web Push trên điện thoại/desktop khi đóng/ẩn tab; bấm vào thông báo mở đúng `/zones/{id}`. Nếu không ack sau `escalate_after_min` (2 phút demo), nhận thêm email cảnh báo.

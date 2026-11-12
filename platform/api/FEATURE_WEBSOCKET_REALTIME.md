@@ -4,45 +4,46 @@
 
 ## 1. Mục tiêu & Phạm vi
 
-Cung cấp kênh WebSocket đẩy sự kiện thời gian thực từ `worker` qua PostgreSQL `LISTEN/NOTIFY` (`ws_events`) tới `api` và phân phối tới đúng các client Web Console đang kết nối thuộc cùng `farm_id`.
+Cung cấp kênh WebSocket đẩy sự kiện thời gian thực từ `worker` và `api` qua PostgreSQL `LISTEN/NOTIFY` (`ws_events`) tới `api` và phân phối tới đúng các client Web Console đang kết nối thuộc cùng `farm_id`.
 
 - **Ngoài phạm vi:** Không thêm Redis Pub/Sub; không truyền dữ liệu điều khiển ngược từ client lên server qua WebSocket (lệnh điều khiển đi qua REST `POST /api/greenhouses/{id}/commands` để có HTTP validation, RBAC và status code chuẩn).
 
 ## 2. Trạng thái hiện thực trong repo
 
-- **Chưa hiện thực (`platform/api/ws.py` hiện mới có docstring 1 dòng!):**
-  - Cần xây dựng đầy đủ `ConnectionManager`, router/endpoint `@app.websocket("/ws")` (hoặc `/api/ws` nếu cần nhưng spec mục 9 & Caddyfile là `/ws`, lưu ý Vite dev proxy cũng map `/ws` → `ws://localhost:8000` và Caddyfile có `handle /ws* { reverse_proxy api:8000 }`).
-  - Cần gắn lifecycle background task `listen_loop(database_url, CHANNEL_WS, ...)` vào `lifespan` của `FastAPI` trong `platform/api/main.py` để khi `api` khởi động thì tự lắng nghe `ws_events` và khi shutdown thì đóng kết nối sạch sẽ.
-- **Phía `worker` đã phát sẵn một phần:**
-  - `worker/ingest.py` đã `pg_notify` các sự kiện `telemetry`, `device_status` (kèm `node_discovered`), `config_sync`.
-  - `worker/commands.py` đã `pg_notify` sự kiện `command_status`.
-  - Khi làm M3 & M5 (`worker/alerts.py`, `worker/notify.py`, `worker/inference.py`), cần phát thêm `alert` và `prediction`.
+- **Đã hiện thực (`platform/api/ws.py`, `main.py`):**
+  - `ConnectionManager`, endpoint `@app.websocket("/ws")` (và `/api/ws`), `listen_loop(database_url, CHANNEL_WS, ...)` trong `lifespan` của `FastAPI`.
+  - `worker/ingest.py` phát `telemetry`, `device_status` (kèm `node_discovered`), `config_sync`.
+  - `worker/commands.py` phát `command_status`.
+  - `worker/alerts.py` & `worker/notify.py` phát `alert`.
+- **Cần cập nhật / bổ sung (M5):**
+  - `worker/inference.py` phát `prediction` với `task ∈ {"yield_forecast", "crop_recommendation"}`.
+  - `api/routers/cycles.py` (và `worker` khi xử lý `cycle_harvested` nếu cập nhật `notes`) phát sự kiện `crop_cycle` khi bắt đầu / thu hoạch / huỷ vụ.
 
 ## 3. Hợp đồng kỹ thuật `WS /ws?token=` (MUST)
 
 ### 3.1 Kết nối & Xác thực
 - **URL:** `ws(s)://<host>/ws?token=<JWT_ACCESS_TOKEN>` (qua Caddy HTTPS sẽ là `wss://<domain>/ws?token=...`).
 - **Quy trình handshake:**
-  1. Đọc query param `token` (trước hoặc ngay khi accept). Nếu thiếu hoặc `decode_access_token(token)` lỗi (hết hạn/chữ ký sai) hoặc không tìm thấy `User` trong DB → đóng kết nối với mã `1008` (Policy Violation) hoặc `4001`.
+  1. Đọc query param `token` (trước hoặc ngay khi accept). Nếu thiếu hoặc `decode_access_token(token)` lỗi (hết hạn/chữ ký sai) hoặc không tìm thấy `User` trong DB → đóng kết nối với mã `1008` (Policy Violation).
   2. Lấy `farm_id = str(user.farm_id)` (lưu ý mọi role `viewer`, `operator`, `owner` đều được phép xem realtime của farm mình).
-  3. Đăng ký `WebSocket` vào nhóm kết nối theo `farm_id` (`dict[str, set[WebSocket]]`, bảo vệ bằng `asyncio.Lock` hoặc thao tác an toàn trên event loop).
-  4. Duy trì vòng nhận keepalive/ping từ client (hoặc gửi ping định kỳ 25–30 s để Caddy/proxy không timeout kết nối rảnh); khi `WebSocketDisconnect` hoặc lỗi gửi → gỡ kết nối khỏi set.
+  3. Đăng ký `WebSocket` vào nhóm kết nối theo `farm_id` (`dict[str, set[WebSocket]]`, bảo vệ bằng `asyncio.Lock`).
+  4. Duy trì vòng nhận keepalive `ping`/`pong` (mỗi 25–30 s để Caddy/proxy không timeout kết nối rảnh); khi `WebSocketDisconnect` hoặc lỗi gửi → gỡ kết nối khỏi set.
 
 ### 3.2 Fan-out theo `farm_id` từ PostgreSQL `CHANNEL_WS = "ws_events"`
-- Cấu trúc message trên kênh PostgreSQL `ws_events` (được `worker` gửi qua `pg_notify`):
+- Cấu trúc message trên kênh PostgreSQL `ws_events` (gửi qua `pg_notify`):
   ```json
   {
     "farm_id": "<uuid-string>",
-    "type": "telemetry | alert | command_status | device_status | prediction | config_sync",
+    "type": "telemetry | alert | command_status | device_status | prediction | crop_cycle | config_sync",
     "data": { ... }
   }
   ```
 - `api` khi nhận sự kiện từ `listen_loop`:
   - Lọc chính xác `farm_id = event.get("farm_id")`.
-  - **Chỉ** gửi khung JSON `{"type": event["type"], "data": event["data"]}` (chú ý spec mục 9: *Thông điệp WebSocket (JSON `{type, data}`)*) tới các kết nối đang mở thuộc `farm_id` đó! Không làm rò rỉ dữ liệu farm A sang farm B.
+  - **Chỉ** gửi khung JSON `{"type": event["type"], "data": event["data"]}` (spec mục 9) tới các kết nối đang mở thuộc `farm_id` đó! Không làm rò rỉ dữ liệu farm A sang farm B.
   - Nếu 1 socket bị gãy khi `send_json`, bắt ngoại lệ, loại socket đó ra khỏi pool mà không làm sập `listen_loop` hoặc ảnh hưởng tới các client khác.
 
-### 3.3 Đặc tả 6 loại thông điệp `{type, data}` (MUST)
+### 3.3 Đặc tả 7 loại thông điệp `{type, data}` (MUST)
 
 1. **`telemetry`** (phát từ `worker/ingest.py`):
    ```json
@@ -142,26 +143,87 @@ Cung cấp kênh WebSocket đẩy sự kiện thời gian thực từ `worker` q
    }
    ```
 
-6. **`prediction`** (phát từ `worker/inference.py` mỗi 60 s):
+6. **`prediction`** (phát từ `worker/inference.py` theo chu kỳ `ai.inference_interval_s` hoặc khi làm mới gợi ý `recommend`):
+   - **Dự báo năng suất (`data.task == "yield_forecast"`):**
+     ```json
+     {
+       "type": "prediction",
+       "data": {
+         "id": "<uuid>",
+         "ts": "2026-11-12T08:00:00Z",
+         "task": "yield_forecast",
+         "greenhouse_id": "<uuid>",
+         "zone_id": "<uuid>",
+         "crop_cycle_id": "<uuid>",
+         "model_id": "<uuid>",
+         "value": 2.76,
+         "score": 0.92,
+         "details": {
+           "crop_code": "lettuce",
+           "interval": [2.25, 3.27],
+           "coverage": 0.96,
+           "low_confidence": false
+         }
+       }
+     }
+     ```
+   - **Gợi ý cây trồng (`data.task == "crop_recommendation"`):**
+     ```json
+     {
+       "type": "prediction",
+       "data": {
+         "id": "<uuid>",
+         "ts": "2026-11-12T08:00:00Z",
+         "task": "crop_recommendation",
+         "greenhouse_id": "<uuid>",
+         "zone_id": null,
+         "crop_cycle_id": null,
+         "model_id": "<uuid>",
+         "value": null,
+         "score": 0.94,
+         "details": {
+           "window_h": 336,
+           "coverage": 0.98,
+           "low_confidence": false,
+           "ranking": [
+             {
+               "crop_code": "strawberry",
+               "crop_name": "Dâu tây",
+               "relative_yield": 0.94,
+               "expected_kg_m2": 3.76,
+               "interval": [3.16, 4.36],
+               "reasons": ["Nhiệt độ TB 19.8 °C nằm trong khoảng tối ưu 18–24 °C"]
+             }
+           ]
+         }
+       }
+     }
+     ```
+
+7. **`crop_cycle`** (phát từ `api/routers/cycles.py` khi bắt đầu / thu hoạch / huỷ vụ, và tuỳ chọn từ `worker` sau khi tạo `yield_samples`):
    ```json
    {
-     "type": "prediction",
+     "type": "crop_cycle",
      "data": {
+       "event": "started | harvested | abandoned",
+       "cycle_id": "<uuid>",
+       "greenhouse_id": "<uuid>",
        "zone_id": "<uuid>",
-       "ts": "2026-10-14T08:00:00Z",
-       "task": "risk_forecast",
-       "horizon_min": 15,
-       "score": 0.78,
-       "value": null,
-       "details": {"model_id": "<uuid>", "version": 2}
+       "crop_profile_id": "<uuid>",
+       "crop_code": "lettuce",
+       "status": "active",
+       "started_at": "2026-11-12T08:00:00Z",
+       "harvested_at": null,
+       "area_m2": 0.5,
+       "yield_kg": null
      }
    }
    ```
 
 ## 4. Lưu ý tích hợp Proxy & Test
 
-- **Caddy (`deploy/caddy/Caddyfile`):** đã cấu hình `handle /ws* { reverse_proxy api:8000 }`. Lưu ý khi dùng `uvicorn` trong `platform/docker-entrypoint.sh`, container `api` chạy 1 worker process nên toàn bộ socket của client kết nối vào cùng 1 instance `ConnectionManager` (khớp kiến trúc monolith).
-- **Chú ý giới hạn PG NOTIFY payload:** PostgreSQL `pg_notify` giới hạn 8000 bytes/payload; giữ payload JSON gọn nhẹ đúng theo schema trên.
+- **Caddy (`deploy/caddy/Caddyfile`):** đã cấu hình `handle /ws* { reverse_proxy api:8000 }`. Container `api` chạy 1 worker process `uvicorn` nên toàn bộ socket của client kết nối vào cùng 1 instance `ConnectionManager` (khớp kiến trúc monolith).
+- **Giới hạn PG NOTIFY payload:** PostgreSQL `pg_notify` giới hạn 8000 bytes/payload; giữ `data` trong `prediction` và `crop_cycle` gọn nhẹ (với `crop_recommendation`, chỉ nhúng tóm tắt top-3 trong WS hoặc để Web Console tự refetch `GET /api/greenhouses/{id}/recommendations` khi nhận sự kiện).
 - **Kiểm thử:**
-  - Unit test: token sai/thiếu bị từ chối; fan-out chỉ gửi tới socket cùng `farm_id` và không gửi chéo farm.
+  - Unit test: token sai/thiếu bị từ chối (`1008`); fan-out chỉ gửi tới socket cùng `farm_id` và không gửi chéo farm.
   - Integration test: khi `SimulatedGateway` publish telemetry hoặc ACK lệnh, client mở `WS /ws?token=...` nhận ngay bản tin tương ứng trong < 1 s.

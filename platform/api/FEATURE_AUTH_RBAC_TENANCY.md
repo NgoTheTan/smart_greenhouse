@@ -4,7 +4,7 @@
 
 ## 1. Mục tiêu & Phạm vi
 
-Bảo vệ toàn bộ hệ thống API và WebSocket bằng JWT Bearer token, phân cấp quyền theo 3 vai trò (`viewer`, `operator`, `owner`), và đảm bảo cô lập tuyệt đối dữ liệu giữa các `farms` ở tầng ứng dụng (user thuộc Farm A không thể xem hay tác động tới nhà kính, node, cảnh báo, lệnh của Farm B).
+Bảo vệ toàn bộ hệ thống API và WebSocket bằng JWT Bearer token, phân cấp quyền theo 3 vai trò (`viewer`, `operator`, `owner`), và đảm bảo cô lập tuyệt đối dữ liệu giữa các `farms` ở tầng ứng dụng (user thuộc Farm A không thể xem hay tác động tới nhà kính, zone, vụ trồng, node, cảnh báo, lệnh, dự báo của Farm B).
 
 - **Ngoài phạm vi:** Không dùng PostgreSQL Row-Level Security (RLS là MAY); không tích hợp OAuth2 bên thứ 3 hay Firebase Auth.
 
@@ -17,7 +17,7 @@ Bảo vệ toàn bộ hệ thống API và WebSocket bằng JWT Bearer token, ph
   - `platform/api/routers/greenhouses.py`: `get_owned_greenhouse`, `GET /api/greenhouses`, `POST /api/greenhouses`, `GET /api/greenhouses/{gh_id}`.
   - `platform/api/main.py`: `GET /api/health` (kiểm tra kết nối DB cho Docker/Caddy healthcheck).
 - **Cần lưu ý / mở rộng cho M3–M5:**
-  - Các router mới (`alerts`, `push`, `models`, `experiments`) **MUST** sử dụng `CurrentViewer` / `CurrentOperator` / `CurrentOwner` và kiểm tra sở hữu `farm_id` qua join `Greenhouse` hoặc `Zone → Greenhouse`.
+  - Toàn bộ router nghiệp vụ (`alerts`, `push`, `cycles`, `recommendations`, `models`) **MUST** sử dụng `CurrentViewer` / `CurrentOperator` / `CurrentOwner` và kiểm tra sở hữu `farm_id` qua join `Greenhouse`, `Zone → Greenhouse`, hoặc `CropCycle → Zone → Greenhouse`.
   - Nếu cần trang/API tạo user nhân viên (`operator`/`viewer`) cho `owner` (spec mục 9 ghi vai trò `owner` quản lý user), có thể bổ sung `POST /api/users` / `GET /api/users` gắn chặt `farm_id = user.farm_id` và `CurrentOwner`.
 
 ## 3. Cơ chế Xác thực & Phân quyền (MUST)
@@ -44,17 +44,22 @@ Hàm `require_min_role(min_role)` cho phép vai trò cấp cao hơn kế thừa 
 | Nhóm chức năng | `viewer` | `operator` | `owner` |
 |---|:---:|:---:|:---:|
 | Xem thông tin bản thân (`GET /me`), tuỳ chọn Push/Notification của mình | ✓ | ✓ | ✓ |
-| Xem danh sách nhà kính, zone, readings, DLI, predictions, models, experiments, alerts, commands, gateway status, config-sync | ✓ | ✓ | ✓ |
+| Xem danh sách nhà kính, zone, vụ trồng (`GET /zones/{id}/cycles`), readings, DLI, dự báo (`GET /zones/{id}/predictions`), gợi ý (`GET /greenhouses/{id}/recommendations`), mô hình (`GET /models*`), alerts, commands, gateway status, config-sync | ✓ | ✓ | ✓ |
 | Gửi lệnh điều khiển tay (`POST /commands`), đổi Auto/Manual (`PUT /modes`) | ✗ (403) | ✓ | ✓ |
-| Xác nhận cảnh báo (`POST /alerts/{id}/ack`), đánh giá đúng/sai (`POST /alerts/{id}/feedback`) | ✗ (403) | ✓ | ✓ |
-| Bắt đầu / dừng thí nghiệm (`POST /experiments`, `POST /experiments/{id}/stop`) | ✗ (403) | ✓ | ✓ |
+| Xác nhận cảnh báo (`POST /alerts/{id}/ack`) | ✗ (403) | ✓ | ✓ |
+| Quản lý vụ trồng (`POST /zones/{id}/cycles`, `POST /cycles/{id}/harvest`, `POST /cycles/{id}/abandon`) & làm mới gợi ý (`POST /greenhouses/{id}/recommendations/refresh`) | ✗ (403) | ✓ | ✓ |
 | Tạo nhà kính (`POST /greenhouses`), cấp phát gateway (`POST /gateways`), xem & ghép node (`GET /nodes`, `POST /nodes/{mac}/pair`), hiệu chuẩn đất (`PUT /zones/{id}/calibration`) | ✗ (403) | ✗ (403) | ✓ |
-| Sửa zone (`PUT /zones/{id}`: tên, `crop_profile_id`, `control_strategy`), sửa crop profile (`PUT /crop-profiles/{id}`) | ✗ (403) | ✗ (403) | ✓ |
+| Sửa zone (`PUT /zones/{id}`: tên, `crop_profile_id`, `area_m2`), sửa crop profile (`PUT /crop-profiles/{id}`) | ✗ (403) | ✗ (403) | ✓ |
 
 ### 3.3 Cô lập đa Tenant (`farm_id`)
-- Mọi truy vấn đọc/ghi theo ID (`gh_id`, `zone_id`, `gateway_id`, `alert_id`, `experiment_id`, `crop_profile_id`) **MUST** kiểm tra điều kiện `farm_id == user.farm_id`.
+- Mọi truy vấn đọc/ghi theo ID (`gh_id`, `zone_id`, `cycle_id`, `gateway_id`, `alert_id`, `crop_profile_id`) **MUST** kiểm tra điều kiện `farm_id == user.farm_id`.
 - **Lưu ý đặc biệt với `crop_profiles`:** `farm_id IS NULL` là template hệ thống (mọi farm đều đọc được, nhưng khi sửa sẽ clone thành bản ghi mới thuộc `user.farm_id`); `farm_id = <other_farm>` tuyệt đối không đọc/sửa được.
 - **Lưu ý đặc biệt với `device_nodes` khi ghép MAC (`pair_node`):** Nếu MAC đã tồn tại và thuộc một `greenhouse_id` của **farm khác**, trả `403 Forbidden` (`"MAC này đã thuộc về một farm khác"`).
+- **Quy tắc cô lập tenant với `yield_samples` và mô hình toàn cục (MUST):**
+  - Bảng `yield_samples` lưu tập mẫu gộp từ nhiều nhà kính (`real`, `sim`, `synthetic`, `public`) dùng cho huấn luyện offline **một mô hình toàn cục** (quyết định kiến trúc có chủ đích trong `docs/DECISIONS.md`).
+  - **Tuyệt đối không** mở bất kỳ REST endpoint nào đọc, liệt kê hoặc xuất `yield_samples` ra ngoài.
+  - Các endpoint `GET /api/models`, `GET /api/models/active`, `GET /api/models/{id}` **chỉ trả số liệu tổng hợp** của mô hình toàn cục (`n_samples`, `n_greenhouses`, `source_mix`, `crops`, `metrics`, `baseline_metrics`, `notes`), không bao giờ tiết lộ dữ liệu từng nhà kính hay từng vụ của farm khác.
+  - Thống kê `feature_drift` 7 ngày gần nhất trả kèm ở `GET /api/models/active` và `GET /api/models/{id}` chỉ tổng hợp từ các bản ghi `predictions` thuộc nhà kính của chính `user.farm_id` so với `train_stats` tổng hợp của mô hình.
 - **WebSocket:** Kết nối `WS /ws?token=` giải mã `farm_id` từ JWT và chỉ đẩy các sự kiện `ws_events` có `event["farm_id"] == str(user.farm_id)`.
 
 ## 4. Hành vi mặc định khi tạo Nhà kính (`POST /api/greenhouses`)
@@ -68,5 +73,5 @@ Hàm `require_min_role(min_role)` cho phép vai trò cấp cao hơn kế thừa 
 
 ## 5. Kiểm tra & Xác nhận
 
-- Unit tests: `test_password_hash_and_jwt_roundtrip`, `test_rbac_and_gateway_offline_409` (kiểm tra 401 khi thiếu token, 403 khi `viewer` gọi quyền `operator`).
+- Unit tests: `test_password_hash_and_jwt_roundtrip`, `test_rbac_and_gateway_offline_409` (kiểm tra 401 khi thiếu token, 403 khi `viewer` gọi quyền `operator` hoặc `operator` gọi quyền `owner`, không lộ `yield_samples`).
 - Kiểm thử Kịch bản D (spec mục 15): tạo 2 farm riêng biệt (hoặc user farm A và simulator gắn với farm A vs user farm B) → user farm B gọi `GET /api/greenhouses` không thấy nhà kính của farm A, gọi trực tiếp `GET /api/greenhouses/{id_farm_A}` nhận `404`.

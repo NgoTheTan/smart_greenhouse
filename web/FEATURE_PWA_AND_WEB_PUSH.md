@@ -23,7 +23,7 @@ Biến GreenHub Web Console thành **Progressive Web App (PWA)** có thể cài 
 - Service Worker và Push API **BẮT BUỘC** chạy trong Secure Context (`HTTPS`).
 - Ngoại lệ duy nhất được trình duyệt miễn: `http://localhost` (hoặc `127.0.0.1`) khi phát triển trên laptop.
 - Để thử Web Push trên điện thoại thật:
-  - Ở dev laptop: điện thoại không truy cập được `localhost` của laptop; phải dùng Caddy HTTPS + chứng chỉ hoặc tốt nhất là thử ở M4 qua tên miền DuckDNS + Let's Encrypt trên AWS EC2.
+  - Ở dev laptop: điện thoại không truy cập được `localhost` của laptop; phải dùng Caddy HTTPS + chứng chỉ hoặc tốt nhất là thử ở M4 qua tên miền riêng hoặc DuckDNS + Let's Encrypt trên VPS Linux.
   - Khi chạy `npm run dev` (Vite port 5173): cần đảm bảo `sw.js` và `manifest.json` trong `web/public/` phục vụ đúng tại root `/` và `/api/push/*` được proxy tới backend.
 
 ### 3.2 Đăng ký Service Worker & Xin quyền (User Gesture)
@@ -55,4 +55,4 @@ Biến GreenHub Web Console thành **Progressive Web App (PWA)** có thể cài 
 
 - Sinh khoá VAPID: `python -m tools.gen_vapid` và điền `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` vào `.env`.
 - Kiểm thử M3 trên `https://localhost` (hoặc `http://localhost:5173`): bật push → tắt tab → tạo alert `DISEASE_RISK` → thông báo hệ điều hành bật lên → click vào mở đúng `/zones/{id}`.
-- Kiểm thử M4 trên điện thoại thật (Android Chrome & iOS Safari Add to Home Screen) qua HTTPS DuckDNS.
+- Kiểm thử M4 trên điện thoại thật (Android Chrome & iOS Safari Add to Home Screen) qua HTTPS (tên miền riêng hoặc DuckDNS trên VPS).

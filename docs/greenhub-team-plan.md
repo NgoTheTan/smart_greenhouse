@@ -12,11 +12,11 @@ Sản phẩm demo (6 điểm), có prototype bằng bìa fomex:
 
 | Tiêu chí | Điểm | Cách đáp ứng |
 |---|---|---|
-| Ý tưởng | 1 | Nền tảng IoT đa tenant: quyết định ở cloud, quản lý thiết bị từ xa, phân tích dữ liệu. Không phải tự động hoá nhúng |
-| Kiến trúc IoT | 2 | Node → ESP-NOW → Gateway → MQTT TLS → Cloud (AWS) → Web console |
+| Ý tưởng | 1 | Nền tảng IoT đa tenant: quyết định ở server, quản lý thiết bị từ xa, phân tích dữ liệu đa nhà kính. Không phải tự động hoá nhúng |
+| Kiến trúc IoT | 2 | Node → ESP-NOW → Gateway → MQTT TLS → VPS (Docker Compose) → Web console |
 | Tự xây IoT platform | 1 | Firmware node/gateway, backend, web console đều tự viết. Không dùng Blynk/ThingsBoard/AWS IoT Core |
-| Độ hoàn thiện | 1 | Prototype chạy trọn vòng: cảm biến → quyết định → chấp hành → cảnh báo; 3 kịch bản demo |
-| AI/ML hoặc cloud | 1 | Làm cả hai: AI (3 tầng) và triển khai trên AWS |
+| Độ hoàn thiện | 1 | Prototype chạy trọn vòng: cảm biến → quyết định → chấp hành → cảnh báo; đủ kịch bản demo |
+| AI/ML hoặc server | 1 | Làm cả hai: AI dự đoán năng suất & gợi ý cây trồng (dữ liệu nhiều nhà kính) và triển khai trên VPS Linux |
 | Video demo 5–7 phút có thuyết minh | −0,5 nếu thiếu | Kịch bản ở mục 8 |
 
 ---
@@ -27,10 +27,10 @@ Sản phẩm demo (6 điểm), có prototype bằng bìa fomex:
 **GreenHub** là nền tảng IoT chuyên biệt cho giám sát và điều khiển nhà kính đa vùng, đa loại cây. Nhà kính mini bằng fomex là một "site" thật; các farm/nhà kính khác được script giả lập đăng ký và gửi dữ liệu qua đúng luồng của thiết bị thật.
 
 Vì sao đây là IoT chứ không phải nhúng/tự động hoá:
-- Vòng quyết định nằm ở **cloud**; ngưỡng/crop profile chỉnh từ xa trên web rồi đồng bộ xuống gateway. Vi điều khiển chỉ giữ failsafe.
+- Vòng quyết định nằm ở **server (VPS)**; ngưỡng/crop profile chỉnh từ xa trên web rồi đồng bộ xuống gateway. Vi điều khiển chỉ giữ failsafe.
 - Có **quản lý thiết bị**: cấp phát, ghép node vào zone, online/offline (LWT), RSSI, last seen, đổi chu kỳ đo/hiệu chuẩn từ xa.
 - **Đa tenant**: nhiều farm dùng chung một nền tảng, dữ liệu tách theo `farm_id`.
-- **Dữ liệu quay lại cải thiện điều khiển**: mô hình học đặc tính từng zone từ nhật ký thiết bị và phản hồi người dùng.
+- **Phân tích dữ liệu liên nhà kính**: gộp dữ liệu khí hậu & năng suất thu hoạch từ nhiều nhà kính để huấn luyện mô hình dự báo năng suất và gợi ý cây trồng phù hợp với khí hậu hiện tại của từng nhà kính.
 
 ### 2.2 Kiến trúc
 
@@ -39,7 +39,7 @@ Vì sao đây là IoT chứ không phải nhúng/tự động hoá:
  Node 2 (Zone 2) ─┴─ ESP-NOW ─► Gateway ESP32 + relay 4 kênh
                                     │ MQTT over TLS :8883
                                     ▼
-                       AWS EC2 (Docker Compose)
+                        VPS Linux (Docker Compose)
           Mosquitto (TLS+ACL) ─ TimescaleDB ─ api + worker (FastAPI)
           Caddy (HTTPS) ─► Web console (React PWA, Web Push)
 ```
@@ -50,35 +50,37 @@ Vì sao đây là IoT chứ không phải nhúng/tự động hoá:
 | Gateway | ESP32 + relay 4 kênh; ESP-NOW → MQTT TLS; failsafe, interlock, hàng đợi RAM |
 | Broker | Mosquitto (TLS, user + ACL theo gateway) |
 | Backend | Python FastAPI, hai tiến trình `api` + `worker`, PostgreSQL + TimescaleDB |
-| Web | React + Vite + TypeScript, PWA, Web Push |
-| AI | scikit-learn, LightGBM; huấn luyện offline, suy luận trong worker |
-| Cloud | AWS EC2 t3.small (Singapore), Docker Compose, Caddy, DuckDNS |
+| Web | React + Vite + TypeScript, PWA, Web Push (10 trang) |
+| AI | scikit-learn, LightGBM; huấn luyện offline (`ml/train.py`), suy luận trong worker |
+| Server | VPS Linux (Ubuntu 24.04 LTS, ≥ 2 vCPU, 2 GB RAM), Docker Compose, Caddy, DuckDNS/tên miền riêng |
 
 ### 2.3 Các module platform
-Device Registry & Provisioning · Device Shadow/Config · Ingestion · Rule & Control Engine · Command Service · Alert Service · Notification Service · Analytics (AI) · API/Auth/Tenant.
+Device Registry & Provisioning · Device Shadow/Config · Ingestion · Rule & Control Engine · Command Service · Alert Service · Notification Service · Quản lý vụ trồng (`crop_cycles`) · Analytics (AI) · API/Auth/Tenant.
 
 ### 2.4 Thông báo (chỉ trên web)
 In-app (WebSocket) → **Web Push** (service worker + VAPID) → email (leo thang alert `critical` chưa xác nhận) → buzzer tại gateway. Không dùng Telegram, không dùng FCM, không làm app di động. iPhone chỉ nhận push khi Add to Home Screen.
 
 ### 2.5 Logic điều khiển (tóm tắt)
-- **Tưới:** hysteresis theo zone (bật khi dưới ngưỡng min, tắt khi đạt max), giới hạn thời gian chạy/khoảng nghỉ/tổng mỗi giờ.
-- **Quạt:** bật khi VPD thấp kéo dài (nguy cơ nấm) hoặc nhiệt độ cao. **Máy tạo ẩm** bật tay hoặc auto khi VPD cao.
-- **Interlock:** quạt và máy tạo ẩm không chạy cùng lúc; quạt bật vì rủi ro thì ép tắt máy tạo ẩm (kể cả đang manual).
-- Mọi lệnh bật đều có thời lượng; gateway tự tắt khi hết giờ. Mất cloud hơn 60 s thì failsafe cục bộ.
-- Hai chiến lược: `fixed` (thời lượng cố định) và `adaptive` (thời lượng tính từ mô hình học từ dữ liệu).
+- **Tưới:** hysteresis theo zone (bật khi dưới ngưỡng min với thời lượng `irrigation.max_run_s`, tắt sớm khi đạt max), giới hạn khoảng nghỉ/tổng mỗi giờ/thời gian chờ đất thấm (`soil_settle_s`).
+- **Quạt:** bật khi VPD thấp kéo dài (nguy cơ nấm) hoặc nhiệt độ cao (thời lượng `fan.min_on_s`, lặp lại nếu điều kiện còn). **Máy tạo ẩm** bật tay hoặc auto khi VPD cao.
+- **Interlock:** quạt và máy tạo ẩm không chạy cùng lúc; quạt bật vì rủi ro thì ép tắt máy tạo ẩm (kể cả đang manual) và khoá `mist.lockout_s`.
+- Mọi lệnh bật đều có thời lượng; gateway tự tắt khi hết giờ. Mất kết nối server hơn 60 s thì failsafe cục bộ.
+- Chỉ có **một chiến lược điều khiển duy nhất** (hysteresis cố định); AI **không** tham gia điều khiển thiết bị.
 
-### 2.6 AI (3 tầng)
+### 2.6 Kiểm tra chất lượng dữ liệu & Bài toán AI duy nhất
 
-| Tầng | Nội dung | Đầu ra dùng để làm gì |
+- **Kiểm tra chất lượng dữ liệu (luật, MUST):** gắn nhãn `ok / stuck / spike / dropout / out_of_range`, đối chiếu node lân cận → loại dữ liệu xấu khỏi điều khiển, tổng hợp đặc trưng khí hậu và huấn luyện.
+- **Bài toán AI duy nhất – Dự đoán năng suất & Gợi ý cây trồng (`task = 'yield'`):**
+
+| Ứng dụng | Đầu vào | Đầu ra |
 |---|---|---|
-| 1. Chất lượng dữ liệu | Luật gắn nhãn `ok/stuck/spike/dropout/out_of_range`, đối chiếu node lân cận | Loại dữ liệu xấu khỏi điều khiển và huấn luyện |
-| 2. Học đặc tính từng zone | Mức tăng ẩm đất theo mỗi giây bơm, mức giảm VPD theo mỗi giây quạt, tốc độ khô và dự báo "còn N phút cần tưới" (#2) | Chiến lược `adaptive` dùng để tính thời lượng tưới/quạt |
-| 3. Dự báo rủi ro (#3) | LightGBM dự báo zone vào vùng nguy cơ trong 15 phút tới; nút phản hồi đúng/sai trên cảnh báo | Cảnh báo sớm `DISEASE_RISK_FORECAST`; đo precision |
+| **1. Dự báo năng suất vụ đang trồng** (`yield_forecast`) | Đặc trưng khí hậu từ đầu vụ tới hiện tại (ẩm đất thực tế) + `crop_code` | `relative_yield` → nhân `reference_kg_m2` ra `kg/m²` kèm khoảng tin cậy `p10–p90` |
+| **2. Gợi ý cây nên trồng** (`crop_recommendation`) | Đặc trưng khí hậu nhà kính cửa sổ gần nhất (`recommend_window_h`), đặt ẩm đất ở trung điểm tối ưu của từng cây (giả định tưới đủ) | Xếp hạng top-3 cây ứng viên (`Cà chua bi`, `Dâu tây`, `Xà lách`, `Dưa leo`, `Ớt chuông`) theo `relative_yield` + tối đa 3 lý do tiếng Việt |
 
-Nguyên tắc: có baseline để so sánh; chia train/test theo thời gian; chỉ báo cáo chỉ số chính trên dữ liệu **thật** (dữ liệu giả lập chỉ để thử pipeline và tải); chỉ kích hoạt mô hình mới khi thắng baseline và bản cũ. Nhà kính mini phản ứng nhanh nên **thu nhỏ thang thời gian** (horizon 15 phút, VPD thấp ≥ 3 phút; ghi rõ trong báo cáo).
+Nguyên tắc: **một mô hình LightGBM toàn cục** học từ dữ liệu **gộp nhiều nhà kính** (`synthetic` là nguồn huấn luyện chính, `sim` từ simulator nhiều vùng khí hậu, `real` từ vụ xà lách thật trên mô hình, MAY `public`); chia train/val/test **theo nhà kính** (70/15/15, test là các nhà kính chưa từng thấy); so sánh với 2 baseline **B0** (median theo cây) và **B1** (Ridge); chỉ kích hoạt khi thắng cả B0, B1 và bản đang chạy về MAE trên test; báo cáo tách riêng từng nguồn (`real` báo cáo trung thực). Dữ liệu `yield_samples` không bao giờ lộ qua API.
 
 ### 2.7 Phạm vi KHÔNG làm
-Telegram, FCM, app di động, LLM, RLS (có thể thêm sau), OTA, CO₂/PAR/MLX90614/DS18B20, rèm cắt nắng, 4G, pin + pin mặt trời, Grafana, dịch vụ managed của AWS, học tăng cường, học liên farm.
+Telegram, FCM, app di động, LLM, RLS (có thể thêm sau), OTA, CO₂/PAR/MLX90614/DS18B20, rèm cắt nắng, 4G, pin + pin mặt trời, Grafana, dịch vụ cloud managed (AWS IoT Core, RDS, Lambda…), học tăng cường, phân loại bệnh từ ảnh, *federated learning* (huấn luyện tập trung từ dữ liệu nhiều nhà kính là **trong phạm vi**), điều khiển thích nghi bằng ML (`adaptive`), dự báo rủi ro bằng ML (`risk_forecast`), phản hồi đúng/sai cảnh báo.
 
 ---
 
@@ -90,10 +92,10 @@ Telegram, FCM, app di động, LLM, RLS (có thể thêm sau), OTA, CO₂/PAR/ML
 |---|---|---|
 | WP1 | Phần cứng và mô hình vật lý (mua linh kiện, lắp node/gateway/tủ relay, làm hộp fomex, hiệu chuẩn cảm biến) | ____ |
 | WP2 | Firmware node + gateway (ESP-NOW, MQTT TLS, lệnh/ACK, failsafe, captive portal) | ____ |
-| WP3 | Platform backend (MQTT ingest, DB, rule engine, command, alert, notify, API, provisioning) | ____ |
-| WP4 | Web console PWA (dashboard, điều khiển, thiết bị, crop profile, cảnh báo, Model, Web Push) | ____ |
-| WP5 | AI/Data (A1/A2/A3, pipeline huấn luyện, thí nghiệm fixed vs adaptive, thử tải) | ____ |
-| WP6 | DevOps/AWS, simulator, kiểm thử tích hợp, video, báo cáo | ____ |
+| WP3 | Platform backend (MQTT ingest, DB, rule engine, command, alert, notify, `crop_cycles`, API, provisioning) | ____ |
+| WP4 | Web console PWA (10 trang: dashboard, zone + khung vụ/năng suất, điều khiển, thiết bị, crop profile, cảnh báo, Gợi ý cây trồng, Mô hình AI, Web Push) | ____ |
+| WP5 | AI/Data (`climate_features`, bộ sinh `synthetic`, `ml.dataset`/`ml.train`/`evaluate`, suy luận năng suất & gợi ý trong worker, vụ xà lách thật) | ____ |
+| WP6 | DevOps/VPS, simulator đa vùng khí hậu & thử tải, kiểm thử tích hợp, video, báo cáo | ____ |
 
 ---
 
@@ -102,7 +104,7 @@ Telegram, FCM, app di động, LLM, RLS (có thể thêm sau), OTA, CO₂/PAR/ML
 Mỗi tuần kết thúc bằng một milestone (M1–M6, trùng `greenhub-spec.md` mục 16). Đánh dấu `[x]` khi xong.
 
 ### Tuần 1 – M1: Phần cứng và đường dữ liệu cơ bản
-- [ ] (WP1) Mua linh kiện (mục 5), kiểm tra từng cảm biến
+- [ ] (WP1) Mua linh kiện (mục 7), kiểm tra từng cảm biến
 - [ ] (WP1) Lắp node 1, node 2 trên breadboard; hiệu chuẩn ẩm đất 2 điểm (khô/ướt)
 - [ ] (WP1) Lắp tủ gateway: relay + bơm/quạt/máy tạo ẩm + diode + tụ + nguồn 5 V
 - [ ] (WP2) Node: đọc cảm biến, đóng gói `TelemetryPkt`, gửi ESP-NOW, tìm kênh tự động
@@ -112,7 +114,7 @@ Mỗi tuần kết thúc bằng một milestone (M1–M6, trùng `greenhub-spec.
 
 ### Tuần 2 – M2: Ingestion, lệnh/ACK, shadow
 - [ ] (WP3) Schema DB + Alembic; ingestion → `readings`, tính VPD
-- [ ] (WP3) Gắn `quality` (luật A1)
+- [ ] (WP3) Kiểm tra chất lượng dữ liệu (luật) → gắn `quality`
 - [ ] (WP3) Command Service: `cmd → ack`, trạng thái lệnh, `device_state` (shadow), publish `cfg` retained
 - [ ] (WP2) Gateway: ACK, interlock, giới hạn thời gian, tự tắt khi hết `duration_s`, LWT/`status`
 - [ ] (WP1) Hoàn thiện mô hình fomex (hộp, cửa sổ nhựa, lỗ quạt/ống hơi/dây, bồn nước)
@@ -120,70 +122,68 @@ Mỗi tuần kết thúc bằng một milestone (M1–M6, trùng `greenhub-spec.
 - **Đạt M2 khi:** dữ liệu vào DB đúng; gọi API/script tạo lệnh → relay chạy → ACK cập nhật `reported`; ngắt gateway thì `status` offline qua LWT.
 
 ### Tuần 3 – M3: Web console cơ bản, rule engine, alert, Web Push (localhost)
-- [ ] (WP3) Rule engine chiến lược `fixed` (tưới, quạt, máy tạo ẩm, interlock, auto/manual)
-- [ ] (WP3) Alert Service: dedupe, vòng đời, leo thang; API + JWT + vai trò
-- [ ] (WP4) Web: đăng nhập, dashboard zone (biểu đồ realtime qua WebSocket), điều khiển, crop profile
+- [ ] (WP3) Rule engine hysteresis cố định (tưới, quạt, máy tạo ẩm, interlock, auto/manual)
+- [ ] (WP3) Alert Service: dedupe, vòng đời, leo thang; API + JWT + vai trò; CRUD `crop_cycles` cơ bản
+- [ ] (WP4) Web: đăng nhập, dashboard zone (biểu đồ realtime qua WebSocket, nút Bắt đầu vụ/Thu hoạch), điều khiển, crop profile (10 template `schema_version=2`)
 - [ ] (WP4) PWA + service worker + đăng ký Web Push; thử trên localhost
 - [ ] (WP2) Gateway: failsafe cục bộ, buffer RAM, nhận `cfg` và đẩy xuống node
-- [ ] (WP6) **Đăng ký tài khoản AWS** (mục 6), đặt Budgets, tạo thử EC2
+- [ ] (WP6) **Thuê VPS Linux** (mục 6), trỏ tên miền/DuckDNS, cài Ubuntu + swap + `ufw` + SSH key + Docker
 - **Đạt M3 khi:** từ web bật quạt/bơm và thấy trạng thái `pending → applied`; kịch bản A chạy cục bộ (VPD thấp → quạt bật, máy tạo ẩm bị ép tắt, alert hiện trên web và thông báo push trên localhost).
 
-### Tuần 4 – M4: Provisioning, deploy AWS, simulator, bắt đầu thu dữ liệu
+### Tuần 4 – M4: Provisioning, deploy VPS, simulator, bắt đầu vụ thật
 - [ ] (WP3) Provisioning: tạo gateway + credential MQTT (Dynamic Security), ghép node lạ vào zone (fallback: nhập MAC tay)
 - [ ] (WP2) Gateway: captive portal, TLS với kiểm tra chứng chỉ, kết nối bằng tên miền
-- [ ] (WP6) Triển khai EC2: Docker Compose prod, Caddy HTTPS, DuckDNS, Mosquitto TLS, Security Group, swap, backup `pg_dump`
+- [ ] (WP6) Triển khai VPS: Docker Compose prod (chỉ publish 80/443/8883), Caddy HTTPS, Mosquitto TLS, cron `backup.sh` (`pg_dump` + `/models`)
 - [ ] (WP4) Thử Web Push trên **điện thoại thật** qua HTTPS (iPhone: Add to Home Screen)
-- [ ] (WP6) Simulator: đăng ký farm B, C qua API, publish qua TLS
-- [ ] (WP5) Chuẩn bị chạy thu dữ liệu; (tuỳ chọn) script bật/tắt máy tạo ẩm qua API để có đủ sự kiện rủi ro thật
-- **Đạt M4 khi:** gateway thật kết nối EC2 qua TLS; web truy cập qua HTTPS; push tới điện thoại; farm giả lập hiển thị và cô lập đúng; **hệ thống bắt đầu chạy liên tục để thu dữ liệu 3–5 ngày**.
+- [ ] (WP6) Simulator: đăng ký farm B, C qua API với vùng khí hậu khác nhau (`dalat`, `hcm`, ...), publish qua TLS, tạo vụ + thu hoạch mẫu `sim`
+- [ ] (WP1, WP5) **Bắt đầu vụ xà lách baby leaf thật** trên 2 zone trong nhà kính mini (hoặc từ sớm hơn nếu phần cứng xong sớm; ghi `started_at`, `area_m2`)
+- **Đạt M4 khi:** gateway thật kết nối VPS qua TLS; web truy cập qua HTTPS; push tới điện thoại; farm giả lập hiển thị và cô lập đúng; vụ thật bắt đầu ghi dữ liệu khí hậu liên tục.
 
-### Tuần 5 – M5: AI, thí nghiệm, thử tải
-- [ ] (WP5) Huấn luyện A2 (`pump_response`, `fan_response`, `irrigation_eta`) và A3 (`risk_forecast`); so với baseline; lưu `ml_models`
-- [ ] (WP3) Rule engine `adaptive` dùng `pump_response`/`fan_response` (fallback `fixed` nếu chưa đủ sự kiện)
-- [ ] (WP3) Suy luận định kỳ → `predictions`; alert `DISEASE_RISK_FORECAST`; nút feedback đúng/sai
-- [ ] (WP4) Trang Model và Thí nghiệm (metrics, KPI fixed vs adaptive)
-- [ ] (WP5) Thí nghiệm fixed vs adaptive trong điều kiện tương tự; thu KPI
-- [ ] (WP6) Thử tải simulator 50–100 gateway; đo bản tin/s, độ trễ p50/p95, CPU/RAM (chạy theo đợt ngắn, theo dõi CPU credit)
+### Tuần 5 – M5: AI dự đoán năng suất & gợi ý cây trồng, thử tải
+- [ ] (WP5) `platform/core/climate_features.py` (`feature_version = 1`), dùng chung cho `worker`, `ml/`, `tools/simulator`
+- [ ] (WP5) Bộ sinh dữ liệu `synthetic` (`tools/simulator/growth.py` + `crops_growth.json` + `synth-yield`), nhập `ml.dataset import`, huấn luyện LightGBM + B0 + B1 (`ml.train` & `ml.evaluate`) trên chia tập theo nhà kính
+- [ ] (WP3) Worker inference: nạp model active, `yield_forecast`, `crop_recommendation` (kèm lý do tiếng Việt, OOD/`low_confidence`), `cycle_harvested → yield_samples`, `recommend` qua NOTIFY
+- [ ] (WP4) Khung AI ở trang Zone, trang **Gợi ý cây trồng**, trang **Mô hình AI** (metrics vs B0/B1, theo cây, theo `source`, Top-1/NDCG@3, drift)
+- [ ] (WP6) Thử tải simulator 50–100 gateway trỏ lên VPS; đo bản tin/s, độ trễ p50/p95, CPU/RAM (chạy theo đợt ngắn)
 - [ ] (WP3) Email leo thang alert `critical` chưa ack
-- **Đạt M5 khi:** có bảng so sánh mô hình vs baseline (trên dữ liệu thật); có bảng KPI fixed vs adaptive; có số liệu thử tải.
+- **Đạt M5 khi:** mô hình active thắng B0 & B1 trên nhà kính chưa từng thấy; trang Zone hiện năng suất dự kiến, trang Gợi ý hiện top-3 hợp lý theo vùng khí hậu; có số liệu thử tải VPS.
 
-### Tuần 6 – M6: Chạy thử, quay video, nộp bài
+### Tuần 6 – M6: Thu hoạch vụ thật, chạy thử, quay video, nộp bài
+- [ ] (WP1, WP5) Thu hoạch vụ xà lách thật, cân khối lượng tươi, nhập `harvest` trên web → sinh mẫu `real` vào `yield_samples` và báo cáo sai số thực tế trung thực
 - [ ] (cả nhóm) Chạy thử trọn kịch bản A/B/C/D/E ít nhất 2 lần theo kịch bản video
 - [ ] (WP6) Quay và dựng video 5–7 phút có thuyết minh
-- [ ] (WP6) Xuất dữ liệu, mô hình, sao lưu DB, lưu video **trước khi hết hạn Free plan**
-- [ ] (cả nhóm) Báo cáo (ý tưởng, kiến trúc, platform, AI, kết quả test, hạn chế)
+- [ ] (WP6) Kéo bản sao lưu DB (`pg_dump`), `/models`, dữ liệu và video về máy nhóm
+- [ ] (cả nhóm) Báo cáo (ý tưởng, kiến trúc, platform, AI dự đoán năng suất/gợi ý, kết quả test, hạn chế)
 - [ ] (WP1) Hoàn thiện thẩm mỹ mô hình, nhãn dán các khối
 - **Đạt M6 khi:** đủ checklist nộp bài (mục 10).
 
-**Việc có thể trượt cần canh:** (1) Web Push trên điện thoại (thử từ tuần 4, không dồn sau); (2) thu dữ liệu cần ≥ 3 ngày chạy liên tục, nên bắt đầu ngay cuối tuần 4; (3) AWS Free plan tính từ ngày đăng ký, không đăng ký quá sớm.
+**Việc có thể trượt cần canh:** (1) Web Push trên điện thoại (thử từ tuần 4, không dồn sau); (2) vụ xà lách baby leaf thật cần ~3–4 tuần để thu hoạch cân tươi (cần trồng sớm ngay khi mô hình/cảm biến chạy ổn, hoặc dự phòng nếu chưa kịp thu hoạch thì dùng dữ liệu vụ đang chạy để demo `yield_forecast` và nói rõ trạng thái vụ thật); (3) sinh dữ liệu `synthetic` và chốt bảng 5 cây ứng viên ngay đầu tuần 5.
 
 ---
 
-## 6. Kế hoạch AWS
+## 6. Kế hoạch VPS
 
-Điều kiện gói miễn phí có thể đổi; đọc lại trang đăng ký trước khi làm. Theo tài liệu AWS tại thời điểm trao đổi: tài khoản mới chọn **Free plan** nhận 100 USD khi đăng ký, thêm tối đa 100 USD khi làm các hoạt động đủ điều kiện; Free plan kéo dài tối đa 6 tháng hoặc đến khi hết credit; hết hạn thì tài khoản bị đóng. Tài khoản tạo trước tháng 7/2025 theo cơ chế cũ.
+Không dùng dịch vụ cloud managed; triển khai toàn bộ Docker Compose trên **một VPS Linux** (nhà cung cấp bất kỳ trong nước hoặc quốc tế có IPv4 công khai tĩnh và không chặn cổng 80/443/8883).
 
 | Hạng mục | Giá trị |
 |---|---|
-| Region | ap-southeast-1 (Singapore) |
-| Instance | t3.small (2 GB RAM), x86, Ubuntu 24.04 LTS |
-| Ổ đĩa | gp3 20–30 GB; swap 2 GB |
-| IP/tên miền | Elastic IP + DuckDNS |
-| Chi phí ước tính | khoảng 22–27 USD/tháng (**cần kiểm tra bằng AWS Pricing Calculator**); với 100 USD credit chạy được khoảng 4 tháng, 200 USD thì tới hết 6 tháng |
-| Không dùng | IoT Core, RDS (không có TimescaleDB), Lambda... |
+| Cấu hình tối thiểu | 2 vCPU, **2 GB RAM** (khuyến nghị **4 GB RAM**), SSD ≥ 40 GB, x86_64 |
+| Hệ điều hành & Swap | Ubuntu 24.04 LTS + swap 2 GB |
+| Mạng & Tên miền | IPv4 công khai tĩnh; tên miền riêng hoặc DuckDNS (bản ghi A trỏ về IP VPS) |
+| Chi phí ước tính | Khoảng **120.000–250.000 VNĐ/tháng** (≈ 5–10 USD/tháng tuỳ nhà cung cấp và gói 2–4 GB RAM) |
+| Không dùng | Dịch vụ cloud managed (AWS IoT Core, RDS, Lambda… hoặc tương đương) |
 
-**Checklist AWS:**
-- [ ] Xác định loại tài khoản (mới/cũ), nhận đủ credit, bật MFA root, tạo IAM user
-- [ ] Tạo AWS Budgets, cảnh báo email ở 50% và 80%
-- [ ] Security Group: 22 (chỉ IP nhóm, key), 80/443, 8883; **không** mở 1883, 5432
-- [ ] Cài Docker/Compose, swap 2 GB, `.env`, `docker compose up -d`
-- [ ] Chứng chỉ Caddy + Mosquitto dùng lại file chứng chỉ, cron restart hàng tháng
-- [ ] Cron `pg_dump` hằng ngày, kéo bản dump về máy nhóm
-- [ ] Sau khi chấm điểm: huỷ instance và Elastic IP để không phát sinh phí
+**Checklist VPS:**
+- [ ] Chọn VPS cho phép mở cổng 80/443/8883, ưu tiên datacenter VN/Singapore
+- [ ] Tạo user thường + `sudo`, tắt SSH root và mật khẩu (`PasswordAuthentication no`, `PermitRootLogin no`), cài `unattended-upgrades`, SHOULD bật `fail2ban`
+- [ ] Cấu hình `ufw`: chỉ mở 22 (nên giới hạn IP nhóm), 80, 443, 8883; kiểm tra `docker-compose.prod.yml` **chỉ publish 80/443/8883** (không publish 1883, 5432 vì Docker publish bỏ qua `ufw`)
+- [ ] Cài Docker Engine + Compose, tạo swap 2 GB, cấu hình `.env` (`DOMAIN`, `MQTT_PUBLIC_HOST`, `TZ=Asia/Ho_Chi_Minh`, ...), `docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml up -d --build`
+- [ ] Chứng chỉ Caddy Let's Encrypt + Mosquitto dùng lại file chứng chỉ, cron restart Mosquitto hàng tháng
+- [ ] Cron `deploy/backup.sh` hằng ngày (`pg_dump` + `/models`, giữ 7 bản), kéo bản sao về máy nhóm bằng `rsync`/`scp`
 
-**Lưu ý t3.small là burstable:** CPU nền thấp, chạy tải cao kéo dài sẽ cạn CPU credit. Thử tải theo đợt ngắn, theo dõi `CPUCreditBalance` trên CloudWatch.
+**Lưu ý vCPU chia sẻ:** VPS phổ thông dùng vCPU chia sẻ; khi thử tải 50–100 gateway nên chạy theo đợt ngắn và ghi rõ cấu hình VPS trong báo cáo.
 
-**Laptop:** môi trường phát triển (cùng file compose), huấn luyện offline, chạy simulator.
+**Laptop:** môi trường phát triển (cùng file compose), sinh dữ liệu `synthetic`, huấn luyện mô hình `ml/train.py` (nếu VPS 2 GB RAM thiếu dư địa), chạy simulator.
 
 ---
 
@@ -263,12 +263,12 @@ Tiết kiệm: tận dụng củ sạc, breadboard, dây, cáp USB có sẵn. No
 | Thời gian | Nội dung |
 |---|---|
 | 0:00–0:45 | Bài toán, ý tưởng GreenHub, điểm khác biệt với tự động hoá |
-| 0:45–1:45 | Kiến trúc và prototype thật: node → gateway → cloud → web/push |
-| 1:45–2:30 | Web console: 2 zone với 2 crop profile; chọn farm B, C để thấy đa tenant |
-| 2:30–3:30 | **Kịch bản A:** bật máy tạo ẩm từ web → RH tăng, VPD giảm → AI cảnh báo trước → rule engine bật quạt, ép tắt máy tạo ẩm → push hiện trên điện thoại, bấm vào mở trang zone |
-| 3:30–4:30 | **Kịch bản B:** ẩm đất giảm → dự báo "cần tưới sau ~N phút" → bơm chạy theo hysteresis → chuyển Auto/Manual |
-| 4:30–5:15 | **Kịch bản C:** rút dây cảm biến → `quality` lỗi, không tưới sai, alert; (tuỳ thời gian) cắt Wi-Fi gateway → offline + failsafe, nối lại thì dữ liệu gửi bù và `cfg` đồng bộ |
-| 5:15–6:30 | Kết quả AI so với baseline, KPI fixed vs adaptive, thử tải, triển khai trên AWS, kết luận và hạn chế |
+| 0:45–1:45 | Kiến trúc và prototype thật: node → gateway → VPS (Docker Compose) → web/push |
+| 1:45–2:30 | Web console: 2 zone với 2 crop profile và vụ đang trồng; chọn farm B, C để thấy đa tenant |
+| 2:30–3:20 | **Kịch bản A:** bật máy tạo ẩm từ web → RH tăng, VPD giảm → rule engine bật quạt, ép tắt máy tạo ẩm → push hiện trên điện thoại, bấm vào mở trang zone |
+| 3:20–4:10 | **Kịch bản B:** ẩm đất giảm → bơm chạy đúng hysteresis và giới hạn thời gian → chuyển Auto/Manual |
+| 4:10–5:00 | **Kịch bản C:** rút dây cảm biến → `quality` lỗi, không tưới sai, alert; cắt Wi-Fi gateway → offline + failsafe, nối lại thì dữ liệu gửi bù và `cfg` đồng bộ |
+| 5:00–6:45 | **Kịch bản E (AI) & Triển khai:** khung dự báo năng suất vụ trồng ở trang Zone; trang Gợi ý cây trồng trên nhà kính thật + các nhà kính giả lập ở vùng khí hậu khác nhau (`dalat` vs `hcm`), thay đổi khí hậu rồi bấm Làm mới; trang Mô hình AI (metrics trên nhà kính chưa thấy vs B0/B1); thử tải VPS, kết luận và hạn chế |
 
 **Lưu ý chuẩn bị:**
 - Đất khô chậm (hàng giờ). Cho kịch bản B: chuyển cảm biến sang chậu đất đã sấy khô, hoặc tua nhanh đoạn đã ghi. Quyết định trước khi quay và nói rõ trong video.
@@ -288,7 +288,7 @@ Tiết kiệm: tận dụng củ sạc, breadboard, dây, cáp USB có sẵn. No
 | T3 | Bật quạt khi máy tạo ẩm đang chạy | Máy tạo ẩm tắt, ACK có `side_effects` |
 | T4 | Bật máy tạo ẩm khi quạt đang chạy | Lệnh bị `rejected` (`interlock`) |
 | T5 | Bơm chạy quá `max_run` / vi phạm `min_gap` | Gateway chặn hoặc tự tắt |
-| T6 | Mất cloud khi bơm đang chạy | Bơm vẫn tự tắt đúng thời lượng |
+| T6 | Mất kết nối server khi bơm đang chạy | Bơm vẫn tự tắt đúng thời lượng |
 | T7 | Rút dây cảm biến ẩm đất (đọc ≈ 0) | `quality` lỗi; **không** tưới; alert `SENSOR_FAULT` |
 | T8 | Mất Wi-Fi gateway > 60 s | `DEVICE_OFFLINE`; failsafe đúng giới hạn; online lại thì gửi bù dữ liệu |
 | T9 | Đổi crop profile trên web | `cfg_version` tăng; gateway báo đã đồng bộ |
@@ -296,31 +296,33 @@ Tiết kiệm: tận dụng củ sạc, breadboard, dây, cáp USB có sẵn. No
 | T11 | Alert `critical` không ack sau N phút | Gửi lại push + email |
 | T12 | User farm A truy cập dữ liệu farm B | `403`/không thấy |
 | T13 | Web Push khi đóng tab | Điện thoại/desktop nhận thông báo, bấm mở đúng trang zone |
-| T14 | Mô hình mới không thắng baseline | Không được kích hoạt |
-| T15 | Thử tải 50–100 gateway giả lập | Ghi bản tin/s, độ trễ p50/p95, CPU/RAM |
+| T14 | Mô hình mới không thắng B0/B1 hoặc bản active | Không được kích hoạt |
+| T15 | Chia dữ liệu theo nhà kính (`greenhouse_key`) | Không nhà kính nào nằm ở cả train và test |
+| T16 | Thay đổi khí hậu nhà kính thật rồi bấm Làm mới gợi ý | Khí hậu tóm tắt và xếp hạng cập nhật đúng |
+| T17 | Thử tải 50–100 gateway giả lập lên VPS | Ghi bản tin/s, độ trễ p50/p95, CPU/RAM |
 
 ---
 
 ## 10. Checklist nộp bài (Definition of Done)
 
 **Sản phẩm**
-- [ ] Prototype fomex hoàn chỉnh, chạy ổn định
-- [ ] Đủ ba khối: IoT nodes, Gateway, Cloud (AWS)
+- [ ] Prototype fomex hoàn chỉnh, chạy ổn định (có vụ xà lách baby leaf thật hoặc dữ liệu vụ đang chạy)
+- [ ] Đủ ba khối: IoT nodes, Gateway, Server trên VPS Linux
 - [ ] Firmware node/gateway, backend, web console đều tự viết
-- [ ] 3 kịch bản demo A/B/C chạy trọn vòng; farm giả lập chạy; cô lập tenant
+- [ ] Các kịch bản demo A/B/C/D/E chạy trọn vòng; farm giả lập nhiều vùng khí hậu; cô lập tenant (`yield_samples` không lộ qua API)
 - [ ] Web Push nhận được trên điện thoại thật
 - [ ] Hệ thống khởi động sạch bằng `docker compose up -d`
 
-**AI/Cloud**
-- [ ] Mô hình có so sánh với baseline (chỉ số chính trên dữ liệu thật; nêu rõ phần giả lập)
-- [ ] Bảng KPI fixed vs adaptive
-- [ ] Số liệu thử tải
-- [ ] Triển khai trên AWS đang chạy
+**AI/Server**
+- [ ] Mô hình dự đoán năng suất `yield` toàn cục có so sánh với baseline B0/B1 trên nhà kính chưa từng thấy (tách riêng phần `synthetic`, `sim`, `real`)
+- [ ] Trang Gợi ý cây trồng và trang Mô hình AI hoạt động đầy đủ
+- [ ] Số liệu thử tải trên VPS (ghi rõ cấu hình VPS)
+- [ ] Triển khai trên VPS đang chạy ổn định
 
 **Tài liệu**
 - [ ] Video demo 5–7 phút có thuyết minh (thiếu bị trừ 0,5 điểm)
-- [ ] Báo cáo có: ý tưởng, kiến trúc, mô tả platform, AI, kết quả test, hạn chế, giả định (T_lá = T_khí − 1 °C; thu nhỏ thang thời gian; ngưỡng sinh học là giá trị khởi tạo)
-- [ ] Dữ liệu, mô hình, DB dump, video đã sao lưu ngoài AWS
+- [ ] Báo cáo có: ý tưởng, kiến trúc, mô tả platform, AI dự đoán năng suất & gợi ý cây trồng, kết quả test, hạn chế, giả định (T_lá = T_khí − 1 °C; thu nhỏ thang thời gian ở bộ `demo`; gợi ý giả định tưới đủ; ngưỡng sinh học là giá trị khởi tạo)
+- [ ] Dữ liệu, mô hình, DB dump, video đã sao lưu về máy nhóm
 
 ---
 
@@ -335,14 +337,15 @@ Tiết kiệm: tận dụng củ sạc, breadboard, dây, cáp USB có sẵn. No
 | Cảm biến RH sai khi bị đọng nước | Đặt xa miệng phun; chờ phục hồi |
 | Đất khô quá chậm cho demo | Chuyển cảm biến sang chậu đất sấy khô hoặc tua nhanh đoạn đã ghi (nói rõ trong video) |
 | Thang thời gian nhà kính mini khác nhà kính thật | Dùng template `demo` có thời gian thu nhỏ; ghi rõ trong báo cáo |
-| Mô hình ML không thắng baseline | Vẫn báo cáo trung thực; mô hình không được kích hoạt, hệ thống dùng `fixed` |
-| Dữ liệu thật quá ít sự kiện | Chạy script bật/tắt máy tạo ẩm qua API trong lúc thu dữ liệu (sự kiện vẫn là dữ liệu vật lý thật); kéo dài thời gian thu |
-| Dữ liệu giả lập làm đẹp kết quả | Gắn nhãn `real`/`sim`; chỉ số chính chỉ trên `real` |
+| Mô hình ML không thắng baseline B0/B1 | Vẫn báo cáo trung thực; mô hình không được kích hoạt |
+| Mẫu thu hoạch `real` ít (chỉ 1–2 vụ) | Nguồn huấn luyện chính là `synthetic` + `sim`; báo cáo metrics theo từng `source` (`real` tách riêng, trung thực) |
+| Gợi ý sai khác khi cửa sổ demo < 24 h | Gắn nhãn `low_confidence=true` và giải thích rõ trên UI là ngoại suy ngắn hạn |
 | Web Push không tới (iOS, chế độ Không làm phiền) | iOS: Add to Home Screen; giữ lớp email và buzzer; thử sớm từ tuần 4 |
-| Hết credit/hết hạn Free plan, tài khoản đóng | Đặt Budgets; sao lưu hằng ngày; xuất dữ liệu và video trước hạn |
-| t3.small cạn CPU credit khi thử tải | Thử tải theo đợt ngắn; theo dõi CPUCreditBalance |
-| Mất dữ liệu thu nhiều ngày | `pg_dump` hằng ngày về máy nhóm |
-| Mất mạng/laptop sập khi demo | Gateway có buffer RAM + failsafe; demo ưu tiên chạy trên AWS; có video ghi sẵn dự phòng |
+| Docker publish cổng làm lộ Postgres/Mosquitto bỏ qua `ufw` | `docker-compose.prod.yml` chỉ publish 80/443/8883; kiểm tra bằng `nmap` từ ngoài |
+| VPS 2 GB RAM thiếu bộ nhớ khi train hoặc build | Bật swap 2 GB; huấn luyện `ml/train.py` trên laptop rồi đưa artifact lên VPS |
+| vCPU chia sẻ của VPS bị nghẽn khi thử tải | Chạy thử tải theo đợt ngắn; ghi rõ cấu hình VPS |
+| Mất dữ liệu trên VPS | `backup.sh` hằng ngày (`pg_dump` + `/models`) và `rsync` về máy nhóm |
+| Mất mạng/laptop sập khi demo | Gateway có buffer RAM + failsafe; demo chạy trên VPS; có video ghi sẵn dự phòng |
 
 ---
 
@@ -350,9 +353,10 @@ Tiết kiệm: tận dụng củ sạc, breadboard, dây, cáp USB có sẵn. No
 
 1. Phân công WP1–WP6 (mục 3).
 2. Cảm biến nhiệt-ẩm: AHT20 hay SHT30 (tuỳ giá lúc mua).
-3. Loại tài khoản AWS và credit thực nhận; ngày dự kiến đăng ký (khuyến nghị tuần 3).
+3. Nhà cung cấp VPS cụ thể và cấu hình (2 GB hay 4 GB RAM).
 4. Nhà cung cấp SMTP cho email leo thang.
 5. Ghép node: tự phát hiện hay nhập MAC thủ công cho MVP.
-6. Có làm script tự bật/tắt máy tạo ẩm khi thu dữ liệu hay làm tay.
-7. Có làm cảnh báo bảo trì (`MAINTENANCE`) và ML cho A1 hay không (tuỳ chọn, chỉ khi còn thời gian).
-8. Kịch bản B dùng cách nào: chậu đất sấy khô hay tua nhanh đoạn ghi sẵn.
+6. Có dùng thêm bộ dữ liệu `public` (vd Autonomous Greenhouse Challenge) hay chỉ `synthetic` + `sim` + `real`.
+7. Cây cho vụ thật (đề xuất xà lách baby leaf) và cách cân/ghi năng suất; danh sách 5 cây ứng viên.
+8. Có thêm cảnh báo `MAINTENANCE` / `YIELD_FORECAST_LOW` hay không (tuỳ chọn, MAY).
+9. Kịch bản B dùng cách nào: chậu đất sấy khô hay tua nhanh đoạn ghi sẵn.

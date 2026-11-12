@@ -80,7 +80,7 @@ ESP-NOW chỉ gửi/nhận được khi Node và Gateway ở **cùng kênh Wi-Fi
    - `digitalWrite(PIN_SOIL_VCC, HIGH)` → chờ `delay(50)` ms để mạch op-amp trên cảm biến điện dung ổn định.
    - Đọc `analogRead(PIN_SOIL_AOUT)` 5 lần (cách nhau ~2–5 ms), sắp xếp và lấy giá trị **median** (trung vị).
    - `digitalWrite(PIN_SOIL_VCC, LOW)` ngay lập tức.
-   - Kiểm tra lỗi phần cứng/đứt dây: nếu `soil_raw <= 10` hoặc `soil_raw >= 4090` (hoặc cấu hình ADC 12-bit bất thường), có thể giữ `soil_raw` thực tế để A1 backend cũng bắt `out_of_range` (`50..4090`) và/hoặc bật `FLAG_SOIL_ERR` nếu đứt hoàn toàn (`0` hoặc `4095`). Lưu ý: nếu `FLAG_SOIL_ERR` bật thì backend gắn `dropout`; nếu `soil_raw=0` với `flags=0` thì backend gắn `out_of_range` (test T7); cả hai đều `quality != 'ok'` nên đều chặn tưới sai!
+   - Kiểm tra lỗi phần cứng/đứt dây: nếu `soil_raw <= 10` hoặc `soil_raw >= 4090` (hoặc cấu hình ADC 12-bit bất thường), có thể giữ `soil_raw` thực tế để kiểm tra chất lượng dữ liệu (luật) ở backend cũng bắt `out_of_range` (`50..4090`) và/hoặc bật `FLAG_SOIL_ERR` nếu đứt hoàn toàn (`0` hoặc `4095`). Lưu ý: nếu `FLAG_SOIL_ERR` bật thì backend gắn `dropout`; nếu `soil_raw=0` với `flags=0` thì backend gắn `out_of_range` (test T7); cả hai đều `quality != 'ok'` nên đều chặn tưới sai!
 2. **Đọc nhiệt-ẩm & ánh sáng:**
    - Với AHT20 (`!USE_SHT30`): gọi `aht.getEvent(&humidity, &temp)`. Kiểm tra `isnan(temp)` hoặc ngoài `[-40, 85]` → bật `FLAG_AHT_ERR`.
    - Với SHT30 (`#ifdef USE_SHT30`): gọi `sht31.readTemperature()` và `sht31.readHumidity()`. Nếu `isnan(...)` → bật `FLAG_AHT_ERR`.

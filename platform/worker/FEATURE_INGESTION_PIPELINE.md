@@ -1,10 +1,10 @@
 # Feature: Ingestion Pipeline & MQTT Routing (`platform/worker/main.py`, `ingest.py`)
 
-> Nguồn đặc tả: `docs/greenhub-spec.md` mục 3.2, 5, 6.1, 6.2, 8.2, 11; `docs/DECISIONS.md`.
+> Nguồn đặc tả: `docs/greenhub-spec.md` mục 3.2, 5, 6.1, 6.2, 8.1, 11; `docs/DECISIONS.md`.
 
 ## 1. Mục tiêu & Phạm vi
 
-Tiếp nhận toàn bộ bản tin MQTT chiều **Gateway → Cloud**, kiểm tra hợp lệ bằng Pydantic v2, tính VPD, gắn nhãn chất lượng dữ liệu Tầng 1 A1, đối chiếu zone lân cận, lưu vào PostgreSQL/TimescaleDB theo đúng nhãn nguồn (`real`/`sim`), cập nhật trạng thái thiết bị (`gateways`, `device_nodes`, `device_state.reported`, `actuator_logs`), và phát sự kiện realtime lên `ws_events` cũng như kích hoạt Rule Engine & Alert Service.
+Tiếp nhận toàn bộ bản tin MQTT chiều **Gateway → Cloud**, kiểm tra hợp lệ bằng Pydantic v2, tính VPD, kiểm tra và gắn nhãn chất lượng dữ liệu theo luật, đối chiếu zone lân cận, lưu vào PostgreSQL/TimescaleDB theo đúng nhãn nguồn (`real`/`sim`), cập nhật trạng thái thiết bị (`gateways`, `device_nodes`, `device_state.reported`, `actuator_logs`), và phát sự kiện realtime lên `ws_events` cũng như kích hoạt Rule Engine & Alert Service.
 
 ## 2. Trạng thái hiện thực trong repo
 
@@ -36,7 +36,7 @@ Hàm `parse_gh_topic(topic)` tách chính xác 2 UUID `farm_id` và `greenhouse_
 1. Validate JSON theo `TelemetryPayload` (`ts`, `zone >= 1`, `air_t`, `air_rh`, `soil_m`, `soil_raw`, `lux`, `batt`, `rssi`, `flags`, `seq`).
 2. Truy vấn `Zone` + `Greenhouse` + `Gateway` + `CropProfile` khớp `(farm_id, greenhouse_id, zone_index)`. Không khớp → log warning và bỏ qua (chống topic giả mạo).
 3. Lấy `sample_interval_s` (mặc định `60`) và `vpd.leaf_offset_c` (mặc định `1.0`) từ `CropProfile.parameters_json` (fallback `DEFAULT_DEMO_PARAMS`).
-4. Đánh giá chất lượng A1 qua `self._tracker(zone.id).evaluate(sample, sample_interval_s)` → trả nhãn `quality ∈ {'ok', 'dropout', 'out_of_range', 'spike', 'stuck'}`.
+4. Đánh giá chất lượng dữ liệu theo luật qua `self._tracker(zone.id).evaluate(sample, sample_interval_s)` → trả nhãn `quality ∈ {'ok', 'dropout', 'out_of_range', 'spike', 'stuck'}`.
 5. Tính VPD (`core.vpd.calc_vpd(air_t, air_rh, leaf_offset_c)` làm tròn 4 chữ số thập phân) nếu `air_t` và `air_rh` không null.
 6. Đối chiếu các `Zone` anh em trong cùng nhà kính bằng `is_neighbor_divergent` → đặt cờ `neighbor_suspect` (dùng cảnh báo chẩn đoán và dự phòng cảm biến khí).
 7. Xác định `source = "sim"` nếu `gw.is_simulated` là `True`, ngược lại `"real"`.
@@ -64,5 +64,5 @@ Hàm `parse_gh_topic(topic)` tách chính xác 2 UUID `farm_id` và `greenhouse_
 
 ## 5. Kiểm tra & Xác nhận
 
-- `test_m2_end_to_end_pipeline` trong `platform/tests/test_m2_integration.py` đã xác nhận toàn bộ luồng telemetry, A1 `out_of_range`, discovery, LWT `online=false`, và `config_sync`.
+- `test_m2_end_to_end_pipeline` trong `platform/tests/test_m2_integration.py` đã xác nhận toàn bộ luồng telemetry, luật `out_of_range`, discovery, LWT `online=false`, và `config_sync`.
 - Khi nối thêm Rules & Alerts vào `ingest.py`, đảm bảo lỗi phát sinh trong rules/alerts được log và xử lý sạch sẽ, không làm hỏng giao dịch lưu `readings` trừ khi có chủ ý.

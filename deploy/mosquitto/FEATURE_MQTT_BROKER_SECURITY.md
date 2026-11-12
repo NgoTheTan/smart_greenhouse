@@ -10,7 +10,7 @@ Vận hành MQTT Broker **Eclipse Mosquitto 2.0.20** bảo mật cao làm cầu 
 3. Cô lập chặt quyền publish/subscribe của mỗi gateway trong đúng tiền tố `gh/{farm_id}/{greenhouse_id}/`.
 4. Lưu bền vững (`persistence`) retained messages (`status`, `cfg`) và trạng thái Dynamic Security qua các lần khởi động lại container.
 
-- **Ngoài phạm vi:** Không dùng AWS IoT Core hay broker thương mại; không mở cổng `1883` plaintext ra Internet; không bật WebSockets trên Mosquitto (Web Console nhận realtime qua FastAPI `/ws`, không nối trực tiếp MQTT).
+- **Ngoài phạm vi:** Không dùng dịch vụ MQTT broker cloud managed hay broker thương mại; không mở cổng `1883` plaintext ra Internet; không bật WebSockets trên Mosquitto (Web Console nhận realtime qua FastAPI `/ws`, không nối trực tiếp MQTT).
 
 ## 2. Trạng thái hiện thực trong repo
 
@@ -33,8 +33,8 @@ Vận hành MQTT Broker **Eclipse Mosquitto 2.0.20** bảo mật cao làm cầu 
 | `log_dest` | `stdout` | Xuất `error`, `warning`, `notice`, `information` + `connection_messages true` để `docker compose logs mosquitto` theo dõi kết nối thiết bị. |
 | `plugin` | `/usr/lib/mosquitto_dynamic_security.so` | Quản lý user/role/ACL qua MQTT topic mà không cần reload/restart broker khi thêm gateway mới. |
 | `plugin_opt_config_file` | `/mosquitto/data/dynamic-security.json` | Lưu bền vững tài khoản `api-admin`, `worker` và tất cả gateway trong volume `mosquitto_data`. |
-| `listener 1883` | Nội bộ Docker | Cho `worker`, `api` (`api-admin`) và healthcheck `mosquitto_ctrl`. Ở `dev` bind thêm `127.0.0.1:1883`; ở `prod` **không** publish ra host/Security Group. |
-| `listener 8883` | TLS `tlsv1.2` | Dùng `/mosquitto/certs/server.crt` và `/mosquitto/certs/server.key`; publish `8883:8883` cho ESP32 Gateway và `tools/simulator`. |
+| `listener 1883` | Nội bộ Docker | Cho `worker`, `api` (`api-admin`) và healthcheck `mosquitto_ctrl`. Ở `dev` bind thêm `127.0.0.1:1883`; ở `prod` **không** publish ra host (lưu ý cổng Docker publish bỏ qua `ufw`). |
+| `listener 8883` | TLS `tlsv1.2` | Dùng `/mosquitto/certs/server.crt` và `/mosquitto/certs/server.key`; publish `8883:8883` cho ESP32 Gateway và `tools/simulator`, đồng thời mở `8883/tcp` trên `ufw` (và firewall mạng của nhà cung cấp VPS nếu có). |
 | `max_inflight_messages` | `20` | Giới hạn gói QoS 1 đang bay phù hợp RAM nhỏ của ESP32. |
 | `max_queued_messages` | `1000` | Giữ lệnh/gói tin tối đa khi thiết bị tạm rớt mạng. |
 | `message_size_limit` | `65536` | Trần 64 KB mỗi gói (đủ lớn cho payload `cfg` > 1 KB). |
@@ -55,12 +55,15 @@ Vận hành MQTT Broker **Eclipse Mosquitto 2.0.20** bảo mật cao làm cầu 
      - `subscribePattern 'gh/#' allow`
    - Tạo client `MQTT_WORKER_USER` và gắn `worker-role`.
    - Sau bước này `wait "$PID"` giữ tiến trình chính.
-4. **Gia hạn chứng chỉ trên Production (`docker-compose.prod.yml`):**
+4. **Gia hạn chứng chỉ trên Production (`docker-compose.prod.yml` trên VPS Linux):**
    - Vì entrypoint thực hiện **sao chép** file cert khi container khởi động, khi Caddy tự động gia hạn chứng chỉ Let's Encrypt (mỗi ~60 ngày), Mosquitto sẽ vẫn giữ bản copy cũ nếu không restart.
-   - **Bắt buộc** cài cron hàng tháng (ví dụ ngày 1 hàng tháng lúc 04:00 UTC):
+   - **Bắt buộc** cài cron hàng tháng trên VPS (ví dụ ngày 1 hàng tháng lúc 04:00 UTC):
      ```bash
-     0 4 1 * * cd /home/ubuntu/greenhub && docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml restart mosquitto
+     0 4 1 * * cd /opt/greenhub && docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml restart mosquitto
      ```
+5. **Firewall VPS (`ufw`) & Lưu ý Docker publish (MUST):**
+   - Trên VPS Linux (Ubuntu 24.04 LTS), cấu hình `ufw` chỉ cho phép `22` (giới hạn IP quản trị), `80`, `443`, `8883`, chặn các cổng còn lại (kết hợp cấu hình tương tự ở firewall mạng của nhà cung cấp VPS nếu có).
+   - **Cảnh báo:** Cổng Docker publish (`ports:` trong compose) **bỏ qua `ufw`** (`iptables` chain `DOCKER`). Do đó `deploy/docker-compose.prod.yml` **chỉ publish `80`, `443`, `8883`** và **tuyệt đối không publish `1883`** ra host.
 
 ## 5. Phân quyền Dynamic Security & Phương án Dự phòng (`acl.fallback`)
 

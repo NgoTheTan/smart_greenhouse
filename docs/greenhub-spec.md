@@ -19,21 +19,21 @@ Tài liệu đồng hành: `greenhub-team-plan.md` (kế hoạch nhóm, phần c
 
 ## 1. Mục tiêu và định vị
 
-**GreenHub** là nền tảng IoT chuyên biệt cho nhà kính: nhận dữ liệu từ nhiều node cảm biến, tính các đại lượng vi khí hậu (VPD, DLI), điều khiển thiết bị chấp hành từ cloud, cảnh báo, và dùng dữ liệu tích luỹ để cải thiện điều khiển.
+**GreenHub** là nền tảng IoT chuyên biệt cho nhà kính: nhận dữ liệu từ nhiều node cảm biến, tính các đại lượng vi khí hậu (VPD, DLI), điều khiển thiết bị chấp hành từ server, cảnh báo, và dùng dữ liệu khí hậu tích luỹ từ **nhiều nhà kính** để **dự đoán năng suất cây trồng** và **gợi ý cây nên trồng** với điều kiện khí hậu hiện tại.
 
 Ràng buộc từ yêu cầu môn học (ảnh hưởng thiết kế):
 
 | Yêu cầu | Hệ quả |
 |---|---|
 | Phải là IoT, không phải nhúng/tự động hoá | Vòng quyết định nằm ở cloud; thiết bị quản lý từ xa; đa tenant; có phân tích dữ liệu |
-| Có đủ IoT nodes, IoT Gateway, Cloud | Node ESP32 → Gateway ESP32 → Cloud (AWS EC2) |
+| Có đủ IoT nodes, IoT Gateway, Cloud | Node ESP32 → Gateway ESP32 → Server (VPS Linux, mục 13) |
 | Tự xây dựng IoT platform | Firmware node/gateway, backend, web console **đều tự viết**; **không** dùng Blynk/ThingsBoard/AWS IoT Core |
 | Độ hoàn thiện | Mọi kịch bản demo chạy trọn vòng: cảm biến → quyết định → chấp hành → cảnh báo |
-| AI/ML hoặc cloud | Làm cả hai: AI (mục 8) và triển khai AWS (mục 13) |
+| AI/ML hoặc cloud | Làm cả hai: AI dự đoán năng suất + gợi ý cây trồng (mục 8) và triển khai trên VPS (mục 13) |
 | Video demo 5–7 phút | Kịch bản ở `greenhub-team-plan.md` |
 
 **"Chuyên biệt" nghĩa là:**
-1. Mô hình dữ liệu theo miền: farm → nhà kính → zone → crop profile; VPD, DLI, rủi ro nấm là khái niệm hạng nhất.
+1. Mô hình dữ liệu theo miền: farm → nhà kính → zone → crop profile → vụ trồng; VPD, DLI, rủi ro nấm, năng suất là khái niệm hạng nhất.
 2. Platform quản lý vòng đời thiết bị: cấp phát, ghép node vào zone, đồng bộ cấu hình có phiên bản, theo dõi trạng thái.
 3. Mọi thiết bị (thật và giả lập) đều đi qua **cùng một luồng** đăng ký và gửi dữ liệu.
 
@@ -44,14 +44,14 @@ Ràng buộc từ yêu cầu môn học (ảnh hưởng thiết kế):
 ### 2.1 Trong phạm vi
 - 1 nhà kính mini thật: 2 zone, 2 node, 1 gateway, 4 actuator (bơm Z1, bơm Z2, quạt, máy tạo ẩm).
 - Nhiều farm/nhà kính giả lập bằng simulator (đăng ký qua đúng luồng provisioning).
-- Platform: provisioning, device shadow/config, ingestion, rule & control engine, command service, alert service, notification, analytics (AI), API/auth/tenant.
+- Platform: provisioning, device shadow/config, ingestion, kiểm tra chất lượng dữ liệu (luật), rule & control engine, command service, alert service, notification, quản lý vụ trồng, analytics (AI), API/auth/tenant.
 - Web console (React PWA) với Web Push.
-- 3 tầng AI (mục 8), pipeline huấn luyện lại, trang Model, thí nghiệm fixed vs adaptive.
+- **Một bài toán AI duy nhất** (mục 8): dự đoán năng suất cây trồng từ dữ liệu khí hậu, dùng chung mô hình để gợi ý cây trồng; dữ liệu huấn luyện gộp từ nhiều nhà kính (thật, giả lập, tổng hợp); pipeline huấn luyện offline, trang Gợi ý cây trồng và trang Mô hình AI.
 - Thử tải bằng simulator.
-- Triển khai Docker Compose: laptop (phát triển) và AWS EC2 (chạy chính).
+- Triển khai Docker Compose: laptop (phát triển) và **một VPS Linux** (chạy chính).
 
 ### 2.2 Ngoài phạm vi (KHÔNG xây)
-Telegram bot; FCM/Firebase; ứng dụng di động native; LLM và bảng `farm_activities`; Row-Level Security (có thể thêm sau); OTA; cảm biến CO₂/PAR/MLX90614/DS18B20; rèm cắt nắng; 4G; pin và tấm pin mặt trời; Grafana; dịch vụ managed của AWS (IoT Core, RDS, Lambda...); học tăng cường; phân loại bệnh từ ảnh; học liên farm; microservice tách rời.
+Telegram bot; FCM/Firebase; ứng dụng di động native; LLM và bảng `farm_activities`; Row-Level Security (có thể thêm sau); OTA; cảm biến CO₂/PAR/MLX90614/DS18B20; rèm cắt nắng; 4G; pin và tấm pin mặt trời; Grafana; dịch vụ cloud managed (AWS IoT Core, RDS, Lambda... hoặc tương đương); học tăng cường; phân loại bệnh từ ảnh; federated learning (huấn luyện **tập trung** trên dữ liệu gộp nhiều farm là trong phạm vi); điều khiển thích nghi bằng ML (`adaptive`), dự báo rủi ro bằng ML; microservice tách rời.
 
 ---
 
@@ -72,7 +72,7 @@ flowchart TB
   end
 
   subgraph CORE["Platform core (FastAPI, monolith module hoá)"]
-    WK["worker<br/>Ingestion · Rule & Control · Command<br/>Alert · Notification · AI inference · Scheduler"]
+    WK["worker<br/>Ingestion · Rule & Control · Command<br/>Alert · Notification · Yield inference · Scheduler"]
     API["api<br/>REST, WebSocket, Auth, Device mgmt"]
     DB[("PostgreSQL + TimescaleDB")]
     WK <-->|LISTEN/NOTIFY| API
@@ -84,7 +84,7 @@ flowchart TB
     CD["Caddy (HTTPS)"]
     WEB["Web console<br/>React PWA, Web Push"]
     SIM["tools/simulator<br/>đăng ký như thiết bị thật"]
-    ML["ml/<br/>huấn luyện"]
+    ML["ml/<br/>huấn luyện mô hình năng suất<br/>(dữ liệu gộp nhiều nhà kính)"]
   end
 
   GW <-->|"MQTT over TLS :8883"| MQ
@@ -105,17 +105,18 @@ flowchart TB
 | Broker | Mosquitto 2.x, TLS 8883, Dynamic Security plugin (fallback: password file + ACL file) |
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2 + Alembic, aiomqtt (hoặc paho-mqtt), APScheduler, pywebpush, smtplib/aiosmtplib |
 | CSDL | PostgreSQL + TimescaleDB (chạy trong container) |
-| AI | pandas, scikit-learn, LightGBM, joblib |
+| AI | pandas, scikit-learn, LightGBM, joblib (chỉ trong `worker` và `ml/`) |
 | Web | React 18 + Vite + TypeScript, Recharts, React Query, PWA (manifest + service worker) |
 | Proxy/TLS | Caddy (Let's Encrypt); Mosquitto dùng lại file chứng chỉ của Caddy |
-| Triển khai | Docker Compose; AWS EC2 (mục 13) |
+| Triển khai | Docker Compose; VPS Linux Ubuntu 24.04 (mục 13) |
 
 Ghim phiên bản bằng lockfile (`requirements.txt`/`poetry.lock`, `package-lock.json`, `platformio.ini`).
 
 ### 3.2 Quyết định kiến trúc
 - **Monolith module hoá**, hai tiến trình: `api` (REST, WebSocket, provisioning) và `worker` (MQTT, rule, command, alert, notify, AI inference, scheduler). Cùng một codebase.
 - `api` nhận sự kiện realtime từ `worker` qua **PostgreSQL LISTEN/NOTIFY** (kênh `ws_events`, payload JSON nhỏ), không thêm Redis.
-- Mô hình ML huấn luyện **offline** bằng CLI (`ml/train.py`), `worker` chỉ nạp mô hình và suy luận.
+- Mô hình ML huấn luyện **offline** bằng CLI (`ml/train.py`), `worker` chỉ nạp mô hình và suy luận. Chỉ có **một mô hình toàn cục** (task `yield`) dùng cho mọi farm, học từ dữ liệu gộp nhiều nhà kính.
+- Cách tính đặc trưng khí hậu nằm ở một chỗ duy nhất `platform/core/climate_features.py` (Python thuần), dùng chung cho `worker`, `ml/` và `tools/simulator`.
 - Trạng thái ngắn hạn của rule engine giữ trong bộ nhớ; khi worker khởi động lại thì dựng lại từ N phút readings gần nhất.
 - 1 gateway = 1 nhà kính; topic MQTT dùng `farm_id` và `greenhouse_id` (UUID dạng chuỗi).
 
@@ -319,12 +320,13 @@ Tiền tố: `gh/{farm_id}/{greenhouse_id}/`
 |---|---|---|
 | Device Registry & Provisioning | api | Tạo gateway, cấp credential MQTT (Dynamic Security), ghép node vào zone |
 | Device Shadow / Config | api + worker | `desired` và `reported`, sinh và publish `cfg` có `cfg_version` |
-| Ingestion | worker | Nhận MQTT, kiểm tra, tính VPD, gắn `quality` (A1), ghi DB, phát WS |
-| Rule & Control Engine | worker | Hysteresis, rủi ro, interlock, auto/manual, fixed/adaptive |
+| Ingestion | worker | Nhận MQTT, kiểm tra, tính VPD, gắn `quality` (luật chất lượng dữ liệu, mục 8.2), ghi DB, phát WS |
+| Rule & Control Engine | worker | Hysteresis, rủi ro (luật), interlock, auto/manual |
+| Crop Cycle | api + worker | Vụ trồng theo zone: bắt đầu, thu hoạch (ghi năng suất); khi thu hoạch, worker tạo mẫu huấn luyện `yield_samples` |
 | Command Service | worker | Phát lệnh, theo dõi ACK, hết hạn/timeout |
 | Alert Service | worker | Vòng đời cảnh báo, dedupe, leo thang |
 | Notification Service | worker | Web Push, email, sự kiện in-app |
-| Analytics (AI) | worker + `ml/` | Suy luận định kỳ, lưu `predictions`; huấn luyện qua CLI |
+| Analytics (AI) | worker + `ml/` | Suy luận định kỳ dự báo năng suất vụ đang trồng và gợi ý cây trồng theo nhà kính, lưu `predictions`; huấn luyện qua CLI |
 | API / Auth / Tenant | api | JWT, vai trò, lọc theo `farm_id`, REST, WebSocket |
 
 Worker subscribe: `gh/+/+/telemetry/+`, `gh/+/+/status`, `gh/+/+/event`, `gh/+/+/discovery`, `gh/+/+/ack/+`.
@@ -358,19 +360,15 @@ DLI      = Σ(PPFD * Δt_giây) / 1e6    # mol/m²/ngày, tích luỹ theo ngày
 ```
 Kiểm thử: T=20, RH=94, T_la=T_khi → VPD ≈ 0.14 kPa.
 
-**Tưới theo zone (chiến lược `fixed`):**
+**Tưới theo zone (hysteresis cố định – chiến lược duy nhất):**
 - Bật khi `soil < soil_min`; `duration_s = irrigation.max_run_s`; tắt sớm (gửi `off`) khi `soil ≥ soil_max`.
 - Tôn trọng `min_gap_s`, `max_total_s_per_hour`.
 - Sau mỗi lần tưới, chờ `soil_settle_s` trước khi đánh giá lại (tránh tưới lặp do cảm biến phản ứng chậm).
 
-**Tưới theo zone (chiến lược `adaptive`):**
-- `target = (soil_min + soil_max) / 2`
-- `duration_s = clamp((target − soil_now) / pump_gain_pct_per_s, 3, irrigation.max_run_s)`, với `pump_gain` lấy từ mô hình A2 (mục 8). Nếu chưa có mô hình hoặc chưa đủ số sự kiện (< `min_events`, mặc định 5) thì **tự động dùng `fixed`**.
-
 **Quạt (một bộ cho cả nhà kính, lấy zone nguy hiểm nhất):**
 - Điều kiện BẬT: (VPD < `vpd.low_crit` liên tục ≥ `risk.vpd_low_duration_min`) **hoặc** alert `DISEASE_RISK` đang mở **hoặc** `air_t` > `temp_c.optimal[1]` ở zone nào đó.
 - Kiểm tra tác dụng phụ: không bật quạt nếu VPD của zone đó đang > `vpd.high_crit` (quạt làm tăng VPD).
-- `duration_s`: `fixed` = `fan.min_on_s`, lặp lại nếu điều kiện còn; `adaptive` = `clamp((vpd.low_off − vpd_now) / fan_vpd_rate_kpa_per_s, fan.min_on_s, fan.max_on_s)` (mô hình A2; fallback `fixed`).
+- `duration_s = fan.min_on_s`, lặp lại nếu điều kiện còn.
 - TẮT khi VPD ≥ `vpd.low_off` và nhiệt độ ổn, sau khi đã chạy tối thiểu `fan.min_on_s`.
 
 **Máy tạo ẩm:**
@@ -386,7 +384,7 @@ Kiểm thử: T=20, RH=94, T_la=T_khi → VPD ≈ 0.14 kPa.
 
 **Auto/manual và interlock** như 4.3 và 6.3. Mọi quyết định ghi kèm `reason` (chuỗi ngắn) vào `commands.reason`.
 
-**Chiến lược** đặt theo zone (`zones.control_strategy`). Thí nghiệm so sánh fixed/adaptive dùng `experiment_runs`.
+Rule engine **không** dùng mô hình ML; AI (mục 8) chỉ dự báo/gợi ý, không phát lệnh.
 
 ### 6.5 Command Service
 Trạng thái lệnh: `pending → sent → applied | rejected | expired | timeout`.
@@ -401,9 +399,8 @@ Vòng đời: `raised → notified → acknowledged → resolved`.
 - Cooldown gửi lại thông báo cùng key: 10 phút (cấu hình).
 - Tự `resolved` khi điều kiện hết (hysteresis).
 - **Leo thang:** alert `critical` chưa `acknowledged` sau `escalate_after_min` (mặc định 5; demo 2) → gửi lại push và gửi email.
-- **Phản hồi:** người dùng gắn `true_positive` / `false_positive` (dùng cho AI, mục 8).
 
-Loại alert: `DISEASE_RISK`, `DISEASE_RISK_FORECAST` (từ AI), `HEAT_STRESS`, `SOIL_DRY`, `SENSOR_FAULT`, `DEVICE_OFFLINE` (LWT/không có heartbeat), `FAILSAFE_ACTIVE`, `MAINTENANCE` (MAY).
+Loại alert: `DISEASE_RISK`, `HEAT_STRESS`, `SOIL_DRY`, `SENSOR_FAULT`, `DEVICE_OFFLINE` (LWT/không có heartbeat), `FAILSAFE_ACTIVE`, `MAINTENANCE` (MAY), `YIELD_FORECAST_LOW` (MAY, `info`: năng suất tương đối dự báo của vụ đang trồng < 0.6).
 Mức độ: `info | warning | critical`.
 
 ### 6.7 Notification Service
@@ -468,9 +465,10 @@ CREATE TABLE gateways (
 CREATE TABLE crop_profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   farm_id UUID REFERENCES farms(id),            -- NULL = template hệ thống
+  crop_code VARCHAR(40) NOT NULL,                -- tomato_cherry|strawberry|lettuce|cucumber|bell_pepper
   crop_name VARCHAR(100) NOT NULL,
   variety VARCHAR(100),
-  schema_version INT NOT NULL DEFAULT 1,
+  schema_version INT NOT NULL DEFAULT 2,
   parameters_json JSONB NOT NULL
 );
 
@@ -480,10 +478,9 @@ CREATE TABLE zones (
   zone_index INT NOT NULL,
   name VARCHAR(100),
   crop_profile_id UUID REFERENCES crop_profiles(id),
+  area_m2 REAL,                                  -- diện tích canh tác (m²)
   planting_date DATE,
   pump_channel INT,                              -- kênh relay của bơm zone
-  control_strategy VARCHAR(10) NOT NULL DEFAULT 'fixed'
-      CHECK (control_strategy IN ('fixed','adaptive')),
   soil_dry_raw INT, soil_wet_raw INT,            -- hiệu chuẩn ẩm đất
   UNIQUE (greenhouse_id, zone_index)
 );
@@ -580,9 +577,7 @@ CREATE TABLE alerts (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   notified_at TIMESTAMPTZ, escalated_at TIMESTAMPTZ,
   acknowledged_at TIMESTAMPTZ, acked_by UUID REFERENCES users(id),
-  resolved_at TIMESTAMPTZ,
-  feedback VARCHAR(15) CHECK (feedback IN ('true_positive','false_positive')),
-  feedback_at TIMESTAMPTZ
+  resolved_at TIMESTAMPTZ
 );
 CREATE UNIQUE INDEX alerts_open_dedupe ON alerts (dedupe_key) WHERE state <> 'resolved';
 
@@ -603,73 +598,110 @@ CREATE TABLE notification_prefs (
   min_severity VARCHAR(10) NOT NULL DEFAULT 'warning'
 );
 
-CREATE TABLE ml_models (
+CREATE TABLE crop_cycles (                         -- vụ trồng (dữ liệu tenant)
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  zone_id UUID REFERENCES zones(id),
-  task VARCHAR(30) NOT NULL,                     -- risk_forecast|irrigation_eta|pump_response|fan_response
+  zone_id UUID NOT NULL REFERENCES zones(id),
+  crop_profile_id UUID NOT NULL REFERENCES crop_profiles(id),
+  started_at TIMESTAMPTZ NOT NULL,
+  harvested_at TIMESTAMPTZ,
+  area_m2 REAL NOT NULL CHECK (area_m2 > 0),
+  yield_kg REAL CHECK (yield_kg >= 0),
+  status VARCHAR(10) NOT NULL DEFAULT 'active' CHECK (status IN ('active','harvested','abandoned')),
+  notes TEXT,
+  created_by UUID REFERENCES users(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX crop_cycles_one_active ON crop_cycles (zone_id) WHERE status = 'active';
+
+CREATE TABLE yield_samples (                       -- tập huấn luyện, gộp nhiều nhà kính
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  source VARCHAR(10) NOT NULL CHECK (source IN ('real','sim','synthetic','public')),
+  greenhouse_key VARCHAR(100) NOT NULL,            -- UUID nhà kính platform hoặc mã ngoài ('syn-0042')
+  farm_id UUID REFERENCES farms(id),               -- NULL với dữ liệu ngoài platform
+  crop_cycle_id UUID UNIQUE REFERENCES crop_cycles(id),
+  crop_code VARCHAR(40) NOT NULL,
+  started_at TIMESTAMPTZ, ended_at TIMESTAMPTZ,
+  cycle_days REAL,
+  feature_version INT NOT NULL,
+  features JSONB NOT NULL,
+  coverage REAL,
+  yield_kg_m2 REAL NOT NULL CHECK (yield_kg_m2 >= 0),
+  meta JSONB,                                      -- vd region, oracle_relative_yields (synthetic)
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX ON yield_samples (crop_code);
+CREATE INDEX ON yield_samples (greenhouse_key);
+
+CREATE TABLE ml_models (                           -- mô hình toàn cục
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  task VARCHAR(30) NOT NULL DEFAULT 'yield',
   version INT NOT NULL,
+  feature_version INT NOT NULL,
   artifact_path TEXT NOT NULL,
   trained_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  train_from TIMESTAMPTZ, train_to TIMESTAMPTZ,
-  n_samples INT,
-  source_mix JSONB,                              -- {"real":n,"sim":m}
-  metrics JSONB,                                 -- trên tập test (chỉ dữ liệu real)
-  baseline_metrics JSONB,
+  n_samples INT, n_greenhouses INT,
+  source_mix JSONB,                                -- {"synthetic":n,"sim":m,"real":k,"public":p}
+  crops JSONB,                                     -- [{"crop_code":"lettuce","n":412,"reference_kg_m2":3.0}]
+  metrics JSONB,                                   -- trên test (nhà kính chưa thấy) + theo cây + theo source + top1/ndcg3
+  baseline_metrics JSONB,                          -- {"B0":{...},"B1":{...}}
   is_active BOOLEAN NOT NULL DEFAULT false,
   notes TEXT,
-  UNIQUE (zone_id, task, version)
+  UNIQUE (task, version)
 );
 
 CREATE TABLE predictions (
-  ts TIMESTAMPTZ NOT NULL,
-  zone_id UUID NOT NULL REFERENCES zones(id),
-  task VARCHAR(30) NOT NULL,                     -- risk_forecast|irrigation_eta
-  model_id UUID REFERENCES ml_models(id),
-  horizon_min INT,
-  score REAL,                                    -- xác suất (risk_forecast)
-  value REAL,                                    -- phút còn lại (irrigation_eta)
-  details JSONB,
-  PRIMARY KEY (zone_id, task, ts)
-);
-
-CREATE TABLE experiment_runs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  ts TIMESTAMPTZ NOT NULL,
+  task VARCHAR(30) NOT NULL CHECK (task IN ('yield_forecast','crop_recommendation')),
   greenhouse_id UUID NOT NULL REFERENCES greenhouses(id),
-  strategy VARCHAR(10) NOT NULL CHECK (strategy IN ('fixed','adaptive')),
-  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  ended_at TIMESTAMPTZ,
-  notes TEXT
+  zone_id UUID REFERENCES zones(id),               -- chỉ yield_forecast
+  crop_cycle_id UUID REFERENCES crop_cycles(id),   -- chỉ yield_forecast
+  model_id UUID REFERENCES ml_models(id),
+  value REAL,                                      -- kg/m² dự kiến (yield_forecast)
+  score REAL,                                      -- relative_yield (yield_forecast) / top-1 (recommendation)
+  details JSONB,
+  CHECK (task <> 'yield_forecast' OR zone_id IS NOT NULL)
 );
+CREATE INDEX ON predictions (greenhouse_id, task, ts DESC);
 ```
 
-### 7.1 Crop profile (`parameters_json`, schema_version = 1)
+Lưu ý cô lập tenant: `yield_samples` chứa dữ liệu gộp từ nhiều nhà kính và **không bao giờ** được trả qua API; `GET /models` chỉ trả số liệu tổng hợp. Mô hình toàn cục học từ dữ liệu gộp nhiều nhà kính là quyết định kiến trúc có chủ đích (mục 8).
+
+### 7.1 Crop profile (`parameters_json`, `schema_version = 2`)
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "vpd": {"optimal": [0.8, 1.2], "low_crit": 0.4, "low_off": 0.6, "high_crit": 1.6},
   "temp_c": {"optimal": [20, 28]},
+  "light": {"dli_optimal": [20, 30]},
   "soil_moisture_pct": {"min": 60, "max": 75},
   "disease": {"rh_gt": 85, "temp_range_c": [15, 25], "fungal_minutes_alert": 360},
   "irrigation": {"max_run_s": 300, "min_gap_s": 1800, "max_total_s_per_hour": 420, "soil_settle_s": 300},
   "fan": {"min_on_s": 300, "max_on_s": 1800},
   "mist": {"max_on_s": 900, "lockout_s": 900},
-  "risk": {"vpd_low_duration_min": 60, "horizon_min": 120, "trend_windows_min": [30, 60]},
+  "risk": {"vpd_low_duration_min": 60},
+  "cycle": {"days": 120},
+  "yield": {"reference_kg_m2": 10.0},
+  "ai": {"recommend_window_h": 336, "min_cycle_hours": 72, "inference_interval_s": 3600, "min_coverage": 0.7},
   "sample_interval_s": 60,
   "failsafe": {"temp_critical_high_c": 35, "soil_moisture_critical_low_pct": 30}
 }
 ```
 
-Giá trị khởi tạo theo cây (đối chiếu tài liệu khuyến nông trước khi dùng thực tế):
+5 cây template (mỗi cây 2 bản `real` + `demo` = 10 template hệ thống). Giá trị khởi tạo, đối chiếu tài liệu khuyến nông trước khi dùng thực tế:
 
-| Thuộc tính | Cà chua bi | Dâu tây |
-|---|---|---|
-| `vpd.optimal` (kPa) | 0.8–1.2 | 0.6–0.9 |
-| `temp_c.optimal` (°C) | 20–28 | 18–24 |
-| `soil_moisture_pct` min–max | 60–75 | 50–65 |
-| `failsafe.temp_critical_high_c` | 35 | 30 |
-| `disease.rh_gt` | 85 | 90 |
-| `vpd.low_crit` / `low_off` / `high_crit` | 0.4 / 0.6 / 1.6 | 0.4 / 0.6 / 1.6 |
+| Thuộc tính | Cà chua bi (`tomato_cherry`) | Dâu tây (`strawberry`) | Xà lách (`lettuce`) | Dưa leo (`cucumber`) | Ớt chuông (`bell_pepper`) |
+|---|---|---|---|---|---|
+| `vpd.optimal` (kPa) | 0.8–1.2 | 0.6–0.9 | 0.6–1.0 | 0.8–1.2 | 0.8–1.2 |
+| `temp_c.optimal` (°C) | 20–28 | 18–24 | 15–22 | 22–30 | 21–28 |
+| `light.dli_optimal` (mol/m²/ngày) | 20–30 | 15–22 | 12–17 | 20–30 | 20–30 |
+| `soil_moisture_pct` min–max | 60–75 | 50–65 | 60–80 | 65–80 | 60–75 |
+| `cycle.days` | 120 | 150 | 40 | 75 | 150 |
+| `yield.reference_kg_m2` (kg/m²) | 10 | 4 | 3 | 15 | 8 |
+| `failsafe.temp_critical_high_c` | 35 | 30 | 30 | 38 | 35 |
+| `disease.rh_gt` | 85 | 90 | 85 | 85 | 85 |
+| `vpd.low_crit` / `low_off` / `high_crit` | 0.4 / 0.6 / 1.6 | 0.4 / 0.6 / 1.6 | 0.4 / 0.6 / 1.6 | 0.4 / 0.6 / 1.6 | 0.4 / 0.6 / 1.6 |
 
 **Hai bộ tham số thời gian (MUST có cả hai template cho mỗi cây):** nhà kính mini phản ứng nhanh hơn nhà kính thật rất nhiều, nên có template `real` (bảng trên) và template `demo` (thu nhỏ thang thời gian). Nhà kính demo dùng bản sao `demo`.
 
@@ -683,27 +715,19 @@ Giá trị khởi tạo theo cây (đối chiếu tài liệu khuyến nông tr�
 | `fan.min_on_s` / `max_on_s` | 300 / 1800 | 60 / 300 |
 | `mist.max_on_s` / `lockout_s` | 900 / 900 | 300 / 120 |
 | `risk.vpd_low_duration_min` | 60 | 3 |
-| `risk.horizon_min` | 120 | 15 |
-| `risk.trend_windows_min` | [30, 60] | [5, 15] |
 | `disease.fungal_minutes_alert` | 360 | 5 |
+| `ai.recommend_window_h` | 336 | 1 |
+| `ai.min_cycle_hours` | 72 | 0.5 |
+| `ai.inference_interval_s` | 3600 | 60 |
 
-Một số giá trị trong bảng (`fan.*`, `mist.*`, `soil_settle_s`, các giá trị `demo`) là đề xuất khởi tạo, hiệu chỉnh khi chạy thật.
+(`cycle.days`, `yield.*`, `light.*` ở bản `demo` giữ nguyên như bản `real`; với gợi ý cấp nhà kính dùng `recommend_window_h` nhỏ nhất trong các zone.) Một số giá trị trong bảng (`fan.*`, `mist.*`, `soil_settle_s`, các giá trị `demo`) là đề xuất khởi tạo, hiệu chỉnh khi chạy thật.
 
 ---
 
-## 8. AI/ML
+## 8. AI/ML & Chất lượng dữ liệu
 
-### 8.1 Nguyên tắc
-- Dữ liệu cảm biến dạng bảng/chuỗi thời gian → ML cổ điển (Ridge, LightGBM, Random Forest). **Không dùng LLM** và không dùng mạng nơ-ron lớn. Không cần GPU.
-- **Mục tiêu:** tạo **vòng lặp dữ liệu**: dữ liệu quá khứ (kể cả `actuator_logs` và phản hồi người dùng) → mô hình → thay đổi hành vi điều khiển.
-- Luôn có **baseline** và so sánh trực tiếp. Mô hình không thắng baseline vẫn là kết quả hợp lệ và **không** được kích hoạt.
-- **Chia train/test theo thời gian**, không xáo trộn.
-- Mọi bản ghi có nhãn nguồn `real`/`sim`. **Chỉ số báo cáo chính tính trên dữ liệu `real`**; dữ liệu `sim` chỉ để thử pipeline và tải. Dữ liệu `real` gồm cả sự kiện vật lý do máy tạo ẩm/bơm thật tạo ra (kể cả khi kích bằng script gọi API).
-- Dữ liệu `quality ≠ ok` bị loại khỏi tập huấn luyện.
-
-### 8.2 Ba tầng
-
-**Tầng 1 – Chất lượng dữ liệu (A1, bằng luật, MUST):** gắn `quality` cho từng bản ghi/cảm biến.
+### 8.1 Kiểm tra chất lượng dữ liệu (luật, MUST)
+*(Không thuộc bài toán AI; là tiền xử lý bắt buộc để bảo vệ rule engine và tạo đặc trưng sạch cho mô hình năng suất.)* Gắn `quality` cho từng bản ghi:
 
 | Nhãn | Luật (tham số cấu hình được) |
 |---|---|
@@ -713,79 +737,76 @@ Một số giá trị trong bảng (`fan.*`, `mist.*`, `soil_settle_s`, các gi�
 | `spike` | Thay đổi giữa 2 chu kỳ liên tiếp vượt ngưỡng (air_t > 5 °C, RH > 25%, soil > 20%) |
 | (nghi ngờ) | Chênh lệch `air_t`/`air_rh` giữa 2 zone (cùng khối không khí) vượt ngưỡng → đối chiếu node lân cận |
 
-Mô hình ML cho A1 là **MAY** (chỉ khi còn thời gian, để bắt lỗi trôi chậm). Chỉ số bảo trì (MAY): xu hướng RSSI, tỉ lệ mất gói, độ lệch so với node lân cận → alert `MAINTENANCE`.
+Chỉ số bảo trì (MAY): xu hướng RSSI, tỉ lệ mất gói, độ lệch so với node lân cận → alert `MAINTENANCE`. Dữ liệu `quality ≠ ok` bị loại khỏi tổng hợp đặc trưng và huấn luyện.
 
-**Tầng 2 – Học đặc tính từng zone từ chính dữ liệu (A2, MUST):** dùng `actuator_logs` + `readings`, kết quả **đưa vào rule engine** (chiến lược `adaptive`).
-- `pump_response` (mỗi zone): từ các lần bơm đã `applied` (thời lượng d), lấy `soil_before` (trung bình 3 điểm hợp lệ trước khi bơm) và `soil_after` (giá trị cực đại trong cửa sổ `soil_settle_s` sau khi bơm). `gain = Δsoil / d` (% mỗi giây). Ước lượng bằng median của K sự kiện gần nhất, hoặc hồi quy Ridge `Δsoil ~ d + soil_before`. Cần ≥ `min_events` (5) mới dùng.
-- `fan_response`: từ các lần quạt chạy (thời lượng d), `rate = ΔVPD / d` (kPa mỗi giây, VPD tăng khi quạt hút ẩm). Cách ước lượng như trên.
-- `irrigation_eta` (bài toán #2): thời gian còn lại tới khi chạm `soil_min`.
-  - Baseline: `(soil_now − soil_min) / tốc độ giảm`, với tốc độ ước lượng bằng hồi quy tuyến tính trên cửa sổ gần nhất (demo: 10–30 phút; thực: 1–3 giờ).
-  - Mô hình: Ridge hoặc LightGBM, đặc trưng: `soil_now`, tốc độ giảm, `air_t`, `vpd`, `lux`, giờ trong ngày, thời gian từ lần tưới gần nhất.
-  - Nhãn: tại mỗi thời điểm trong đoạn khô–tưới, số phút thật tới khi chạm `soil_min`; bỏ các mẫu mà đoạn đó không chạm ngưỡng trước lần tưới kế (censored).
-  - Đánh giá: **MAE (phút)** trên các chu kỳ khô–tưới chưa thấy, so với baseline.
+### 8.2 Bài toán AI duy nhất: Dự đoán năng suất & Gợi ý cây trồng (`task = 'yield'`, MUST)
 
-**Tầng 3 – Dự báo rủi ro và học từ phản hồi (A3, MUST):**
-- Mục tiêu: dự đoán zone có **chuyển** sang vùng nguy cơ trong `horizon_min` tới hay không (nấm: VPD < `vpd.low_crit` liên tục ≥ `risk.vpd_low_duration_min`; hoặc `air_t` vượt ngưỡng nguy hiểm).
-- Nhãn: áp luật lên dữ liệu **tương lai** `(t, t+H]`.
-- **Tránh rò rỉ:** chỉ lấy các thời điểm mà trạng thái hiện tại **chưa** ở vùng nguy cơ.
-- Đặc trưng: giá trị hiện tại và xu hướng theo `risk.trend_windows_min` của `air_t`, `air_rh`, `vpd`, `lux`; giờ trong ngày; trạng thái quạt/máy tạo ẩm; `fungal_minutes`; (loại cây).
-- Mô hình: LightGBM (hoặc Random Forest), một mô hình cho mỗi zone.
-- Baseline: luật ngưỡng + ngoại suy tuyến tính xu hướng VPD.
-- Đánh giá: PR-AUC, F1 (chọn ngưỡng trên tập validation; báo cáo trên tập test).
-- **Phản hồi:** `alerts.feedback` được dùng làm nhãn bổ sung và để đo **precision của cảnh báo** (tỉ lệ `true_positive`) so với chỉ dùng luật.
-- Đầu ra: bản ghi `predictions(task='risk_forecast', score)`; khi `score ≥ ngưỡng` (mặc định 0.7) → alert `DISEASE_RISK_FORECAST` (warning). Dự báo **không** tự điều khiển thiết bị.
+- **Định vị:** dữ liệu khí hậu dạng bảng tổng hợp theo vụ trồng → ML cổ điển (LightGBM regressor + `crop_code` categorical). **Không dùng LLM**, không mạng nơ-ron lớn, không cần GPU.
+- **Một mô hình toàn cục** cho mọi farm, học từ dữ liệu **gộp nhiều nhà kính** (`yield_samples`).
+- **Đơn vị mẫu:** 1 vụ trồng (crop cycle) trên 1 zone / 1 nhà kính.
+- **Nhãn chuẩn hoá:** `relative_yield = yield_kg_m2 / yield.reference_kg_m2(crop)` (so sánh được giữa các loại cây có năng suất chuẩn khác nhau; khi suy luận nhân lại `reference_kg_m2` để ra kg/m²). Khoảng tin cậy ước lượng từ phân vị phần dư (p10, p90) trên tập validation.
+- **Hai ứng dụng từ cùng một mô hình:**
+  1. **Dự báo năng suất vụ đang trồng (`yield_forecast`):** với zone có vụ `status='active'` đã chạy ≥ `ai.min_cycle_hours`, tính đặc trưng khí hậu trên `[started_at, now]` (dùng ẩm đất thực tế) → dự đoán `relative_yield` và `expected_kg_m2` kèm khoảng tin cậy.
+  2. **Gợi ý cây nên trồng (`crop_recommendation`):** với một nhà kính, tính đặc trưng khí hậu gộp các zone trong `recommend_window_h` gần nhất; với mỗi cây ứng viên trong `ml_models.crops`, **thay `soil_mean` bằng trung điểm `soil_moisture_pct` của cây đó và `soil_std` bằng median tập train** (giả định tưới đủ vì tưới điều khiển được) → dự đoán `relative_yield`, `expected_kg_m2` → xếp hạng giảm dần theo `relative_yield`, lấy **top-3**, kèm tối đa 3 lý do giải thích bằng luật tiếng Việt (so `t_mean`, `vpd_mean`, `dli_mean` với `temp_c.optimal`, `vpd.optimal`, `light.dli_optimal` của template; MAY bổ sung top đặc trưng đóng góp từ LightGBM `pred_contrib`).
+- **Không điều khiển thiết bị:** dự báo/gợi ý **không** gửi lệnh tới actuator.
 
-### 8.3 Vòng đời mô hình (MUST, bản tối giản)
-- `ml/train.py` (CLI, cũng gọi được bằng cron/APScheduler): `python -m ml.train --task <task> --zone <id|all> [--from --to]`.
-- Mỗi lần chạy: tải dữ liệu, chia theo thời gian (train/val/test), huấn luyện, tính metrics mô hình **và** baseline trên test, lưu artifact (`/models/{task}/{zone}/v{n}.joblib`), ghi `ml_models` (kèm `source_mix`, `metrics`, `baseline_metrics`).
-- **Chỉ kích hoạt** (`is_active = true`, tắt bản cũ) khi mô hình thắng cả baseline và bản đang chạy trên test; nếu không, vẫn lưu và ghi `notes`.
-- Worker nạp mô hình active khi khởi động và khi có tín hiệu (NOTIFY) hoặc định kỳ; suy luận mỗi 60 s cho từng zone; ghi `predictions`.
-- Dấu hiệu lệch dữ liệu (đơn giản): so sánh trung bình/độ lệch chuẩn của đặc trưng gần đây với lúc huấn luyện, hiển thị trên trang Model.
+**Đặc trưng khí hậu (`feature_version = 1`, `platform/core/climate_features.py`):**
+- Viết bằng **Python thuần** (không bắt buộc pandas/numpy), dùng chung cho `worker` (suy luận), `ml/` (huấn luyện) và `tools/simulator` (sinh dữ liệu synthetic).
+- Đầu vào: chuỗi bucket `readings_1h` (`quality='ok'`; nếu cửa sổ < 6 giờ dùng `readings_1m`), giờ địa phương `Asia/Ho_Chi_Minh`.
+- 16 đặc trưng số (`t_mean`, `t_day_mean` 06:00–18:00, `t_night_mean`, `t_p95`, `t_p05`, `rh_mean`, `vpd_mean`, `vpd_std`, `frac_vpd_low` VPD < 0.4 kPa, `frac_vpd_high` VPD > 1.6 kPa, `frac_t_gt_30` T > 30 °C, `frac_t_lt_12` T < 12 °C, `gdd_per_day` trung bình `max(T − 10, 0)`, `dli_mean` = `mean(PPFD) × 86400 / 1e6`, `soil_mean`, `soil_std`) + `crop_code` (categorical). Với `dli_mean`, zone không có BH1750 mượn lux cùng bucket của zone khác trong nhà kính; không có → `null` (LightGBM xử lý NaN). Các hằng số 0.4, 1.6, 30, 12, 10 là một phần định nghĩa `feature_version`, đổi thì tăng phiên bản.
+- `coverage` = tỉ lệ bucket hợp lệ trong cửa sổ; nếu `< ai.min_coverage` (0.7) → bỏ qua suy luận / không tạo mẫu. Nếu cửa sổ < 24 h (chế độ demo), các đại lượng `/ngày` là ngoại suy → gắn `low_confidence=true`. Cờ `low_confidence=true` cũng bật khi đặc trưng nằm ngoài `[min, max]` của tập train (OOD đơn giản).
 
-### 8.4 Thí nghiệm "fixed vs adaptive"
-Bật/tắt `control_strategy` của zone trên web; mỗi lần bật ghi `experiment_runs`. Chạy lần lượt hai chế độ trong điều kiện tương tự rồi so các KPI (tính bằng SQL trên khoảng `[started_at, ended_at]`):
+**Nguồn dữ liệu gộp từ nhiều nhà kính:**
+- `synthetic` (nguồn huấn luyện chính): sinh offline qua `python -m tools.simulator synth-yield` với hàng trăm nhà kính ở 6 vùng khí hậu (`dalat`, `hanoi_winter`, `hanoi_summer`, `hcm`, `mekong`, `central_coast`) + mức trang bị khác nhau; mô hình sinh trưởng ẩn nằm ở `tools/simulator/growth.py` và `crops_growth.json`, kèm `meta.oracle_relative_yields`.
+- `sim`: farm giả lập chạy trên platform, mỗi nhà kính gán vùng khí hậu; tạo vụ và thu hoạch qua REST API.
+- `real`: vụ thật trên nhà kính mini (SHOULD chạy ≥ 1 vụ xà lách baby leaf 3–4 tuần trên 2 zone, cân khối lượng tươi); báo cáo riêng, trung thực.
+- `public` (MAY): bộ dữ liệu công khai (vd Autonomous Greenhouse Challenge – WUR) qua adapter.
 
-| KPI | Cách tính |
-|---|---|
-| Số lần bật/tắt bơm, quạt mỗi giờ | đếm `actuator_logs` |
-| % thời gian VPD trong dải tối ưu | tỉ lệ `readings.vpd` trong `vpd.optimal` |
-| Overshoot ẩm đất | max(`soil` − `soil_max`) sau mỗi lần tưới |
-| Tổng thời gian bơm (proxy lượng nước) | Σ `duration_s` của bơm |
-| Số cảnh báo sai | đếm `alerts.feedback = 'false_positive'` |
+**Chia dữ liệu, Baseline và Đánh giá:**
+- **Chia theo nhà kính** (`GroupShuffleSplit` theo `greenhouse_key`) 70/15/15 train/val/test → tập test gồm toàn các nhà kính **chưa từng thấy**; không `greenhouse_key` nào xuất hiện ở hai tập.
+- **Baseline (MUST):** **B0** = median `relative_yield` theo từng cây trên train; **B1** = hồi quy Ridge trên cùng bộ đặc trưng (one-hot `crop_code`).
+- **Chỉ số:** MAE (kg/m²), RMSE, R², MAPE (tổng và theo từng cây, tách theo `source`); cho bài toán gợi ý: **Top-1 accuracy, NDCG@3** so với `oracle_relative_yields` (trên `synthetic`).
 
-Nếu adaptive không tốt hơn thì vẫn báo cáo trung thực.
+### 8.3 Vòng đời mô hình (MUST)
+- Nhập dữ liệu: `python -m ml.dataset import --source synthetic|public --file <csv>` → `yield_samples`. Mẫu `real`/`sim` do worker tự tạo khi nhận sự kiện thu hoạch (`cycle_harvested`).
+- Huấn luyện CLI: `python -m ml.train --task yield [--sources synthetic,sim,real,public] [--feature-version 1]`.
+- Mỗi lần chạy: tải `yield_samples`, chia theo nhà kính, huấn luyện LightGBM + B0 + B1, tính metrics trên test, lưu artifact bundle (`/models/yield/v{n}.joblib` gồm model, feature names, `crops` + `reference_kg_m2`, phân vị phần dư val, dải min/max train cho OOD, `feature_version`), ghi `ml_models`.
+- **Chỉ kích hoạt** (`is_active = true`, tắt bản cũ) khi mô hình thắng **cả B0, B1 và bản đang active** về MAE trên test; nếu không, vẫn lưu và ghi `notes`. Khi kích hoạt, gửi `NOTIFY worker_events {type:"model_activated"}`.
+- Worker nạp mô hình active khi khởi động, khi nhận `model_activated` và kiểm tra bù mỗi 10 phút; suy luận theo `ai.inference_interval_s` (trong `asyncio.to_thread`) + theo yêu cầu (`recommend`), ghi `predictions` + phát `ws_events {type:"prediction"}`.
+- Dấu hiệu lệch dữ liệu (drift): so sánh mean/std đặc trưng các dự đoán 7 ngày gần nhất với lúc huấn luyện, hiển thị trên trang Mô hình AI.
 
-### 8.5 Thử tải
-Simulator đăng ký 50–100 gateway (mỗi gateway vài node, chu kỳ 10 s). Đo: bản tin/giây, độ trễ từ lúc gửi đến lúc ghi DB (p50/p95), CPU/RAM của EC2. Ghi rõ đây là tải mô phỏng. Lưu ý t3.small là instance burstable (CPU nền thấp): chạy theo đợt ngắn và theo dõi CPU credit.
+### 8.4 Thử tải
+Simulator đăng ký 50–100 gateway (mỗi gateway vài node, chu kỳ 10 s) trỏ lên VPS. Đo: bản tin/giây, độ trễ từ lúc gửi đến lúc ghi DB (p50/p95), CPU/RAM của VPS. Ghi rõ đây là tải mô phỏng. Lưu ý VPS thường dùng vCPU chia sẻ → chạy theo đợt ngắn và ghi rõ cấu hình VPS trong báo cáo.
 
 ---
 
 ## 9. API
 
-Base: `/api`. Xác thực JWT (`Authorization: Bearer`). Vai trò: `viewer` (đọc), `operator` (đọc + điều khiển, ack, feedback), `owner` (tất cả + quản lý thiết bị, profile, user). Mọi truy vấn lọc theo `farm_id` của người dùng.
+Base: `/api`. Xác thực JWT (`Authorization: Bearer`). Vai trò: `viewer` (đọc), `operator` (đọc + điều khiển, ack, quản lý vụ trồng, làm mới gợi ý), `owner` (tất cả + quản lý thiết bị, profile, user). Mọi truy vấn lọc theo `farm_id` của người dùng.
 
 | Nhóm | Endpoint | Vai trò |
 |---|---|---|
 | Auth | `POST /auth/login`, `GET /me` | — |
 | Farm | `GET /greenhouses`, `GET /greenhouses/{id}`, `POST /greenhouses` | viewer / owner |
 | Thiết bị | `POST /gateways`, `GET /gateways/{id}/status`, `GET /nodes?status=`, `POST /nodes/{mac}/pair`, `PUT /zones/{id}/calibration` | owner |
-| Zone | `GET /zones/{id}`, `PUT /zones/{id}` (crop profile, strategy) | viewer / owner |
-| Dữ liệu | `GET /zones/{id}/readings?from&to&agg=raw\|1m\|1h`, `GET /zones/{id}/dli?date=`, `GET /zones/{id}/predictions` | viewer |
+| Zone | `GET /zones/{id}`, `PUT /zones/{id}` (`name`, `crop_profile_id`, `area_m2`) | viewer / owner |
+| Vụ trồng | `GET /zones/{id}/cycles`, `POST /zones/{id}/cycles`, `POST /cycles/{id}/harvest`, `POST /cycles/{id}/abandon` | viewer / operator |
+| Dữ liệu | `GET /zones/{id}/readings?from&to&agg=raw\|1m\|1h`, `GET /zones/{id}/dli?date=`, `GET /zones/{id}/predictions?task=yield_forecast&from&to` | viewer |
+| Gợi ý | `GET /greenhouses/{id}/recommendations`, `POST /greenhouses/{id}/recommendations/refresh` (`202`) | viewer / operator |
 | Điều khiển | `POST /greenhouses/{id}/commands` `{actuator,action,duration_s}`, `PUT /greenhouses/{id}/modes` `{actuator,mode,until}`, `GET /greenhouses/{id}/commands` | operator |
-| Cấu hình | `GET/PUT /crop-profiles/{id}` (tăng `cfg_version`), `GET /greenhouses/{id}/config-sync` | viewer / owner |
-| Cảnh báo | `GET /alerts?state=`, `POST /alerts/{id}/ack`, `POST /alerts/{id}/feedback` | viewer / operator |
+| Cấu hình | `GET /crop-profiles`, `GET/PUT /crop-profiles/{id}` (tăng `cfg_version`), `GET /greenhouses/{id}/config-sync` | viewer / owner |
+| Cảnh báo | `GET /alerts?state=`, `POST /alerts/{id}/ack` | viewer / operator |
 | Push | `GET /push/public-key`, `POST /push/subscribe`, `DELETE /push/subscribe`, `PUT /me/notification-prefs` | viewer |
-| Model | `GET /models?zone_id=`, `GET /models/{id}` | viewer |
-| Thí nghiệm | `POST /experiments` (bắt đầu), `POST /experiments/{id}/stop`, `GET /experiments/{id}/kpis` | operator |
+| Mô hình | `GET /models`, `GET /models/active`, `GET /models/{id}` | viewer |
 | Realtime | `WS /ws?token=` | viewer |
 
-Lỗi dùng mã HTTP chuẩn; điều khiển khi gateway offline → `409 gateway_offline`; vượt quyền → `403`.
+Lỗi dùng mã HTTP chuẩn; điều khiển khi gateway offline → `409 gateway_offline`; tạo vụ khi zone đang có vụ active → `409`; vượt quyền → `403`. `yield_samples` không có endpoint đọc trực tiếp để bảo vệ cô lập tenant.
 
-**Thông điệp WebSocket** (JSON `{type, data}`): `telemetry`, `alert`, `command_status`, `device_status`, `prediction`, `config_sync`. Client chỉ nhận sự kiện của farm mình.
+**Thông điệp WebSocket** (JSON `{type, data}`): `telemetry`, `alert`, `command_status`, `device_status`, `prediction` (`data.task ∈ {yield_forecast, crop_recommendation}`), `crop_cycle`, `config_sync`. Client chỉ nhận sự kiện của farm mình.
 
 ---
 
-## 10. Web console (React PWA)
+## 10. Web console (React PWA, 10 trang)
 
 Đối tượng: người vận hành, dùng cả laptop và điện thoại (responsive). **Không** làm app di động riêng.
 
@@ -793,12 +814,13 @@ Lỗi dùng mã HTTP chuẩn; điều khiển khi gateway offline → `409 gatew
 |---|---|
 | Đăng nhập | Email/mật khẩu |
 | Tổng quan farm | Danh sách nhà kính (kể cả farm giả lập thuộc farm của user), trạng thái online, số alert mở |
-| Zone | Biểu đồ trực tiếp: nhiệt độ, RH, VPD (tô dải tối ưu), ẩm đất, lux, DLI; lớp phủ trạng thái actuator và điểm alert; khung AI: xác suất rủi ro, "cần tưới sau ~N phút" |
-| Điều khiển | Từng actuator: bật/tắt (kèm thời lượng), công tắc Auto/Manual, trạng thái lệnh `pending → applied/rejected`; chọn chiến lược fixed/adaptive |
+| Zone | Biểu đồ trực tiếp: nhiệt độ, RH, VPD (tô dải tối ưu), ẩm đất, lux, DLI; lớp phủ trạng thái actuator và điểm alert; **khung AI**: vụ đang trồng (ngày thứ N/`cycle.days`), năng suất dự kiến (kg/m² + khoảng tin cậy, cờ độ tin cậy), nút Bắt đầu vụ / Thu hoạch |
+| Điều khiển | Từng actuator: bật/tắt (kèm thời lượng), công tắc Auto/Manual, trạng thái lệnh `pending → applied/rejected` |
 | Thiết bị | Gateway và node: online/offline, RSSI, last seen, `cfg_version` đồng bộ hay đang chờ; ghép node lạ vào zone; hiệu chuẩn ẩm đất |
 | Crop profile | Form chỉnh ngưỡng, lưu thì đồng bộ xuống gateway |
-| Cảnh báo | Danh sách, ack, nút "đúng/sai" (feedback), lịch sử |
-| Model & Thí nghiệm | Phiên bản mô hình, ngày huấn luyện, metrics vs baseline, dấu hiệu lệch dữ liệu; bắt đầu/dừng thí nghiệm và bảng KPI |
+| Cảnh báo | Danh sách, ack, lịch sử |
+| **Gợi ý cây trồng** | Theo nhà kính: tóm tắt khí hậu cửa sổ gần nhất, 3 thẻ top cây gợi ý (năng suất tương đối, kg/m², khoảng tin cậy, tối đa 3 lý do tiếng Việt), bảng tất cả cây ứng viên, nút Làm mới, ghi chú độ tin cậy |
+| **Mô hình AI** | Phiên bản mô hình `yield` active, ngày huấn luyện, `source_mix`, số nhà kính, MAE/RMSE/R²/MAPE so với B0/B1, MAE theo từng cây, Top-1/NDCG@3, dấu hiệu lệch dữ liệu (drift), độ quan trọng đặc trưng (MAY) |
 | Cài đặt thông báo | Bật Web Push, mức độ tối thiểu, email |
 
 **PWA và Web Push (MUST):**
@@ -842,10 +864,11 @@ def send_push(sub, payload: dict) -> bool:
 
 ## 11. Simulator (`tools/simulator`)
 
-- CLI: `python -m tools.simulator --farms 2 --gateways 5 --nodes-per-gw 2 --interval 10 --scenario normal|humid_spike|dry_down|sensor_fault`.
-- Đăng ký **qua API provisioning** (tạo farm/greenhouse/gateway, `is_simulated=true`), nhận credential riêng, kết nối **MQTT TLS** giống gateway thật, publish đúng định dạng `telemetry`/`status`, nhận `cmd` và trả `ack`.
-- Mô hình vật lý đơn giản: nhiệt, RH, ẩm đất (khô dần, tăng khi bơm), quạt giảm RH, máy tạo ẩm tăng RH.
-- Chế độ thử tải: `--gateways 100` (tuỳ chọn chạy từ laptop trỏ lên EC2).
+- CLI chạy trực tuyến: `python -m tools.simulator --farms 2 --gateways 5 --nodes-per-gw 2 --interval 10 --scenario normal|humid_spike|dry_down|sensor_fault [--region dalat|hanoi_winter|hanoi_summer|hcm|mekong|central_coast]`.
+- Đăng ký **qua API provisioning** (tạo farm/greenhouse/gateway, `is_simulated=true`), nhận credential riêng, kết nối **MQTT TLS** giống gateway thật, publish đúng định dạng `telemetry`/`status`, nhận `cmd` và trả `ack`; hỗ trợ tạo vụ và báo thu hoạch qua REST API.
+- Mô hình vật lý đơn giản: nhiệt, RH, ẩm đất (khô dần, tăng khi bơm), quạt giảm RH, máy tạo ẩm tăng RH, biến thiên ngày/đêm theo vùng khí hậu.
+- Sinh dữ liệu huấn luyện offline: `python -m tools.simulator synth-yield --greenhouses 200 --cycles-per-gh 5 --seed 42 --out data/synthetic_yield.csv` (dùng mô hình sinh trưởng ẩn ở `tools/simulator/growth.py` + `crops_growth.json`, kèm `oracle_relative_yields`).
+- Chế độ thử tải: `--gateways 100` (tuỳ chọn chạy từ laptop trỏ lên VPS).
 - Dữ liệu từ gateway giả lập được gắn `readings.source = 'sim'`.
 
 ---
@@ -855,8 +878,8 @@ def send_push(sub, payload: dict) -> bool:
 - Mật khẩu người dùng băm (argon2/bcrypt); JWT có hạn; secret chỉ trong `.env`, không commit (`.gitignore`).
 - Broker: không anonymous, TLS 8883, ACL theo `farm_id`/`greenhouse_id`, credential riêng mỗi gateway.
 - DB không mở ra ngoài (chỉ trong mạng Docker). Chỉ mở cổng 22 (giới hạn IP, dùng key), 80/443, 8883.
-- Mọi endpoint API kiểm tra vai trò và `farm_id`.
-- Lệnh điều khiển qua API có kiểm tra quyền; LLM/AI **không** nằm trong vòng điều khiển trực tiếp (chỉ cảnh báo; adaptive chỉ chỉnh thời lượng trong giới hạn an toàn của gateway).
+- Mọi endpoint API kiểm tra vai trò và `farm_id` (`yield_samples` không lộ qua API).
+- Lệnh điều khiển qua API có kiểm tra quyền; LLM/AI **không** nằm trong vòng điều khiển trực tiếp (chỉ dự báo năng suất và gợi ý cây trồng).
 - Demo chỉ dùng điện áp thấp (5 V); không đấu tải 220 V.
 
 ---
@@ -864,38 +887,38 @@ def send_push(sub, payload: dict) -> bool:
 ## 13. Triển khai
 
 ### 13.1 Docker Compose
-Dịch vụ: `mosquitto`, `timescaledb`, `api`, `worker`, `caddy` (phục vụ web build tĩnh và reverse proxy `/api`, `/ws`). Có healthcheck, giới hạn bộ nhớ từng container, volume cho DB, mô hình (`/models`) và chứng chỉ. Hai môi trường dùng cùng file compose: `docker-compose.yml` (+ `docker-compose.dev.yml` cho laptop: cổng 1883 chỉ bind `127.0.0.1`, chứng chỉ tự ký; `docker-compose.prod.yml` cho AWS).
+Dịch vụ: `mosquitto`, `timescaledb`, `api`, `worker`, `caddy` (phục vụ web build tĩnh và reverse proxy `/api`, `/ws`). Có healthcheck, giới hạn bộ nhớ từng container, volume cho DB, mô hình (`/models`) và chứng chỉ. Hai môi trường dùng cùng file compose: `docker-compose.yml` (+ `docker-compose.dev.yml` cho laptop: cổng 1883 chỉ bind `127.0.0.1`, chứng chỉ tự ký; `docker-compose.prod.yml` cho VPS).
 
 ### 13.2 Laptop (phát triển)
 Chạy toàn bộ stack bằng compose, phát triển và thử với gateway thật trong LAN (cần cố định IP laptop). Huấn luyện mô hình và chạy simulator từ đây. Web Push thử trên `localhost` hoặc qua HTTPS khi cần thử điện thoại.
 
-### 13.3 AWS (chạy chính)
+### 13.3 VPS (chạy chính)
 
 | Hạng mục | Giá trị |
 |---|---|
-| Loại tài khoản | Free plan (tài khoản mới); kiểm tra điều kiện hiện hành khi đăng ký |
-| Region | ap-southeast-1 (Singapore) |
-| Instance | t3.small (2 vCPU, 2 GB), x86; Ubuntu 24.04 LTS |
-| Ổ đĩa | EBS gp3 20–30 GB; swap 2 GB |
-| IP | Elastic IP; tên miền miễn phí (DuckDNS) trỏ về IP này |
-| Chứng chỉ | Caddy lấy Let's Encrypt; Mosquitto đọc lại file chứng chỉ (mount chỉ đọc), restart định kỳ (cron hàng tháng) sau gia hạn |
+| Nhà cung cấp | VPS bất kỳ có **IPv4 công khai tĩnh**, cho phép mở cổng 80/443/8883 |
+| Cấu hình | Tối thiểu 2 vCPU, **2 GB RAM** (khuyến nghị 4 GB), SSD ≥ 40 GB, x86_64, Ubuntu 24.04 LTS |
+| Swap | 2 GB |
+| Tên miền | Tên miền riêng hoặc DuckDNS, bản ghi A trỏ về IP VPS |
+| Firewall & Hardening | `ufw` chỉ cho phép 22 (nên giới hạn IP quản trị), 80, 443, 8883; lưu ý cổng Docker publish bỏ qua `ufw` → `docker-compose.prod.yml` chỉ publish 80, 443, 8883 (không publish 1883, 5432). SSH chỉ key (`PasswordAuthentication no`, `PermitRootLogin no`), `unattended-upgrades`, SHOULD `fail2ban` |
+| Chứng chỉ | Caddy lấy Let's Encrypt; Mosquitto đọc lại file chứng chỉ (sao chép/chown), restart định kỳ (cron hàng tháng) sau gia hạn |
 | Gateway firmware | Dùng tên miền (không phải IP), kiểm tra chứng chỉ; certificate bundle của thư viện hoặc root CA đúng chuỗi (kiểm tra bằng `openssl s_client -connect <domain>:8883`) |
 
-**Security Group:**
+**Cổng mạng:**
 
 | Cổng | Nguồn | Mục đích |
 |---|---|---|
 | 22 | Chỉ IP quản trị, chỉ key | SSH |
 | 80, 443 | Mọi nơi | Web, cấp chứng chỉ |
 | 8883 | Mọi nơi | MQTT TLS |
-| 1883, 5432 | **Không mở** | — |
+| 1883, 5432 | **Không mở / không publish** | Nội bộ mạng Docker |
 
-**Không dùng** dịch vụ managed của AWS (IoT Core, RDS vì không hỗ trợ TimescaleDB, Lambda...). Tuning gợi ý: `shared_buffers` Postgres ~256 MB.
+**Không dùng** dịch vụ cloud managed (AWS IoT Core, RDS, Lambda… hay tương đương ở nhà cung cấp khác). Tuning gợi ý trên máy 2 GB RAM: `api` ≤ 384 MB, `shared_buffers` Postgres ~256 MB.
 
-**Sao lưu:** cron `pg_dump` hằng ngày; kéo bản dump về laptop (hoặc S3 nếu muốn). Free plan tự đóng tài khoản sau 6 tháng hoặc khi hết credit, nên phải xuất dữ liệu, mô hình, video trước hạn.
+**Sao lưu:** cron `pg_dump` hằng ngày + sao lưu `/models` (giữ 7 bản); kéo về laptop bằng `rsync`/`scp`.
 
 ### 13.4 Biến môi trường (`.env`, không commit)
-`POSTGRES_PASSWORD`, `DATABASE_URL`, `JWT_SECRET`, `MQTT_HOST`, `MQTT_WORKER_USER/PASSWORD`, `MQTT_ADMIN_USER/PASSWORD`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `SMTP_HOST/PORT/USER/PASSWORD`, `ALERT_EMAIL_FROM`, `DOMAIN`, `MODELS_DIR`.
+`POSTGRES_PASSWORD`, `DATABASE_URL`, `JWT_SECRET`, `MQTT_HOST`, `MQTT_WORKER_USER/PASSWORD`, `MQTT_ADMIN_USER/PASSWORD`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `SMTP_HOST/PORT/USER/PASSWORD`, `ALERT_EMAIL_FROM`, `DOMAIN`, `MODELS_DIR`, `TZ=Asia/Ho_Chi_Minh`.
 
 ---
 
@@ -905,13 +928,13 @@ Chạy toàn bộ stack bằng compose, phát triển và thử với gateway th
 greenhub/
   firmware/{common,node,gateway}/
   platform/
-    api/            # FastAPI routers, auth, provisioning, ws
+    api/            # FastAPI routers, auth, provisioning, cycles, recommendations, ws
     worker/         # mqtt ingest, rules, commands, alerts, notify, inference, scheduler
-    core/           # models (SQLAlchemy), schemas (pydantic), vpd/dli, config
+    core/           # models (SQLAlchemy), schemas (pydantic), vpd/dli, climate_features, config
     migrations/     # Alembic
   web/              # React + Vite + TS, public/{manifest.json,sw.js}
-  ml/               # train.py, features.py, evaluate.py, notebooks/
-  tools/simulator/
+  ml/               # train.py, dataset.py, evaluate.py, notebooks/
+  tools/simulator/  # simulator trực tuyến, synth-yield, growth.py, crops_growth.json
   deploy/           # docker-compose*.yml, mosquitto/, caddy/, backup.sh
   docs/DECISIONS.md
   README.md
@@ -921,19 +944,19 @@ greenhub/
 
 ## 15. Kiểm thử và tiêu chí chấp nhận
 
-**Kiểm thử đơn vị (MUST):** VPD (ví dụ T=20, RH=94 → ≈0.14 kPa), DLI, luật quality (A1), rule engine (hysteresis, min_gap, max_total, interlock, manual override, ép tắt máy tạo ẩm khi quạt bật), state machine lệnh, dedupe alert.
+**Kiểm thử đơn vị (MUST):** VPD (ví dụ T=20, RH=94 → ≈0.14 kPa), DLI, luật chất lượng dữ liệu, `climate_features` (đầu vào biết trước → đầu ra, coverage/OOD), xếp hạng gợi ý + lý do tiếng Việt, mô hình sinh trưởng tất định theo seed, chia theo nhà kính không rò rỉ (không `greenhouse_key` nào xuất hiện ở cả train và test), baseline B0/B1, quy tắc kích hoạt mô hình, harvest → `yield_samples`, `api` không import thư viện ML nặng, rule engine (hysteresis, min_gap, max_total, interlock, manual override, ép tắt máy tạo ẩm khi quạt bật), state machine lệnh, dedupe alert.
 
-**Kiểm thử tích hợp:** simulator + broker + DB: telemetry → readings → rule → cmd → ack → `device_state`; reconnect gateway nhận lại `cfg` retained; Dynamic Security tạo user có ACL đúng.
+**Kiểm thử tích hợp:** simulator + broker + DB: telemetry → readings → rule → cmd → ack → `device_state`; reconnect gateway nhận lại `cfg` retained; Dynamic Security tạo user có ACL đúng; tạo vụ → thu hoạch → `yield_samples`.
 
 **Tiêu chí chấp nhận theo kịch bản demo:**
 
 | Kịch bản | Điều kiện đạt |
 |---|---|
-| **A. Rủi ro nấm** | Bật máy tạo ẩm từ web (manual) → RH tăng, VPD giảm → xuất hiện `DISEASE_RISK_FORECAST` trước → khi điều kiện thật xảy ra, quạt tự bật và máy tạo ẩm bị ép tắt → push hiển thị trên điện thoại/desktop, bấm vào mở trang zone |
-| **B. Ẩm đất** | Đất khô dần → web hiển thị "cần tưới sau ~N phút" → bơm chạy đúng hysteresis và giới hạn thời gian → chuyển Auto/Manual hoạt động |
+| **A. Rủi ro nấm** | Bật máy tạo ẩm từ web (manual) → RH tăng, VPD giảm → khi điều kiện thật xảy ra, quạt tự bật và máy tạo ẩm bị ép tắt → push hiển thị trên điện thoại/desktop, bấm vào mở trang zone |
+| **B. Ẩm đất** | Đất khô dần → bơm chạy đúng hysteresis và giới hạn thời gian → chuyển Auto/Manual hoạt động |
 | **C. Cảm biến/mất kết nối** | Rút dây cảm biến → `quality ≠ ok`, không tưới sai, alert `SENSOR_FAULT`. Cắt Wi-Fi gateway → `DEVICE_OFFLINE`, failsafe chạy đúng giới hạn, khi online lại thì dữ liệu được gửi bù và `cfg_version` đồng bộ |
 | **D. Đa farm** | Farm giả lập hiển thị trên web, cô lập dữ liệu giữa các farm (user farm A không thấy farm B) |
-| **E. AI** | Trang Model hiển thị metrics vs baseline; thí nghiệm fixed vs adaptive có bảng KPI |
+| **E. AI** | Trang Mô hình AI hiển thị metrics trên nhà kính chưa thấy so với B0/B1; zone có vụ đang trồng hiển thị năng suất dự kiến; trang Gợi ý hiển thị top-3 cho nhà kính thật; các nhà kính giả lập ở vùng khí hậu khác nhau cho gợi ý khác nhau hợp lý (`dalat` → dâu tây/xà lách, `hcm` → dưa leo/ớt chuông); thay đổi khí hậu nhà kính thật rồi bấm Làm mới → khí hậu tóm tắt và xếp hạng cập nhật |
 
 **Mọi milestone:** hệ thống khởi động lại bằng `docker compose up -d` sạch, migration chạy tự động, không cần thao tác thủ công ngoài `.env`.
 
@@ -944,11 +967,11 @@ greenhub/
 | M | Cuối tuần | Kết quả |
 |---|---|---|
 | M1 | 1 | Phần cứng lắp xong; node → ESP-NOW → gateway → MQTT (broker local); điều khiển relay bằng lệnh MQTT thủ công |
-| M2 | 2 | Ingestion → DB, VPD; cmd/ACK/shadow; quality luật (A1) |
-| M3 | 3 | Web console cơ bản (đăng nhập, zone, điều khiển, crop profile), rule engine `fixed`, vòng đời alert, Web Push thử trên localhost |
-| M4 | 4 | Provisioning/ghép node, deploy EC2 + TLS, Web Push thử trên điện thoại qua HTTPS, simulator đa farm; **bắt đầu thu dữ liệu 3–5 ngày** |
-| M5 | 5 | A2/A3, pipeline huấn luyện, trang Model, `adaptive`, thí nghiệm KPI, thử tải, email leo thang |
-| M6 | 6 | Chạy thử toàn bộ kịch bản, quay video, xuất/sao lưu dữ liệu và mô hình, hoàn thiện báo cáo |
+| M2 | 2 | Ingestion → DB, VPD; cmd/ACK/shadow; luật chất lượng dữ liệu |
+| M3 | 3 | Web console cơ bản (đăng nhập, zone, điều khiển, crop profile), rule engine hysteresis, vòng đời alert, Web Push thử trên localhost |
+| M4 | 4 | Provisioning/ghép node, **deploy VPS + TLS**, Web Push thử trên điện thoại qua HTTPS, simulator đa farm (gán vùng khí hậu); **bắt đầu vụ xà lách thật** |
+| M5 | 5 | `climate_features`, bộ sinh `synthetic`, `ml.dataset`/`ml.train`/`evaluate`, suy luận năng suất + gợi ý trong worker, trang Gợi ý cây trồng + Mô hình AI, thử tải, email leo thang |
+| M6 | 6 | Thu hoạch vụ thật, chạy thử toàn bộ kịch bản, quay video, xuất/sao lưu dữ liệu và mô hình, hoàn thiện báo cáo |
 
 ---
 
@@ -956,15 +979,16 @@ greenhub/
 
 **Đã chốt:** các mục 1–16 là các quyết định đã thống nhất. Hai nhóm sau là đề xuất kỹ thuật cho agent, có thể đổi nếu vướng:
 - Kỹ thuật: LISTEN/NOTIFY cho WebSocket; Dynamic Security (có fallback); PubSubClient; WiFiManager; Recharts.
-- Giá trị khởi tạo: các tham số `fan.*`, `mist.*`, `soil_settle_s`, ngưỡng spike/stuck, ngưỡng dự báo 0.7, bộ `demo`.
+- Giá trị khởi tạo: các tham số `fan.*`, `mist.*`, `soil_settle_s`, ngưỡng spike/stuck, `ai.*`, bộ `demo`.
 
 **Còn mở (nhóm cần quyết, agent hỗ trợ cả hai phương án nếu có thể):**
 1. Cảm biến nhiệt-ẩm: AHT20/AHT21 hay SHT30 (tuỳ giá lúc mua; cùng giao tiếp I2C, khác địa chỉ/thư viện).
-2. Loại tài khoản AWS cụ thể (mới theo Free plan hay cũ) và credit thực nhận.
+2. Nhà cung cấp VPS cụ thể và cấu hình (2 GB hay 4 GB RAM).
 3. Nhà cung cấp SMTP cho email leo thang.
 4. Ghép node: tự phát hiện hay nhập MAC thủ công cho MVP.
-5. Có thêm cảnh báo `MAINTENANCE` và mô hình ML cho A1 hay không (MAY).
-6. Có làm script tự động bật/tắt máy tạo ẩm khi thu dữ liệu (để có đủ sự kiện rủi ro thật) hay làm bằng tay.
+5. Có thêm cảnh báo `MAINTENANCE` / `YIELD_FORECAST_LOW` hay không (MAY).
+6. Có dùng thêm bộ dữ liệu `public` (vd Autonomous Greenhouse Challenge) hay chỉ dùng `synthetic` + `sim` + `real`.
+7. Cây cho vụ thật (đề xuất xà lách baby leaf) và cách cân/ghi năng suất; danh sách cây ứng viên (đề xuất 5 cây ở mục 7.1).
 
 ---
 

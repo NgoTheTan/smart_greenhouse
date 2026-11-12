@@ -1,6 +1,6 @@
 # GreenHub – Nền tảng IoT nhà kính thông minh
 
-Giám sát và điều khiển nhà kính đa vùng, đa loại cây: Node ESP32 → (ESP-NOW) → Gateway ESP32 → (MQTT TLS) → Cloud tự xây (FastAPI + TimescaleDB + Mosquitto) → Web console PWA.
+Giám sát và điều khiển nhà kính đa vùng, đa loại cây; dự đoán năng suất cây trồng và gợi ý cây nên trồng từ dữ liệu khí hậu đa nhà kính: Node ESP32 → (ESP-NOW) → Gateway ESP32 → (MQTT TLS) → Server tự xây (FastAPI + TimescaleDB + Mosquitto trên VPS) → Web console PWA.
 
 - Đặc tả: [docs/greenhub-spec.md](docs/greenhub-spec.md)
 - Kế hoạch nhóm: [docs/greenhub-team-plan.md](docs/greenhub-team-plan.md)
@@ -16,12 +16,12 @@ firmware/
 platform/             # Backend Python 3.12 (gốc import: api, worker, core)
   api/                # FastAPI: REST, WebSocket, auth, provisioning
   worker/             # MQTT ingest, rules, commands, alerts, notify, inference, scheduler
-  core/               # config, db, models, schemas, vpd/dli
+  core/               # config, db, models, schemas, vpd/dli, climate_features
   migrations/         # Alembic
   tests/
 web/                  # React 18 + Vite + TS, PWA (public/manifest.json, sw.js)
-ml/                   # train.py, features.py, evaluate.py, notebooks/
-tools/simulator/      # Simulator gateway/node
+ml/                   # train.py, dataset.py, evaluate.py, notebooks/
+tools/simulator/      # Simulator gateway/node & sinh dữ liệu synthetic (synth-yield)
 tools/gen_vapid.py    # Sinh khoá VAPID cho Web Push
 tools/gen_dev_certs.py # Sinh chứng chỉ TLS tự ký cho dev (đa nền tảng)
 deploy/               # docker-compose*.yml, mosquitto/, caddy/, scripts/, backup.sh
@@ -83,21 +83,23 @@ cd firmware/gateway; pio run -t upload
 
 ```powershell
 $env:PYTHONPATH = "platform;."
-python -m ml.train --task risk_forecast --zone all
-python -m tools.simulator --farms 2 --gateways 5 --nodes-per-gw 2 --interval 10 --scenario normal
+python -m tools.simulator synth-yield --greenhouses 200 --cycles-per-gh 5 --seed 42 --out data/synthetic_yield.csv
+python -m ml.dataset import --source synthetic --file data/synthetic_yield.csv
+python -m ml.train --task yield
+python -m tools.simulator --farms 2 --gateways 5 --nodes-per-gw 2 --interval 10 --scenario normal --region dalat
 ```
 
 Khi chạy Python ngoài Docker, đổi host trong `.env`: `DATABASE_URL=...@127.0.0.1:15432/...`, `MQTT_HOST=127.0.0.1` (`tools.seed_dev` tự chuyển đổi sẵn).
 
-## Triển khai AWS (prod)
+## Triển khai VPS (prod)
 
 ```bash
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml up -d --build
 ```
 
-Xem spec mục 13: EC2 t3.small (ap-southeast-1), Elastic IP + DuckDNS, Security Group chỉ mở 22 (IP quản trị), 80/443, 8883. Trong `.env` đặt `DOMAIN`, `MQTT_PUBLIC_HOST` là tên miền, và `MQTT_TLS_*` trỏ tới chứng chỉ Caddy. Cron: `deploy/backup.sh` hằng ngày, `restart mosquitto` hằng tháng.
+Xem spec mục 13: một VPS Linux Ubuntu 24.04 LTS (≥ 2 vCPU, 2 GB RAM + 2 GB swap, SSD ≥ 40 GB, IPv4 tĩnh), tên miền/DuckDNS trỏ về IP VPS, `ufw` chỉ mở 22 (IP quản trị), 80/443, 8883 (compose prod không publish 1883/5432). Trong `.env` đặt `DOMAIN`, `MQTT_PUBLIC_HOST` là tên miền, `TZ=Asia/Ho_Chi_Minh`, và `MQTT_TLS_*` trỏ tới chứng chỉ Caddy. Cron: `deploy/backup.sh` hằng ngày, `restart mosquitto` hằng tháng.
 
 ## Milestone
 
-M1 phần cứng + ESP-NOW + MQTT → M2 ingestion/DB/cmd-ack → M3 web + rule engine + alert → M4 provisioning + EC2 + simulator → M5 AI/ML → M6 demo. Chi tiết ở spec mục 16.
+M1 phần cứng + ESP-NOW + MQTT → M2 ingestion/DB/cmd-ack → M3 web + rule engine + alert → M4 provisioning + VPS + simulator + vụ thật → M5 AI dự đoán năng suất & gợi ý cây trồng → M6 thu hoạch + demo. Chi tiết ở spec mục 16.
 

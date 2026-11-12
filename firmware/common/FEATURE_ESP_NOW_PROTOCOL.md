@@ -1,6 +1,6 @@
 # Feature: Giao thức nhị phân ESP-NOW & Thư viện dùng chung (`gh_common`)
 
-> Nguồn đặc tả: `docs/greenhub-spec.md` mục 4.2, 4.3, 4.4, 4.5, 8.2, 17; `docs/DECISIONS.md`.
+> Nguồn đặc tả: `docs/greenhub-spec.md` mục 4.2, 4.3, 4.4, 4.5, 8.1, 17; `docs/DECISIONS.md`.
 
 ## 1. Mục tiêu & Phạm vi
 
@@ -71,7 +71,7 @@ Cung cấp định nghĩa gói tin nhị phân ESP-NOW và các hàm/hằng số
 - **Chu kỳ mặc định:**
   - `#ifdef DEMO_MODE`: `DEFAULT_SAMPLE_INTERVAL_S = 10`.
   - Thường: `DEFAULT_SAMPLE_INTERVAL_S = 60`.
-- **Dải vật lý hợp lệ (khớp A1 ở backend):**
+- **Dải vật lý hợp lệ (khớp kiểm tra chất lượng dữ liệu (luật) ở backend):**
   - `air_t`: `-10.0 .. 60.0 °C`.
   - `air_rh`: `0.0 .. 100.0 %`.
   - `soil_pct`: `0 .. 100 %`.

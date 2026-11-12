@@ -22,7 +22,7 @@ Gateway ESP32 là nút trung tâm của mỗi nhà kính (`1 gateway = 1 nhà k�
   - Tham chiếu chuẩn hành vi an toàn biên bằng Python nằm ở `tools/simulator/gateway_client.py` (`GatewaySafetyEngine`) và bộ test `platform/tests/test_gateway_sim_safety.py`. Firmware C++ trên Gateway **MUST** thực thi đúng logic tương đương.
 - **Cần hiện thực đầy đủ (M1):**
   - Captive Portal (`WiFiManager`) với custom parameters (`mqtt_host`, `mqtt_port`, `mqtt_user`, `mqtt_password`, `farm_id`, `greenhouse_id`) + lưu NVS + nút/cơ chế reset cấu hình nếu cần.
-  - Kết nối Wi-Fi STA (2.4 GHz), NTP (`configTime(0, 0, "pool.ntp.org", "time.google.com")`), `WiFiClientSecure` kiểm tra chứng chỉ TLS (nhúng `ca.crt` cho dev LAN hoặc root CA / `esp_crt_bundle` cho Let's Encrypt trên AWS EC2).
+  - Kết nối Wi-Fi STA (2.4 GHz), NTP (`configTime(0, 0, "pool.ntp.org", "time.google.com")`), `WiFiClientSecure` kiểm tra chứng chỉ TLS (nhúng `ca.crt` cho dev LAN hoặc root CA / `esp_crt_bundle` cho Let's Encrypt trên VPS Linux).
   - MQTT TLS client (`PubSubClient` với `setBufferSize(2048)`, LWT topic `gh/{farm_id}/{gh_id}/status` payload `{"online":false}` QoS 1 retained, subscribe `cmd/#` và `cfg`, reconnect exponential backoff).
   - ESP-NOW handler: nhận `PKT_HELLO` -> trả `PKT_HELLO_ACK{channel}` (và publish `discovery` nếu MAC lạ); nhận `PKT_TELEMETRY` -> kiểm tra MAC đã ghép trong `cfg` -> lọc dải vật lý & khử trùng `seq` -> gửi `PKT_CFG` nếu node cần -> đẩy telemetry vào MQTT/RAM queue.
   - RAM Ring Buffer kích thước `MQTT_QUEUE_SIZE` (150 bản tin, nằm trong khoảng 100–200) lưu telemetry + event khi mất MQTT, xả dần khi kết nối lại.
@@ -50,7 +50,7 @@ Gateway ESP32 là nút trung tâm của mỗi nhà kính (`1 gateway = 1 nhà k�
 1. Lần đầu khởi động (chưa có `ssid`/`mqtt_host`/`mqtt_user` hợp lệ trong NVS), Gateway mở AP (ví dụ `GreenHub-GW-XXXX`) bằng `WiFiManager`.
 2. Người dùng cấu hình:
    - Wi-Fi SSID & mật khẩu (chỉ hỗ trợ **2.4 GHz**, không hỗ trợ Wi-Fi có captive portal công cộng hoặc WPA2-Enterprise).
-   - `mqtt_host` (tên miền DuckDNS trên AWS prod hoặc IP LAN laptop ở dev — theo spec mục 13.3 prod dùng **tên miền**, không dùng IP).
+   - `mqtt_host` (tên miền riêng hoặc DuckDNS trên VPS prod, hoặc IP LAN laptop ở dev — theo spec mục 13.3 prod dùng **tên miền**, không dùng IP).
    - `mqtt_port` (mặc định `8883`).
    - `mqtt_user`, `mqtt_password` (lấy từ phản hồi 1 lần của `POST /api/gateways`).
    - `farm_id`, `greenhouse_id` (UUID dạng chuỗi 36 ký tự).
@@ -63,7 +63,7 @@ Gateway ESP32 là nút trung tâm của mỗi nhà kính (`1 gateway = 1 nhà k�
 3. Đồng bộ NTP qua `configTime(0, 0, "pool.ntp.org", "time.google.com")`. Đợi đồng bộ hợp lệ (`time(nullptr) > 1700000000`) trước khi gán `ts` ISO 8601 UTC (`YYYY-MM-DDTHH:MM:SSZ`) cho telemetry/event/ack.
 4. Cấu hình `WiFiClientSecure`:
    - Dev LAN: dùng `setCACert(GH_CA_CERT_PEM)` nhúng từ `deploy/certs/ca.crt`.
-   - Prod (AWS Let's Encrypt): dùng Root CA ISRG Root X1 hoặc `esp_crt_bundle_attach` (Arduino-ESP32), kiểm chứng trước bằng `openssl s_client -connect <domain>:8883`.
+   - Prod (VPS Let's Encrypt): dùng Root CA ISRG Root X1 hoặc `esp_crt_bundle_attach` (Arduino-ESP32), kiểm chứng trước bằng `openssl s_client -connect <domain>:8883`.
    - Tuyệt đối không bỏ xác thực chứng chỉ (`setInsecure()`) trong bản chạy thật/prod.
 5. Cấu hình MQTT:
    - `PubSubClient::setBufferSize(2048)` (bắt buộc ≥ 1024 vì payload `cfg` có nhiều trường JSON).

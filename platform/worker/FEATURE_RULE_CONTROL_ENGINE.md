@@ -5,12 +5,14 @@
 ## 1. Mục tiêu & Phạm vi
 
 Thực hiện vòng lặp điều khiển tự động trên cloud cho mỗi nhà kính:
-1. Tưới nước theo từng zone (hỗ trợ cả chiến lược `fixed` và `adaptive` lấy `pump_gain_pct_per_s` từ mô hình A2).
-2. Điều khiển quạt thông gió chung cho cả nhà kính dựa trên zone nguy hiểm nhất (hỗ trợ `fixed` và `adaptive` lấy `fan_vpd_rate_kpa_per_s` từ A2).
+Hệ thống chỉ có **một chiến lược điều khiển duy nhất: hysteresis cố định** (trước đây gọi là `fixed`); không có lựa chọn chiến lược theo zone.
+
+1. Tưới nước theo từng zone (hysteresis `soil_moisture_pct.min`/`max`, `duration_s = irrigation.max_run_s`).
+2. Điều khiển quạt thông gió chung cho cả nhà kính dựa trên zone nguy hiểm nhất (`duration_s = fan.min_on_s`, lặp lại khi điều kiện còn).
 3. Điều khiển máy tạo ẩm (auto khi quá khô VPD > `high_crit`, và ép tắt ngay cả khi đang `manual` + lockout khi quạt tự bật vì rủi ro).
 4. Tính tích luỹ `fungal_minutes` và kích hoạt/resolve các cảnh báo theo luật (`DISEASE_RISK`, `HEAT_STRESS`, `SOIL_DRY`, `SENSOR_FAULT`).
 
-- **Ngoài phạm vi:** Dự báo AI (`DISEASE_RISK_FORECAST`) **không** tự động điều khiển thiết bị; AI chỉ nằm trong vòng điều khiển ở bước tính `duration_s` cho `adaptive` (bị chặn bởi `max_run_s`/`max_on_s` ở cả cloud và gateway).
+- **Ngoài phạm vi:** AI (dự báo năng suất `yield_forecast`, gợi ý cây trồng `crop_recommendation` – xem `platform/worker/FEATURE_AI_RUNTIME_INFERENCE.md`, `ml/FEATURE_AI_YIELD_AND_RECOMMENDATION.md`) **không** nằm trong vòng điều khiển và **không** gửi lệnh tới thiết bị. Rule Engine không đọc `ml_models`/`predictions`.
 
 ## 2. Trạng thái hiện thực trong repo
 
@@ -18,7 +20,7 @@ Thực hiện vòng lặp điều khiển tự động trên cloud cho mỗi nh�
 - Các khối phụ trợ đã sẵn sàng để `rules.py` dùng ngay:
   - `core.crop_templates.CropParameters` / `SYSTEM_CROP_TEMPLATES`
   - `core.vpd.calc_risk_vpd_low`, `core.vpd.calc_risk_heat`
-  - `core.models.Command`, `ActuatorLog`, `DeviceState`, `Zone`, `CropProfile`, `Reading`, `Alert`, `MlModel`
+  - `core.models.Command`, `ActuatorLog`, `DeviceState`, `Zone`, `CropProfile`, `Reading`, `Alert`
   - `worker.commands.dispatch_pending_commands`
   - `worker.shadow.ensure_device_state`
 
@@ -36,7 +38,7 @@ Thực hiện vòng lặp điều khiển tự động trên cloud cho mỗi nh�
     - `fan_on_since`, `fan_auto_reason` (bật vì rủi ro hay nhiệt), `mist_lockout_until`, `last_mist_end_at`.
     - `last_valid_reading` (dùng làm dự phòng cảm biến khí giữa các zone cùng nhà kính).
 
-## 4. Xử lý dữ liệu lỗi A1 & Mất cảm biến (MUST)
+## 4. Xử lý dữ liệu lỗi (kiểm tra chất lượng dữ liệu – luật) & Mất cảm biến (MUST)
 
 - **CHỈ sử dụng dữ liệu có `quality == 'ok'`.**
 - Khi bản tin mới có `quality != 'ok'`:
@@ -64,18 +66,11 @@ Lấy tham số từ `CropProfile`: `soil_min = soil_moisture_pct.min`, `soil_ma
   - Nếu đang trong thời gian chờ đất thấm (`now < last_pump_end + irr.soil_settle_s`) → **không tưới** (tránh tưới lặp do cảm biến ẩm đất phản ứng chậm).
   - Nếu chưa qua khoảng nghỉ tối thiểu (`now < last_pump_end + irr.min_gap_s`) → không tưới.
   - Nếu tổng `duration_s` bơm đã `applied`/chạy trong 3600 s gần nhất `+ duration_s > irr.max_total_s_per_hour` → không tưới (chỉ cho phép tối đa phần còn lại nếu hợp lý, hoặc đợi hết cửa sổ 1 giờ).
-- **Điều kiện BẬT:** `soil_moisture < soil_min` và bơm đang `"off"`:
-  - **Chiến lược `fixed` (`zone.control_strategy == 'fixed'`):**
-    - `duration_s = irr.max_run_s`.
-    - `reason = f"fixed_soil_low:{soil:.1f}<{soil_min}"`.
-  - **Chiến lược `adaptive` (`zone.control_strategy == 'adaptive'`):**
-    - Kiểm tra mô hình `ml_models` active cho `(zone_id, task='pump_response')` có số sự kiện `n_samples >= min_events` (mặc định `5`) và `pump_gain_pct_per_s > 0`.
-    - Nếu **không đủ** điều kiện / chưa có model → **tự động fallback về `fixed`** (`duration_s = irr.max_run_s`, ghi rõ `reason` có `fallback_fixed`).
-    - Nếu **đủ**:
-      - `target = (soil_min + soil_max) / 2.0`
-      - `raw_d = (target - soil_now) / pump_gain_pct_per_s`
-      - `duration_s = int(round(clamp(raw_d, 3, irr.max_run_s)))`
-      - `reason = f"adaptive_gain:{pump_gain:.3f}_target:{target:.1f}"`.
+- **Điều kiện BẬT:** `soil_moisture < soil_min` và bơm đang `"off"` (và đã qua các chặn an toàn ở trên):
+  - `duration_s = irr.max_run_s` (gateway vẫn chặn lại bằng `max_run_s` của chính nó).
+  - `reason = f"soil_low:{soil:.1f}<{soil_min}"`.
+  - Bơm sẽ tắt sớm theo hysteresis trên khi `soil_moisture >= soil_max`; sau khi tắt luôn tôn trọng `soil_settle_s`, `min_gap_s`, `max_total_s_per_hour`.
+  - Không có công thức tính `duration_s` dựa trên mô hình học (không dùng `pump_gain`).
 
 ### 5.2 Quạt thông gió chung cho cả Nhà kính (`fan`)
 
@@ -92,11 +87,8 @@ Một nhà kính chỉ có **1 quạt** dùng chung cho toàn bộ các zone. Do
     1. Gateway sẽ thực thi interlock `mist_off` ngay khi nhận lệnh `fan on`, **đồng thời** Rule Engine đặt `mist_lockout_until = now + mist.lockout_s` (có thể chủ động phát `mist off` nếu cần chắc chắn hoặc dựa vào interlock `fan on` + lockout không cho bật lại `mist` trong `lockout_s`).
     2. Đặt `mist` lockout trong `mist.lockout_s` để rule `auto` (và cảnh báo nếu manual cố bật lại) không bật `mist` ngay sau đó.
 - **Tính `duration_s` khi BẬT quạt** (dựa trên thông số của zone nguy hiểm nhất):
-  - **`fixed`:** `duration_s = fan.min_on_s` (nếu điều kiện vẫn còn khi sắp hết/vừa tắt sau `min_on_s`, rule engine phát lệnh mới để duy trì).
-  - **`adaptive`:** nếu zone kích hoạt có `control_strategy == 'adaptive'` và model `fan_response` active (`>= 5` sự kiện, `fan_vpd_rate_kpa_per_s > 0`):
-    - `raw_d = (vpd.low_off - vpd_now) / fan_vpd_rate_kpa_per_s`
-    - `duration_s = int(clamp(round(raw_d), fan.min_on_s, fan.max_on_s))`
-    - Nếu thiếu model/dữ liệu → fallback `fan.min_on_s`.
+  - `duration_s = fan.min_on_s`; nếu điều kiện vẫn còn khi sắp hết/vừa tắt sau `min_on_s`, rule engine phát lệnh mới để duy trì (tổng thời gian chạy liên tục SHOULD không vượt `fan.max_on_s` mà không đánh giá lại).
+  - Không dùng công thức dựa trên mô hình học (không dùng `fan_vpd_rate`).
 - **Điều kiện TẮT quạt (Hysteresis):**
   - Khi quạt đang `"on"` (do `auto`), chỉ gửi `action = "off"` khi **tất cả** các điều kiện sau đều đạt:
     1. Đã chạy tối thiểu `fan.min_on_s` kể từ lúc bật (`now - fan_on_since >= fan.min_on_s`).
@@ -141,7 +133,8 @@ Một nhà kính chỉ có **1 quạt** dùng chung cho toàn bộ các zone. Do
 
 - Unit tests bắt buộc (spec mục 15):
   - Hysteresis tưới (`soil < min` bật, `soil >= max` tắt sớm), `min_gap_s`, `max_total_s_per_hour`, `soil_settle_s`.
-  - Adaptive fallback về `fixed` khi số sự kiện `< 5` hoặc chưa có model; tính đúng `duration_s` được clamp `[3, max_run_s]` khi có `pump_gain`.
+  - Lệnh tưới luôn có `duration_s = irrigation.max_run_s`; lệnh quạt luôn có `duration_s = fan.min_on_s` và được phát lại khi điều kiện còn.
+  - Rule Engine không truy vấn `ml_models`/`predictions` (AI không điều khiển thiết bị).
   - Quạt ưu tiên zone nguy hiểm nhất; không bật quạt khi VPD > `high_crit`; tắt sau `min_on_s` khi `vpd >= low_off`.
   - **Kịch bản A (quan trọng):** `mist` đang bật ở chế độ `manual` → `vpd < low_crit` kéo dài `vpd_low_duration_min` → phát `DISEASE_RISK` → quạt tự bật + ép tắt `mist` + khóa `mist.lockout_s`.
   - **Kịch bản C:** cảm biến đất `out_of_range` (`soil_raw=0`) → **không** phát lệnh tưới, phát `SENSOR_FAULT`.
