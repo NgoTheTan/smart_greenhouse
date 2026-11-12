@@ -66,4 +66,21 @@ def create_worker_scheduler(
             max_instances=1,
         )
 
+        async def _tick_10m() -> None:
+            async with SessionLocal() as session:
+                try:
+                    await inference_service.check_and_reload_active_model(session)
+                    await session.commit()
+                except Exception:  # noqa: BLE001
+                    await session.rollback()
+                    log.exception("Lỗi trong chu kỳ đồng bộ model & yield_samples 10m")
+
+        scheduler.add_job(
+            _tick_10m,
+            "interval",
+            minutes=10,
+            id="worker_model_sync_10m",
+            max_instances=1,
+        )
+
     return scheduler

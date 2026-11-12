@@ -57,21 +57,28 @@ class WorkerRuntime:
         return self._mqtt_client
 
     async def on_worker_event(self, event: dict[str, Any]) -> None:
-        """Xử lý thông báo tức thời từ tiến trình `api` qua kênh PostgreSQL `worker_events`."""
+        """Xử lý thông báo tức thời từ tiến trình `api` hoặc `ml/train.py` qua `worker_events`."""
         client = self._mqtt_client
-        if client is None:
-            return
         kind = event.get("type")
+        if kind in {"command_created", "cfg_updated"} and client is None:
+            return
+
         async with SessionLocal() as session:
             try:
-                if kind == "command_created":
+                if kind == "command_created" and client is not None:
                     cmd_id = uuid.UUID(str(event["cmd_id"]))
                     await dispatch_pending_commands(client, session, command_id=cmd_id)
-                elif kind == "cfg_updated":
+                elif kind == "cfg_updated" and client is not None:
                     gh_id = uuid.UUID(str(event["greenhouse_id"]))
                     await self.shadow_pub.publish_cfg(client, session, gh_id, force=True)
                 elif kind == "model_activated":
-                    await self.inference.load_active_models(session)
+                    await self.inference.load_active_model(session)
+                elif kind == "cycle_harvested":
+                    cycle_id = uuid.UUID(str(event["cycle_id"]))
+                    await self.inference.handle_cycle_harvested(session, cycle_id)
+                elif kind == "recommend":
+                    gh_id = uuid.UUID(str(event["greenhouse_id"]))
+                    await self.inference.run_recommendation_for_greenhouse(session, gh_id)
                 await session.commit()
             except Exception:  # noqa: BLE001
                 await session.rollback()
@@ -106,7 +113,7 @@ class WorkerRuntime:
         s = get_settings()
         async with SessionLocal() as session:
             await self.ingest.warm_up(session)
-            await self.inference.load_active_models(session)
+            await self.inference.load_active_model(session)
 
         stop_event = asyncio.Event()
         listener_task = asyncio.create_task(
