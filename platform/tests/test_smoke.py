@@ -16,6 +16,12 @@ def test_api_app_routes():
     assert "/api/auth/login" in paths
     assert "/api/greenhouses/{gh_id}/commands" in paths
     assert "/api/nodes/{mac}/pair" in paths
+    assert "/api/zones/{zone_id}/cycles" in paths
+    assert "/api/greenhouses/{gh_id}/recommendations" in paths
+    assert "/api/models" in paths
+    assert "/api/models/active" in paths
+    assert "/api/experiments" not in paths
+    assert not any("yield-samples" in p or "yield_samples" in p for p in paths)
 
 
 def test_worker_subscriptions():
