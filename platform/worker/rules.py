@@ -1,4 +1,4 @@
-"""Rule & Control Engine: hysteresis, rủi ro nấm, interlock, auto/manual, fixed/adaptive."""
+"""Rule & Control Engine: hysteresis cố định, rủi ro nấm, interlock, auto/manual."""
 
 import logging
 import uuid
@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import aiomqtt
-from sqlalchemy import desc, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.crop_templates import DEFAULT_DEMO_PARAMS
@@ -18,7 +18,6 @@ from core.models import (
     CropProfile,
     Gateway,
     Greenhouse,
-    MlModel,
     Reading,
     Zone,
 )
@@ -62,6 +61,13 @@ def _sum_recent_duration(
 ) -> int:
     cutoff = now - timedelta(seconds=window_s)
     return sum(d for end_t, d in runs if end_t >= cutoff)
+
+
+def _get_actuator_mode(modes: dict[str, Any], actuator: str) -> str:
+    val = modes.get(actuator, "auto")
+    if isinstance(val, dict):
+        return str(val.get("mode", "auto"))
+    return str(val or "auto")
 
 
 class RuleEngine:
@@ -429,7 +435,7 @@ class RuleEngine:
 
         # Kiểm tra chế độ điều khiển
         modes = dev_state.desired.get("modes", {})
-        if modes.get(pump_actuator, "auto") != "auto":
+        if _get_actuator_mode(modes, pump_actuator) != "auto":
             return
 
         # Kiểm tra nếu đang có lệnh pending/sent cho bơm này
@@ -489,36 +495,9 @@ class RuleEngine:
                 )
                 return
 
-            # Tính duration_s: Fixed vs Adaptive
-            strategy = zone.control_strategy
+            # Chiến lược duy nhất: hysteresis cố định
             duration_s = max_run_s
-            reason = f"fixed_soil_low:{soil_m:.1f}<{soil_min}"
-
-            if strategy == "adaptive":
-                model_stmt = (
-                    select(MlModel)
-                    .where(
-                        MlModel.zone_id == zone.id,
-                        MlModel.task == "pump_response",
-                        MlModel.is_active.is_(True),
-                    )
-                    .order_by(desc(MlModel.trained_at))
-                    .limit(1)
-                )
-                model = (await session.execute(model_stmt)).scalar_one_or_none()
-
-                gain = 0.0
-                if model and model.metrics:
-                    gain = float(model.metrics.get("pump_gain_pct_per_s", 0.0))
-
-                if model is None or model.n_samples < 5 or gain <= 0.0:
-                    duration_s = max_run_s
-                    reason = f"adaptive_fallback_fixed:{soil_m:.1f}<{soil_min}"
-                else:
-                    target_soil = (soil_min + soil_max) / 2.0
-                    raw_d = (target_soil - soil_m) / gain
-                    duration_s = int(round(max(3, min(raw_d, max_run_s))))
-                    reason = f"adaptive_gain:{gain:.3f}_target:{target_soil:.1f}"
+            reason = f"soil_low:{soil_m:.1f}<{soil_min}"
 
             await self._create_command(
                 session=session,
@@ -581,7 +560,6 @@ class RuleEngine:
 
         should_turn_on_fan = False
         fan_trigger_reason = ""
-        dangerous_zone: Zone | None = None
         dangerous_params: dict[str, Any] = DEFAULT_DEMO_PARAMS
         max_risk_score = -1.0
 
@@ -614,7 +592,6 @@ class RuleEngine:
             risk_score = max(r_vpd, r_heat)
             if risk_score > max_risk_score:
                 max_risk_score = risk_score
-                dangerous_zone = z
                 dangerous_params = params
 
             # Điều kiện bật quạt:
@@ -639,7 +616,6 @@ class RuleEngine:
         fan_cfg = dangerous_params.get("fan", {})
         mist_cfg = dangerous_params.get("mist", {})
         fan_min_on_s = int(fan_cfg.get("min_on_s", 180))
-        fan_max_on_s = int(fan_cfg.get("max_on_s", 600))
         mist_lockout_s = int(mist_cfg.get("lockout_s", 300))
         mist_max_on_s = int(mist_cfg.get("max_on_s", 120))
 
@@ -664,42 +640,14 @@ class RuleEngine:
             )
 
         # --- ĐIỀU KHIỂN QUẠT (FAN) ---
-        fan_mode = modes.get("fan", "auto")
+        fan_mode = _get_actuator_mode(modes, "fan")
         if fan_mode == "auto":
             has_fan_cmd = await self._has_pending_command(session, greenhouse_id, "fan")
             if not has_fan_cmd:
                 if should_turn_on_fan and cur_fan == "off":
-                    # BẬT QUẠT
+                    # BẬT QUẠT theo chiến lược hysteresis cố định
                     duration_s = fan_min_on_s
                     reason = f"auto_fan_on:{fan_trigger_reason}"
-
-                    if dangerous_zone and dangerous_zone.control_strategy == "adaptive":
-                        model_stmt = (
-                            select(MlModel)
-                            .where(
-                                MlModel.zone_id == dangerous_zone.id,
-                                MlModel.task == "fan_response",
-                                MlModel.is_active.is_(True),
-                            )
-                            .order_by(desc(MlModel.trained_at))
-                            .limit(1)
-                        )
-                        model = (await session.execute(model_stmt)).scalar_one_or_none()
-                        rate = 0.0
-                        if model and model.metrics:
-                            rate = float(model.metrics.get("fan_vpd_rate_kpa_per_s", 0.0))
-
-                        if model and model.n_samples >= 5 and rate > 0.0:
-                            z_st = self.get_zone_state(dangerous_zone.id)
-                            vpd_curr = z_st.last_valid_vpd or 0.4
-                            vpd_low_off = float(
-                                dangerous_params.get("vpd", {}).get("low_off", 0.6)
-                            )
-                            raw_dur = (vpd_low_off - vpd_curr) / rate
-                            duration_s = int(
-                                round(max(fan_min_on_s, min(raw_dur, fan_max_on_s)))
-                            )
-                            reason = f"adaptive_rate:{rate:.4f}"
 
                     await self._create_command(
                         session=session,
@@ -755,7 +703,7 @@ class RuleEngine:
                             gh_state.fan_auto_reason = None
 
         # --- ĐIỀU KHIỂN MÁY TẠO ẨM (MIST) ---
-        mist_mode = modes.get("mist", "auto")
+        mist_mode = _get_actuator_mode(modes, "mist")
         if mist_mode == "auto":
             has_mist_cmd = await self._has_pending_command(session, greenhouse_id, "mist")
             if not has_mist_cmd:

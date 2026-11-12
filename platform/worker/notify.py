@@ -26,13 +26,13 @@ SEVERITY_RANK: dict[str, int] = {
 
 ALERT_TITLES: dict[str, str] = {
     "DISEASE_RISK": "CẢNH BÁO: Nguy cơ nấm bệnh",
-    "DISEASE_RISK_FORECAST": "DỰ BÁO: Rủi ro nấm bệnh",
     "HEAT_STRESS": "CẢNH BÁO: Sốc nhiệt",
     "SOIL_DRY": "CẢNH BÁO: Đất quá khô",
     "SENSOR_FAULT": "CẢNH BÁO: Lỗi cảm biến",
     "DEVICE_OFFLINE": "CẢNH BÁO: Mất kết nối Gateway",
     "FAILSAFE_ACTIVE": "CẢNH BÁO: Chế độ an toàn (Failsafe)",
     "MAINTENANCE": "THÔNG BÁO: Yêu cầu bảo trì",
+    "YIELD_FORECAST_LOW": "THÔNG BÁO: Năng suất dự kiến thấp",
 }
 
 
@@ -69,11 +69,16 @@ def format_alert_body(
         detail_str = f" ({', '.join(details)})" if details else ""
         return f"{location}: Nguy cơ nấm bệnh cao{detail_str}. Quạt thông gió đã được kích hoạt."
 
-    if type_ == "DISEASE_RISK_FORECAST":
-        score = payload.get("risk_score")
-        horizon = payload.get("horizon_min", 120)
-        score_str = f" ({int(score * 100)}%)" if score is not None else ""
-        return f"{location}: Dự báo rủi ro bùng phát nấm trong {horizon} phút tới{score_str}."
+    if type_ == "YIELD_FORECAST_LOW":
+        expected = payload.get("value") or payload.get("expected_kg_m2")
+        rel = payload.get("score") or payload.get("relative_yield")
+        if expected is not None and rel is not None:
+            pct = int(round(float(rel) * 100))
+            return (
+                f"{location}: Năng suất dự kiến thấp ({float(expected):.2f} kg/m², "
+                f"≈ {pct}% mức tham chiếu)."
+            )
+        return payload.get("body") or f"{location}: Năng suất dự kiến thấp hơn ngưỡng tham chiếu."
 
     if type_ == "HEAT_STRESS":
         temp = payload.get("air_temp")

@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from core.crop_templates import DEFAULT_DEMO_PARAMS
-from core.models import CropProfile, DeviceState, Gateway, Greenhouse, MlModel, Reading, Zone
+from core.models import CropProfile, DeviceState, Gateway, Greenhouse, Reading, Zone
 from worker.rules import RuleEngine
 
 
@@ -72,13 +72,12 @@ class FakeAsyncSession:
 
 
 def _make_context(
-    strategy: str = "fixed",
     pump_status: str = "off",
     fan_status: str = "off",
     mist_status: str = "off",
-    pump_mode: str = "auto",
-    fan_mode: str = "auto",
-    mist_mode: str = "auto",
+    pump_mode: Any = "auto",
+    fan_mode: Any = "auto",
+    mist_mode: Any = "auto",
 ) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, Zone, Greenhouse, Gateway, CropProfile, DeviceState]:
     farm_id = uuid.uuid4()
     gh_id = uuid.uuid4()
@@ -87,8 +86,9 @@ def _make_context(
     prof = CropProfile(
         id=uuid.uuid4(),
         farm_id=farm_id,
+        crop_code="tomato_cherry",
         crop_name="Cà chua Demo",
-        schema_version=1,
+        schema_version=2,
         parameters_json=DEFAULT_DEMO_PARAMS,
     )
     zone = Zone(
@@ -97,7 +97,6 @@ def _make_context(
         zone_index=1,
         name="Zone 1",
         pump_channel=1,
-        control_strategy=strategy,
         crop_profile_id=prof.id,
     )
     gh = Greenhouse(id=gh_id, farm_id=farm_id, name="Nhà kính 1")
@@ -118,9 +117,7 @@ def _make_context(
 
 def test_fixed_irrigation_hysteresis() -> None:
     engine = RuleEngine()
-    farm_id, gh_id, zone_id, zone, gh, gw, prof, dev_state = _make_context(
-        strategy="fixed", pump_status="off"
-    )
+    farm_id, gh_id, zone_id, zone, gh, gw, prof, dev_state = _make_context(pump_status="off")
 
     created_commands = []
 
@@ -177,7 +174,7 @@ def test_fixed_irrigation_hysteresis() -> None:
     assert len(pump_cmds) == 1
     assert pump_cmds[0].action == "on"
     assert pump_cmds[0].duration_s == 15  # max_run_s trong DEFAULT_DEMO_PARAMS
-    assert "fixed_soil_low" in pump_cmds[0].reason
+    assert "soil_low:" in pump_cmds[0].reason
 
     # 2. Hysteresis TẮT SỚM: khi bơm đang on và độ ẩm vượt >= 75% -> TẮT BƠM
     created_commands.clear()
@@ -206,7 +203,7 @@ def test_fixed_irrigation_hysteresis() -> None:
 
 def test_irrigation_safety_constraints() -> None:
     engine = RuleEngine()
-    farm_id, gh_id, zone_id, zone, gh, gw, prof, dev_state = _make_context(strategy="fixed")
+    farm_id, gh_id, zone_id, zone, gh, gw, prof, dev_state = _make_context()
 
     created_commands = []
 
@@ -265,23 +262,24 @@ def test_irrigation_safety_constraints() -> None:
     assert len([c for c in created_commands if getattr(c, "actuator", None) == "pump_1"]) == 0
 
 
-def test_adaptive_irrigation_and_fallback() -> None:
+def test_manual_mode_dict_blocks_auto_irrigation() -> None:
+    """Chế độ manual lưu dạng dict `{"mode": "manual", "until": ...}` chặn tưới tự động."""
     engine = RuleEngine()
-    farm_id, gh_id, zone_id, zone, gh, gw, prof, dev_state = _make_context(strategy="adaptive")
+    until_iso = (datetime.now(UTC) + timedelta(minutes=10)).isoformat()
+    farm_id, gh_id, zone_id, zone, gh, gw, prof, dev_state = _make_context(
+        pump_mode={"mode": "manual", "until": until_iso}
+    )
 
     created_commands = []
-    active_model = None
 
     def _execute(stmt):
-        s_str = str(stmt)
-        if "FROM zones" in s_str:
-            if "greenhouses" in s_str:
+        s = str(stmt)
+        if "FROM zones" in s:
+            if "greenhouses" in s:
                 return _FakeResult((zone, gh, gw, prof))
             return _FakeResult([(zone, prof)])
-        if "FROM device_state" in s_str:
+        if "FROM device_state" in s:
             return _FakeResult(dev_state)
-        if "FROM ml_models" in s_str:
-            return _FakeResult(active_model)
         return _FakeResult(None)
 
     def _get(model, pk):
@@ -300,49 +298,25 @@ def test_adaptive_irrigation_and_fallback() -> None:
     )
 
     now = datetime(2026, 11, 8, 10, 0, 0, tzinfo=UTC)
-    reading = Reading(
+    dry_reading = Reading(
         zone_id=zone_id,
         ts=now,
         air_temp=24.0,
         air_rh=65.0,
         vpd=1.0,
-        soil_moisture=50.0,
+        soil_moisture=45.0,
         quality="ok",
     )
-
-    # 1. Không có model active -> fallback về fixed (max_run_s = 15s)
-    _run_coro(engine.evaluate_zone_telemetry(session, zone_id, gh_id, farm_id, reading, now=now))
-    cmd = created_commands[-1]
-    assert cmd.duration_s == 15
-    assert "adaptive_fallback_fixed" in cmd.reason
-
-    # 2. Có model active hợp lệ (n_samples=10, gain = 1.5 %/s)
-    # Target = (60 + 75) / 2 = 67.5%
-    # Deficit = 67.5 - 50 = 17.5% -> raw_dur = 17.5 / 1.5 = 11.67s -> round = 12s
-    created_commands.clear()
-    engine.get_gh_state(gh_id).last_pump_end_at.clear()
-    engine.get_gh_state(gh_id).soil_settle_until.clear()
-
-    active_model = MlModel(
-        id=uuid.uuid4(),
-        zone_id=zone_id,
-        task="pump_response",
-        is_active=True,
-        n_samples=10,
-        metrics={"pump_gain_pct_per_s": 1.5},
+    _run_coro(
+        engine.evaluate_zone_telemetry(session, zone_id, gh_id, farm_id, dry_reading, now=now)
     )
-
-    _run_coro(engine.evaluate_zone_telemetry(session, zone_id, gh_id, farm_id, reading, now=now))
-    cmd = created_commands[-1]
-    assert cmd.duration_s == 12
-    assert "adaptive_gain:1.500" in cmd.reason
+    assert not [c for c in created_commands if getattr(c, "actuator", None) == "pump_1"]
 
 
 def test_scenario_a_fan_interlock_forces_mist_off() -> None:
     """Kịch bản A: Mist đang manual -> Rủi ro nấm -> Quạt tự bật và ép tắt mist."""
     engine = RuleEngine()
     farm_id, gh_id, zone_id, zone, gh, gw, prof, dev_state = _make_context(
-        strategy="fixed",
         fan_status="off",
         mist_status="on",
         fan_mode="auto",
@@ -415,9 +389,7 @@ def test_scenario_a_fan_interlock_forces_mist_off() -> None:
 def test_scenario_c_sensor_fault_blocks_irrigation() -> None:
     """Kịch bản C: Rút dây ẩm đất (quality != ok) -> Mở SENSOR_FAULT và KHÔNG tưới."""
     engine = RuleEngine()
-    farm_id, gh_id, zone_id, zone, gh, gw, prof, dev_state = _make_context(
-        strategy="fixed", pump_status="off"
-    )
+    farm_id, gh_id, zone_id, zone, gh, gw, prof, dev_state = _make_context(pump_status="off")
 
     created_commands = []
     created_alerts = []

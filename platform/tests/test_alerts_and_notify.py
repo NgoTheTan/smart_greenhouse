@@ -6,14 +6,16 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import patch
 
+import pytest
+from fastapi import HTTPException
 from pywebpush import WebPushException
 
-from api.routers.alerts import acknowledge_alert, feedback_alert, list_alerts
+from api.routers.alerts import acknowledge_alert, list_alerts
 from api.routers.push import get_notification_preferences, subscribe_push
 from core.models import Alert, Greenhouse, PushSubscription, User
-from core.schemas import AlertFeedbackRequest, PushSubscribeRequest, PushSubscriptionKeys
+from core.schemas import PushSubscribeRequest, PushSubscriptionKeys
 from worker.alerts import escalate_alerts, raise_alert, resolve_alert
-from worker.notify import send_webpush_to_subscription
+from worker.notify import format_alert_body, get_alert_title, send_webpush_to_subscription
 
 
 def _run_coro(coro: Coroutine[Any, Any, Any]) -> Any:
@@ -297,16 +299,27 @@ def test_alerts_and_push_api_endpoints() -> None:
     assert acked.state == "acknowledged"
     assert acked.acked_by == user.id
 
-    # 3. feedback_alert
-    fb = _run_coro(
-        feedback_alert(
-            alert_id=test_alert.id,
-            body=AlertFeedbackRequest(feedback="true_positive"),
-            user=user,
-            session=session,
-        )
+    # 3. acknowledge alert đã resolved -> 409
+    resolved_alert = Alert(
+        id=uuid.uuid4(),
+        greenhouse_id=gh_id,
+        alert_type="YIELD_FORECAST_LOW",
+        severity="info",
+        state="resolved",
+        dedupe_key="YIELD_FORECAST_LOW:1",
+        payload={"value": 1.35, "score": 0.45},
+        created_at=datetime.now(UTC),
     )
-    assert fb.feedback == "true_positive"
+    session._execute_fn = lambda stmt: _FakeResult(resolved_alert)
+    with pytest.raises(HTTPException) as exc:
+        _run_coro(acknowledge_alert(alert_id=resolved_alert.id, user=user, session=session))
+    assert exc.value.status_code == 409
+
+    # 3b. Kiểm tra tiêu đề & nội dung thông điệp YIELD_FORECAST_LOW (info)
+    title = get_alert_title(resolved_alert.alert_type)
+    body = format_alert_body(resolved_alert)
+    assert "năng suất" in title.lower()
+    assert "45%" in body or "năng suất" in body.lower()
 
     # 4. push subscribe
     class _FakeReq:
