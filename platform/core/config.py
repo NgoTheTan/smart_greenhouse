@@ -42,12 +42,14 @@ class Settings(BaseSettings):
     # Email
     smtp_host: str = ""
     smtp_port: int = 587
+    smtp_tls: bool = False
     smtp_user: str = ""
     smtp_password: str = ""
     alert_email_from: str = "greenhub@example.com"
 
     # Khác
     domain: str = "localhost"
+    tz: str = "Asia/Ho_Chi_Minh"
     models_dir: Path = Path("./models")
     log_level: str = "INFO"
 
@@ -55,7 +57,7 @@ class Settings(BaseSettings):
     command_expire_s: int = 30
     alert_cooldown_min: int = 10
     escalate_after_min: int = 5
-    risk_forecast_threshold: float = 0.7
+    yield_low_threshold: float = 0.6
 
 
 @lru_cache

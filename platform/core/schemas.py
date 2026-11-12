@@ -11,8 +11,9 @@ ACTUATOR_NAMES = ("pump_1", "pump_2", "fan", "mist")
 ActuatorType = Literal["pump_1", "pump_2", "fan", "mist"]
 ActionType = Literal["on", "off"]
 ModeType = Literal["auto", "manual"]
-StrategyType = Literal["fixed", "adaptive"]
 AckStatusType = Literal["applied", "rejected", "expired"]
+CropCodeType = Literal["tomato_cherry", "strawberry", "lettuce", "cucumber", "bell_pepper"]
+CycleStatusType = Literal["active", "harvested", "abandoned"]
 
 _MAC_RE = re.compile(r"^[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}$")
 
@@ -171,6 +172,7 @@ class ZoneCreateSpec(BaseModel):
     zone_index: int = Field(ge=1, le=8)
     name: str
     crop_profile_id: uuid.UUID | None = None
+    area_m2: float | None = Field(default=None, gt=0)
     pump_channel: int | None = None
     soil_dry_raw: int = 2900
     soil_wet_raw: int = 1300
@@ -190,9 +192,9 @@ class ZoneResponse(BaseModel):
     zone_index: int
     name: str | None
     crop_profile_id: uuid.UUID | None
+    area_m2: float | None = None
     planting_date: date | None
     pump_channel: int | None
-    control_strategy: str
     soil_dry_raw: int | None
     soil_wet_raw: int | None
 
@@ -276,8 +278,8 @@ class CalibrationUpdateRequest(BaseModel):
 class ZoneUpdateRequest(BaseModel):
     name: str | None = Field(default=None, max_length=100)
     crop_profile_id: uuid.UUID | None = None
+    area_m2: float | None = Field(default=None, gt=0)
     planting_date: date | None = None
-    control_strategy: StrategyType | None = None
 
 
 class CropProfileResponse(BaseModel):
@@ -285,6 +287,7 @@ class CropProfileResponse(BaseModel):
 
     id: uuid.UUID
     farm_id: uuid.UUID | None
+    crop_code: str
     crop_name: str
     variety: str | None
     schema_version: int
@@ -292,6 +295,7 @@ class CropProfileResponse(BaseModel):
 
 
 class CropProfileUpdateRequest(BaseModel):
+    crop_code: CropCodeType | None = None
     crop_name: str | None = Field(default=None, max_length=100)
     variety: str | None = Field(default=None, max_length=100)
     parameters_json: dict[str, Any]
@@ -368,7 +372,6 @@ class ConfigSyncResponse(BaseModel):
 
 AlertSeverityType = Literal["info", "warning", "critical"]
 AlertStateType = Literal["raised", "notified", "acknowledged", "resolved"]
-AlertFeedbackType = Literal["true_positive", "false_positive"]
 
 
 class AlertResponse(BaseModel):
@@ -388,12 +391,6 @@ class AlertResponse(BaseModel):
     acknowledged_at: datetime | None
     acked_by: uuid.UUID | None
     resolved_at: datetime | None
-    feedback: str | None
-    feedback_at: datetime | None
-
-
-class AlertFeedbackRequest(BaseModel):
-    feedback: AlertFeedbackType
 
 
 class PushPublicKeyResponse(BaseModel):
@@ -430,70 +427,83 @@ class NotificationPrefUpdateRequest(BaseModel):
 
 
 # ==============================================================================
-# 6. Schemas AI/ML & Thí nghiệm (Models, Predictions & Experiments)
+# 6. Schemas Vụ trồng & AI Năng suất / Gợi ý cây trồng (Cycles, Models, Predictions)
 # ==============================================================================
+
+
+class CropCycleCreateRequest(BaseModel):
+    crop_profile_id: uuid.UUID
+    started_at: datetime | None = None
+    area_m2: float | None = Field(default=None, gt=0)
+    notes: str | None = Field(default=None, max_length=1000)
+
+
+class CropCycleHarvestRequest(BaseModel):
+    harvested_at: datetime | None = None
+    yield_kg: float = Field(ge=0)
+    notes: str | None = Field(default=None, max_length=1000)
+
+
+class CropCycleAbandonRequest(BaseModel):
+    notes: str | None = Field(default=None, max_length=1000)
+
+
+class CropCycleResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    zone_id: uuid.UUID
+    crop_profile_id: uuid.UUID
+    crop_code: str | None = None
+    crop_name: str | None = None
+    started_at: datetime
+    harvested_at: datetime | None = None
+    area_m2: float
+    yield_kg: float | None = None
+    yield_kg_m2: float | None = None
+    status: str
+    notes: str | None = None
+    created_by: uuid.UUID | None = None
+    created_at: datetime
 
 
 class PredictionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    zone_id: uuid.UUID
-    task: str
+    id: uuid.UUID
     ts: datetime
-    model_id: uuid.UUID | None
-    horizon_min: int | None
-    score: float | None
-    value: float | None
-    details: dict[str, Any] | None
+    task: str
+    greenhouse_id: uuid.UUID
+    zone_id: uuid.UUID | None = None
+    crop_cycle_id: uuid.UUID | None = None
+    model_id: uuid.UUID | None = None
+    value: float | None = None
+    score: float | None = None
+    details: dict[str, Any] | None = None
+
+
+class RefreshRecommendationResponse(BaseModel):
+    status: str = "accepted"
+    greenhouse_id: uuid.UUID
 
 
 class MlModelResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    zone_id: uuid.UUID | None
     task: str
     version: int
+    feature_version: int
     artifact_path: str
     trained_at: datetime
-    train_from: datetime | None
-    train_to: datetime | None
-    n_samples: int | None
-    source_mix: dict[str, Any] | None
-    metrics: dict[str, Any] | None
-    baseline_metrics: dict[str, Any] | None
+    n_samples: int | None = None
+    n_greenhouses: int | None = None
+    source_mix: dict[str, Any] | None = None
+    crops: list[dict[str, Any]] | None = None
+    metrics: dict[str, Any] | None = None
+    baseline_metrics: dict[str, Any] | None = None
     is_active: bool
-    notes: str | None
-
-
-class ExperimentCreateRequest(BaseModel):
-    greenhouse_id: uuid.UUID
-    strategy: StrategyType
     notes: str | None = None
-
-
-class ExperimentRunResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    greenhouse_id: uuid.UUID
-    strategy: str
-    started_at: datetime
-    ended_at: datetime | None
-    notes: str | None
-
-
-class ExperimentKpiResponse(BaseModel):
-    experiment_id: uuid.UUID
-    greenhouse_id: uuid.UUID
-    strategy: str
-    started_at: datetime
-    ended_at: datetime | None
-    duration_hours: float
-    actuator_cycles_per_hour: dict[str, float]
-    vpd_in_range_pct: dict[str, float]
-    soil_overshoot_pct: dict[str, float]
-    total_pump_duration_s: dict[str, int]
-    false_positive_alerts: int
+    feature_drift: dict[str, Any] | None = None
 
 

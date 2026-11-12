@@ -119,10 +119,11 @@ class CropProfile(Base):
         server_default=text("gen_random_uuid()"),
     )
     farm_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("farms.id"))
+    crop_code: Mapped[str] = mapped_column(String(40), nullable=False)
     crop_name: Mapped[str] = mapped_column(String(100), nullable=False)
     variety: Mapped[str | None] = mapped_column(String(100))
     schema_version: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=1, server_default=text("1")
+        Integer, nullable=False, default=2, server_default=text("2")
     )
     parameters_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
 
@@ -131,9 +132,6 @@ class Zone(Base):
     __tablename__ = "zones"
     __table_args__ = (
         UniqueConstraint("greenhouse_id", "zone_index", name="uq_zones_gh_index"),
-        CheckConstraint(
-            "control_strategy IN ('fixed','adaptive')", name="ck_zones_control_strategy"
-        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -150,11 +148,9 @@ class Zone(Base):
     crop_profile_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("crop_profiles.id")
     )
+    area_m2: Mapped[float | None] = mapped_column(Float)
     planting_date: Mapped[date | None] = mapped_column(Date)
     pump_channel: Mapped[int | None] = mapped_column(Integer)
-    control_strategy: Mapped[str] = mapped_column(
-        String(10), nullable=False, default="fixed", server_default=text("'fixed'")
-    )
     soil_dry_raw: Mapped[int | None] = mapped_column(Integer)
     soil_wet_raw: Mapped[int | None] = mapped_column(Integer)
 
@@ -305,10 +301,6 @@ class Alert(Base):
         CheckConstraint(
             "state IN ('raised','notified','acknowledged','resolved')", name="ck_alerts_state"
         ),
-        CheckConstraint(
-            "feedback IS NULL OR feedback IN ('true_positive','false_positive')",
-            name="ck_alerts_feedback",
-        ),
         Index(
             "alerts_open_dedupe",
             "dedupe_key",
@@ -342,8 +334,6 @@ class Alert(Base):
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     acked_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    feedback: Mapped[str | None] = mapped_column(String(15))
-    feedback_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class PushSubscription(Base):
@@ -385,10 +375,20 @@ class NotificationPref(Base):
     )
 
 
-class MlModel(Base):
-    __tablename__ = "ml_models"
+class CropCycle(Base):
+    __tablename__ = "crop_cycles"
     __table_args__ = (
-        UniqueConstraint("zone_id", "task", "version", name="uq_ml_models_zone_task_ver"),
+        CheckConstraint("area_m2 > 0", name="ck_crop_cycles_area"),
+        CheckConstraint("yield_kg IS NULL OR yield_kg >= 0", name="ck_crop_cycles_yield"),
+        CheckConstraint(
+            "status IN ('active','harvested','abandoned')", name="ck_crop_cycles_status"
+        ),
+        Index(
+            "crop_cycles_one_active",
+            "zone_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -397,17 +397,92 @@ class MlModel(Base):
         default=uuid.uuid4,
         server_default=text("gen_random_uuid()"),
     )
-    zone_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("zones.id"))
-    task: Mapped[str] = mapped_column(String(30), nullable=False)
+    zone_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("zones.id"), nullable=False
+    )
+    crop_profile_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("crop_profiles.id"), nullable=False
+    )
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    harvested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    area_m2: Mapped[float] = mapped_column(Float, nullable=False)
+    yield_kg: Mapped[float | None] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="active", server_default=text("'active'")
+    )
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class YieldSample(Base):
+    __tablename__ = "yield_samples"
+    __table_args__ = (
+        CheckConstraint(
+            "source IN ('real','sim','synthetic','public')", name="ck_yield_samples_source"
+        ),
+        CheckConstraint("yield_kg_m2 >= 0", name="ck_yield_samples_kg_m2"),
+        Index("ix_yield_samples_crop_code", "crop_code"),
+        Index("ix_yield_samples_greenhouse_key", "greenhouse_key"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    source: Mapped[str] = mapped_column(String(10), nullable=False)
+    greenhouse_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    farm_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("farms.id")
+    )
+    crop_cycle_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("crop_cycles.id"), unique=True
+    )
+    crop_code: Mapped[str] = mapped_column(String(40), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cycle_days: Mapped[float | None] = mapped_column(Float)
+    feature_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    features: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    coverage: Mapped[float | None] = mapped_column(Float)
+    yield_kg_m2: Mapped[float] = mapped_column(Float, nullable=False)
+    meta: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class MlModel(Base):
+    __tablename__ = "ml_models"
+    __table_args__ = (UniqueConstraint("task", "version", name="uq_ml_models_task_version"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    task: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="yield", server_default=text("'yield'")
+    )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
+    feature_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default=text("1")
+    )
     artifact_path: Mapped[str] = mapped_column(Text, nullable=False)
     trained_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
-    train_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    train_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     n_samples: Mapped[int | None] = mapped_column(Integer)
+    n_greenhouses: Mapped[int | None] = mapped_column(Integer)
     source_mix: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    crops: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
     metrics: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     baseline_metrics: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     is_active: Mapped[bool] = mapped_column(
@@ -418,25 +493,15 @@ class MlModel(Base):
 
 class Prediction(Base):
     __tablename__ = "predictions"
-
-    zone_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("zones.id"), primary_key=True
-    )
-    task: Mapped[str] = mapped_column(String(30), primary_key=True)
-    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
-    model_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("ml_models.id")
-    )
-    horizon_min: Mapped[int | None] = mapped_column(Integer)
-    score: Mapped[float | None] = mapped_column(Float)
-    value: Mapped[float | None] = mapped_column(Float)
-    details: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
-
-
-class ExperimentRun(Base):
-    __tablename__ = "experiment_runs"
     __table_args__ = (
-        CheckConstraint("strategy IN ('fixed','adaptive')", name="ck_experiment_runs_strategy"),
+        CheckConstraint(
+            "task IN ('yield_forecast','crop_recommendation')", name="ck_predictions_task"
+        ),
+        CheckConstraint(
+            "task <> 'yield_forecast' OR zone_id IS NOT NULL",
+            name="ck_predictions_yield_zone",
+        ),
+        Index("ix_predictions_gh_task_ts", "greenhouse_id", "task", text("ts DESC")),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -445,15 +510,23 @@ class ExperimentRun(Base):
         default=uuid.uuid4,
         server_default=text("gen_random_uuid()"),
     )
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    task: Mapped[str] = mapped_column(String(30), nullable=False)
     greenhouse_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("greenhouses.id"), nullable=False
     )
-    strategy: Mapped[str] = mapped_column(String(10), nullable=False)
-    started_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
+    zone_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("zones.id")
     )
-    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    notes: Mapped[str | None] = mapped_column(Text)
+    crop_cycle_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("crop_cycles.id")
+    )
+    model_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("ml_models.id")
+    )
+    value: Mapped[float | None] = mapped_column(Float)
+    score: Mapped[float | None] = mapped_column(Float)
+    details: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
 
 __all__ = [
@@ -461,10 +534,10 @@ __all__ = [
     "Alert",
     "Base",
     "Command",
+    "CropCycle",
     "CropProfile",
     "DeviceNode",
     "DeviceState",
-    "ExperimentRun",
     "Farm",
     "Gateway",
     "Greenhouse",
@@ -474,5 +547,6 @@ __all__ = [
     "PushSubscription",
     "Reading",
     "User",
+    "YieldSample",
     "Zone",
 ]
