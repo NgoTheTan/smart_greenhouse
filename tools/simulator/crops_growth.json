@@ -1,0 +1,170 @@
+{
+  "crops": {
+    "tomato_cherry": {
+      "Tmin": 11.0,
+      "Topt1": 20.0,
+      "Topt2": 28.0,
+      "Tmax": 36.0,
+      "dli_sat": 24.0,
+      "vpd_min": 0.18,
+      "vpd_opt1": 0.8,
+      "vpd_opt2": 1.2,
+      "vpd_max": 2.4,
+      "soil_min": 35.0,
+      "soil_opt1": 60.0,
+      "soil_opt2": 75.0,
+      "soil_max": 95.0,
+      "heat_penalty": 1.2,
+      "reference_kg_m2": 10.0,
+      "cycle_days": 120
+    },
+    "strawberry": {
+      "Tmin": 7.0,
+      "Topt1": 17.0,
+      "Topt2": 23.0,
+      "Tmax": 30.0,
+      "dli_sat": 18.0,
+      "vpd_min": 0.12,
+      "vpd_opt1": 0.6,
+      "vpd_opt2": 0.9,
+      "vpd_max": 1.9,
+      "soil_min": 30.0,
+      "soil_opt1": 50.0,
+      "soil_opt2": 65.0,
+      "soil_max": 90.0,
+      "heat_penalty": 1.6,
+      "reference_kg_m2": 4.0,
+      "cycle_days": 150
+    },
+    "lettuce": {
+      "Tmin": 6.0,
+      "Topt1": 15.0,
+      "Topt2": 22.0,
+      "Tmax": 30.0,
+      "dli_sat": 14.5,
+      "vpd_min": 0.12,
+      "vpd_opt1": 0.6,
+      "vpd_opt2": 1.0,
+      "vpd_max": 2.0,
+      "soil_min": 35.0,
+      "soil_opt1": 60.0,
+      "soil_opt2": 80.0,
+      "soil_max": 95.0,
+      "heat_penalty": 1.5,
+      "reference_kg_m2": 3.0,
+      "cycle_days": 40
+    },
+    "cucumber": {
+      "Tmin": 13.0,
+      "Topt1": 23.0,
+      "Topt2": 31.0,
+      "Tmax": 39.0,
+      "dli_sat": 25.0,
+      "vpd_min": 0.18,
+      "vpd_opt1": 0.8,
+      "vpd_opt2": 1.2,
+      "vpd_max": 2.5,
+      "soil_min": 40.0,
+      "soil_opt1": 65.0,
+      "soil_opt2": 80.0,
+      "soil_max": 96.0,
+      "heat_penalty": 1.0,
+      "reference_kg_m2": 15.0,
+      "cycle_days": 75
+    },
+    "bell_pepper": {
+      "Tmin": 12.0,
+      "Topt1": 21.0,
+      "Topt2": 28.0,
+      "Tmax": 36.0,
+      "dli_sat": 24.0,
+      "vpd_min": 0.18,
+      "vpd_opt1": 0.8,
+      "vpd_opt2": 1.2,
+      "vpd_max": 2.3,
+      "soil_min": 38.0,
+      "soil_opt1": 60.0,
+      "soil_opt2": 75.0,
+      "soil_max": 94.0,
+      "heat_penalty": 1.3,
+      "reference_kg_m2": 8.0,
+      "cycle_days": 150
+    }
+  },
+  "regions": {
+    "dalat": {
+      "label": "Đà Lạt",
+      "t_base": 18.8,
+      "t_amp": 4.5,
+      "rh_base": 70.0,
+      "rh_amp": 14.0,
+      "lux_peak": 48000.0
+    },
+    "hanoi_winter": {
+      "label": "Hà Nội (Đông)",
+      "t_base": 18.2,
+      "t_amp": 3.8,
+      "rh_base": 73.0,
+      "rh_amp": 12.0,
+      "lux_peak": 36000.0
+    },
+    "hanoi_summer": {
+      "label": "Hà Nội (Hè)",
+      "t_base": 29.8,
+      "t_amp": 4.8,
+      "rh_base": 73.0,
+      "rh_amp": 13.0,
+      "lux_peak": 62000.0
+    },
+    "hcm": {
+      "label": "TP. Hồ Chí Minh",
+      "t_base": 28.4,
+      "t_amp": 4.2,
+      "rh_base": 72.0,
+      "rh_amp": 13.0,
+      "lux_peak": 60000.0
+    },
+    "mekong": {
+      "label": "Đồng bằng sông Cửu Long",
+      "t_base": 28.7,
+      "t_amp": 3.8,
+      "rh_base": 74.0,
+      "rh_amp": 12.0,
+      "lux_peak": 64000.0
+    },
+    "central_coast": {
+      "label": "Duyên hải miền Trung",
+      "t_base": 28.5,
+      "t_amp": 5.5,
+      "rh_base": 65.0,
+      "rh_amp": 15.0,
+      "lux_peak": 65000.0
+    }
+  },
+  "equipment_levels": {
+    "basic": {
+      "t_offset": 1.1,
+      "t_amp_scale": 1.18,
+      "rh_offset": 1.5,
+      "shade_factor": 1.0,
+      "soil_target_jitter": 11.0,
+      "soil_std_base": 6.5
+    },
+    "standard": {
+      "t_offset": 0.0,
+      "t_amp_scale": 1.0,
+      "rh_offset": 0.0,
+      "shade_factor": 0.92,
+      "soil_target_jitter": 7.0,
+      "soil_std_base": 4.2
+    },
+    "full": {
+      "t_offset": -1.2,
+      "t_amp_scale": 0.78,
+      "rh_offset": -2.0,
+      "shade_factor": 0.85,
+      "soil_target_jitter": 4.0,
+      "soil_std_base": 2.6
+    }
+  }
+}
