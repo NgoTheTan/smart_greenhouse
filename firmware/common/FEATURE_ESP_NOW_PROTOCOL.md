@@ -31,7 +31,7 @@ Cung cấp định nghĩa gói tin nhị phân ESP-NOW và các hàm/hằng số
 
 ### 3.2 Chi tiết từng struct (`gh_packets.h`)
 
-1. **`TelemetryPkt`** (tổng 19 byte):
+1. **`TelemetryPkt`** (tổng 20 byte):
    - `uint8_t type` — phải là `PKT_TELEMETRY` (`1`).
    - `uint8_t zone` — `zone_index` (`1..N`) nhận từ `CfgPkt`; `0` nếu node chưa ghép.
    - `uint16_t seq` — số thứ tự gói tăng dần mỗi vòng đo của node (dùng để khử trùng ở gateway).
@@ -97,4 +97,4 @@ Cung cấp định nghĩa gói tin nhị phân ESP-NOW và các hàm/hằng số
   - `pio run -d firmware/node -e node_demo`
   - `pio run -d firmware/node -e node_sht30`
   - `pio run -d firmware/gateway -e gateway`
-- Kiểm tra kích thước struct: `sizeof(TelemetryPkt) == 19`, `sizeof(HelloPkt) == 3`, `sizeof(HelloAckPkt) == 2`, `sizeof(CfgPkt) == 10` (tất cả `<= 250`).
+- Kiểm tra kích thước struct: `sizeof(TelemetryPkt) == 20`, `sizeof(HelloPkt) == 3`, `sizeof(HelloAckPkt) == 2`, `sizeof(CfgPkt) == 10` (tất cả `<= 250`).

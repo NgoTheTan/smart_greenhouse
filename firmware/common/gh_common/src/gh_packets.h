@@ -5,8 +5,13 @@
 
 #define GH_FW_MAJOR 1
 #define GH_FW_MINOR 0
+#define GH_FW_PATCH 0
+#define GH_FW_VERSION_STR "1.0.0"
+#define GH_NODE_FW_STR "1.0"
 
 #define GH_LUX_NONE 0xFFFFFFFFu  // node không có BH1750
+#define GH_AIR_T_NONE (-32768)   // node không có cảm biến nhiệt độ (INT16_MIN)
+#define GH_AIR_RH_NONE 0xFFFFu   // node không có cảm biến độ ẩm (UINT16_MAX)
 
 enum PktType : uint8_t {
   PKT_TELEMETRY = 1,
@@ -55,6 +60,10 @@ struct __attribute__((packed)) CfgPkt {
   uint16_t cfg_version;
 };
 
+static_assert(sizeof(TelemetryPkt) == 20, "TelemetryPkt size mismatch");
+static_assert(sizeof(HelloPkt) == 3, "HelloPkt size mismatch");
+static_assert(sizeof(HelloAckPkt) == 2, "HelloAckPkt size mismatch");
+static_assert(sizeof(CfgPkt) == 10, "CfgPkt size mismatch");
 static_assert(sizeof(TelemetryPkt) <= 250, "ESP-NOW payload limit");
 static_assert(sizeof(CfgPkt) <= 250, "ESP-NOW payload limit");
 

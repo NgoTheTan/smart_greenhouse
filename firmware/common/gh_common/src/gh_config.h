@@ -1,5 +1,6 @@
 // GreenHub - hằng số dùng chung node/gateway
 #pragma once
+#include <stddef.h>
 #include <stdint.h>
 
 namespace gh {
@@ -9,17 +10,39 @@ constexpr uint8_t WIFI_CH_MIN = 1;
 constexpr uint8_t WIFI_CH_MAX = 13;
 constexpr uint8_t SEND_FAIL_RESCAN = 5;        // N lần gửi lỗi liên tiếp -> quét lại kênh
 constexpr uint32_t HELLO_UNPAIRED_MS = 30000;  // HELLO định kỳ khi chưa ghép
+constexpr uint32_t CFG_RX_WINDOW_MS = 200;     // Cửa sổ chờ CfgPkt sau khi gửi ESP-NOW
+constexpr uint32_t SCAN_CH_WAIT_MS = 150;      // Thời gian chờ HELLO_ACK mỗi kênh Wi-Fi
 
-// Chu kỳ đo
+// Chu kỳ đo & hiệu chuẩn ẩm đất mặc định
+constexpr uint16_t SENSOR_MEASURE_INTERVAL_S = 5;  // Chu kỳ đo cảm biến tại biên (5 giây)
 #ifdef DEMO_MODE
-constexpr uint16_t DEFAULT_SAMPLE_INTERVAL_S = 10;
+constexpr uint16_t DEFAULT_SAMPLE_INTERVAL_S = 5;
 #else
 constexpr uint16_t DEFAULT_SAMPLE_INTERVAL_S = 60;
 #endif
+constexpr uint16_t DEFAULT_SOIL_DRY_RAW = 2900;
+constexpr uint16_t DEFAULT_SOIL_WET_RAW = 1300;
 
-// Dải vật lý hợp lệ (spec 8.2 A1)
+// Dải vật lý hợp lệ & ngưỡng spike (spec 8.2 A1, khớp platform/core/quality.py)
 constexpr float AIR_T_MIN = -10.0f, AIR_T_MAX = 60.0f;
 constexpr float AIR_RH_MIN = 0.0f, AIR_RH_MAX = 100.0f;
+constexpr uint16_t SOIL_RAW_MIN = 50;
+constexpr uint16_t SOIL_RAW_MAX = 4090;
+constexpr uint32_t LUX_MAX = 65535u;
+constexpr uint32_t LUX_NONE = 0xFFFFFFFFu;
+constexpr float SPIKE_AIR_T_C = 5.0f;
+constexpr float SPIKE_AIR_RH_PCT = 25.0f;
+constexpr uint8_t SPIKE_SOIL_PCT = 20;
+
+inline bool isValidAirTemp(float t) { return t >= AIR_T_MIN && t <= AIR_T_MAX; }
+
+inline bool isValidAirRh(float rh) { return rh >= AIR_RH_MIN && rh <= AIR_RH_MAX; }
+
+inline bool isValidSoilRaw(uint16_t raw) {
+  return raw >= SOIL_RAW_MIN && raw <= SOIL_RAW_MAX;
+}
+
+inline bool isValidLux(uint32_t lux) { return lux == LUX_NONE || lux <= LUX_MAX; }
 
 inline uint8_t clampPct(int v) { return v < 0 ? 0 : (v > 100 ? 100 : (uint8_t)v); }
 
