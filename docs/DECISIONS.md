@@ -27,6 +27,8 @@ Một dòng cho mỗi quyết định khi spec chưa rõ (spec mục 0). Định
 - 2026-11-11 – [ai] Hàm trích xuất đặc trưng khí hậu (`feature_version = 1`) đặt tại `platform/core/climate_features.py` bằng Python thuần – dùng chung cho `worker`, `ml/` và `tools/simulator`, không kéo pandas/numpy vào core hay `api`.
 - 2026-11-11 – [tenancy] Dữ liệu `yield_samples` gộp đa nhà kính cho huấn luyện mô hình toàn cục và không bao giờ mở endpoint đọc qua API; `GET /models*` chỉ trả metadata tổng hợp – bảo vệ cô lập dữ liệu từng farm.
 - 2026-11-11 – [deploy] Chuyển triển khai chính từ AWS EC2 `t3.small` sang một VPS Linux bất kỳ (≥ 2 vCPU, 2 GB RAM, 2 GB swap, Ubuntu 24.04) với `ufw` + SSH key và prod compose chỉ publish cổng 80/443/8883 – tránh phụ thuộc nhà cung cấp cloud và khắc phục việc Docker publish bỏ qua `ufw`.
+- 2026-11-16 – [firmware] Bổ sung môi trường `node_dht11` (ESP32 dùng DHT11 + BH1750 + Soil) và `node_esp8266` (ESP8266 chỉ gắn Soil trên `A0`, gửi `GH_AIR_T_NONE`/`GH_AIR_RH_NONE`), đồng thời Gateway tự chia sẻ số đo nhiệt–ẩm mới nhất từ zone có cảm biến nhiệt–ẩm sang zone dùng chung – tận dụng phần cứng prototype hiện có mà không làm hỏng kiểm tra chất lượng dữ liệu ở backend.
+- 2026-11-17 – [firmware] Đặt chu kỳ đo phần cứng tại Sensor Node thành 5 giây (`SENSOR_MEASURE_INTERVAL_S = 5`) và bổ sung bộ tiền xử lý tại Gateway (giữ nguyên lỗi phần cứng/ngoài dải, loại bỏ gai nhiễu 1 mẫu, lọc trung vị 3 mẫu + EMA α=0.5, kiểm tra kẹt trên mẫu thô) – giảm nhiễu cảm biến DHT11/ẩm đất điện dung trước khi đẩy lên MQTT và chạy failsafe cục bộ.
 
 
 
