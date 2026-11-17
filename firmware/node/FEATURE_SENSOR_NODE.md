@@ -10,11 +10,13 @@ Hiện thực firmware trên **ESP32 DevKit (WROOM-32)** đóng vai trò cảm b
 
 ## 2. Trạng thái hiện thực trong repo
 
-- **Đã có (khung khởi tạo):**
-  - `firmware/node/platformio.ini` — đã cấu hình đầy đủ 3 môi trường build:
-    - `node`: AHT20 + BH1750, chu kỳ 60 s.
-    - `node_demo` (mặc định): AHT20 + BH1750, cờ `-DDEMO_MODE`, chu kỳ 10 s.
-    - `node_sht30`: SHT30 (`Adafruit SHT31 Library`, cờ `-DUSE_SHT30`) + BH1750 + `-DDEMO_MODE` (giải quyết điểm mở #1 trong `DECISIONS.md`).
+- **Đã có (cấu hình & hiện thực M1):**
+  - `firmware/node/platformio.ini` — đã cấu hình đầy đủ 5 môi trường build:
+    - `node`: ESP32 + AHT20 + BH1750, chu kỳ 60 s.
+    - `node_demo` (mặc định): ESP32 + AHT20 + BH1750, cờ `-DDEMO_MODE`, chu kỳ 5 s.
+    - `node_sht30`: ESP32 + SHT30 (`Adafruit SHT31 Library`, cờ `-DUSE_SHT30`) + BH1750 + `-DDEMO_MODE`, chu kỳ 5 s (giải quyết điểm mở #1 trong `DECISIONS.md`).
+    - `node_dht11`: ESP32 + DHT11 (`DHT sensor library`, cờ `-DUSE_DHT11`, `PIN_DHT=4`) + BH1750 + `-DDEMO_MODE`, chu kỳ 5 s.
+    - `node_esp8266`: ESP8266 NodeMCU v2 chỉ gắn cảm biến ẩm đất (`-DNO_AIR_SENSOR`, `-DNO_LIGHT_SENSOR`, `PIN_SOIL_AOUT=A0`, `PIN_SOIL_VCC=14` / `D5`, `PIN_LED=2` / `D4`), chu kỳ 5 s, quy đổi ADC 10-bit sang thang 12-bit (`0..4095`) và gửi `GH_AIR_T_NONE` / `GH_AIR_RH_NONE` để Gateway mượn số đo nhiệt–ẩm dùng chung từ Node 1.
   - Các macro chân từ `platformio.ini`: `PIN_I2C_SDA=21`, `PIN_I2C_SCL=22`, `PIN_SOIL_AOUT=34`, `PIN_SOIL_VCC=25`, `PIN_LED=2`.
   - `firmware/node/src/main.cpp` — mới chỉ có khung `setup()`/`loop()` khởi tạo Serial, GPIO25 LOW, `WiFi.mode(WIFI_STA)`, `esp_now_init()` và `TODO(M1)`.
 - **Cần hiện thực đầy đủ (M1):**
@@ -31,10 +33,11 @@ Hiện thực firmware trên **ESP32 DevKit (WROOM-32)** đóng vai trò cảm b
 | Linh kiện | Chân ESP32 | Macro build_flags | Ghi chú kỹ thuật |
 |---|---|---|---|
 | AHT20/AHT21 (I2C `0x38`) hoặc SHT30 (I2C `0x44`) | `SDA = GPIO21`, `SCL = GPIO22`, `VCC = 3V3` | `PIN_I2C_SDA`, `PIN_I2C_SCL` | Đặt xa miệng phun ẩm để tránh ngưng tụ gây sai số/phục hồi chậm (Phụ lục A). |
+| DHT11 (1-Wire, env `node_dht11`) | `DATA = GPIO4`, `VCC = 3V3` | `PIN_DHT`, `-DUSE_DHT11` | Nếu dùng module trần không có điện trở kéo lên, thêm điện trở `4.7k–10k` giữa `DATA` và `3V3`. |
 | BH1750 (I2C `0x23`, chỉ Node 1) | `SDA = GPIO21`, `SCL = GPIO22`, `VCC = 3V3` | `PIN_I2C_SDA`, `PIN_I2C_SCL` | Tối đa 65.535 lux. Khi khởi tạo kiểm tra `begin()` trên bus I2C: nếu không có thiết bị (Node 2) thì đánh dấu không có BH1750 và gửi `lux = GH_LUX_NONE (0xFFFFFFFF)` (không bật `FLAG_BH_ERR`). Nếu từng phát hiện nhưng đọc lỗi thì bật `FLAG_BH_ERR`. |
-| Cảm biến ẩm đất điện dung v1.2 `AOUT` | `GPIO34` | `PIN_SOIL_AOUT` | **MUST dùng ADC1** (`GPIO32..39`). Tuyệt đối không dùng ADC2 vì xung đột Wi-Fi/ESP-NOW. Nên seal mép board cảm biến bằng epoxy/sơn chống nước. |
-| Cảm biến ẩm đất `VCC` | `GPIO25` | `PIN_SOIL_VCC` | Chỉ xuất `HIGH` trong lúc đo (~50 ms), xong đặt `LOW` ngay để giảm ăn mòn điện hóa và nhiễu. |
-| LED trạng thái | `GPIO2` | `PIN_LED` | Nháy ngắn khi gửi thành công / nháy nhanh khi quét kênh hoặc chưa ghép. |
+| Cảm biến ẩm đất điện dung v1.2 `AOUT` | ESP32: `GPIO34` / ESP8266: `A0` | `PIN_SOIL_AOUT` | ESP32 **MUST dùng ADC1** (`GPIO32..39`). Trên ESP8266 đọc `A0` (`0..1023`) và quy đổi sang `0..4095`. Nên seal mép board cảm biến bằng epoxy/sơn chống nước. |
+| Cảm biến ẩm đất `VCC` | ESP32: `GPIO25` / ESP8266: `GPIO14` (`D5`) | `PIN_SOIL_VCC` | Chỉ xuất `HIGH` trong lúc đo (~50 ms), xong đặt `LOW` ngay để giảm ăn mòn điện hóa và nhiễu. |
+| LED trạng thái | `GPIO2` (ESP8266: `D4`) | `PIN_LED` | Nháy ngắn khi gửi thành công / nháy nhanh khi quét kênh hoặc chưa ghép. |
 
 ## 4. Luồng hoạt động & Máy trạng thái (MUST)
 
@@ -44,7 +47,7 @@ Lưu trong NVS các khóa tối thiểu (chỉ `put*` khi giá trị thực sự
 - `gw_mac[6]`: MAC 6 byte của gateway (nhận được khi nhận `PKT_HELLO_ACK`).
 - `wifi_ch` (`uint8_t`): kênh Wi-Fi `1..13` đã tìm thấy.
 - `zone` (`uint8_t`): `0` = chưa ghép; `1..N` = đã ghép.
-- `interval_s` (`uint16_t`): chu kỳ đo, mặc định `gh::DEFAULT_SAMPLE_INTERVAL_S` (`10` cho `DEMO_MODE`, `60` cho thường).
+- `interval_s` (`uint16_t`): chu kỳ đo, mặc định `gh::SENSOR_MEASURE_INTERVAL_S` (`5` s; chế độ `DEMO_MODE` giữ tối đa `5` s, `!DEMO_MODE` dùng theo `CfgPkt` hoặc `60` s mặc định).
 - `dry_raw` (`uint16_t`), `wet_raw` (`uint16_t`): mặc định `2900`, `1300`.
 - `cfg_ver` (`uint16_t`): phiên bản cấu hình gần nhất đã lưu.
 - `seq` (`uint16_t` hoặc giữ `RTC_DATA_ATTR` nếu dùng deep sleep để không reset về 0 mỗi lần ngủ dậy).
@@ -95,7 +98,7 @@ ESP-NOW chỉ gửi/nhận được khi Node và Gateway ở **cùng kênh Wi-Fi
    - Gateway khi nhận `TelemetryPkt` hoặc `HelloPkt` từ node sẽ kiểm tra nếu node có cấu hình (hoặc `cfg_version` mới hơn) và phát ngay `CfgPkt` unicast về node trong khoảng cửa sổ 200 ms này.
    - Node nhận `CfgPkt` (`len == sizeof(CfgPkt)`): cập nhật `zone`, `sample_interval_s`, `soil_dry_raw`, `soil_wet_raw`, `cfg_version`; **chỉ ghi NVS nếu dữ liệu thực sự thay đổi** (tránh mòn flash).
 5. **Ngủ / Chờ tới chu kỳ kế:**
-   - `DEMO_MODE` (`#ifdef DEMO_MODE`): không deep sleep để phản hồi nhanh (hoặc `delay()`/`millis()` loop), chu kỳ mặc định `10 s` (có thể đổi từ xa qua `CfgPkt.sample_interval_s`).
+   - `DEMO_MODE` (`#ifdef DEMO_MODE`): không deep sleep để phản hồi nhanh (hoặc `delay()`/`millis()` loop), chu kỳ đo cảm biến **`5 s`** (`gh::SENSOR_MEASURE_INTERVAL_S`, giữ tối đa `5 s` ngay cả khi nhận `CfgPkt`).
    - Chế độ thường (`!DEMO_MODE`): **SHOULD** dùng `esp_deep_sleep((uint64_t)sample_interval_s * 1000000ULL)` sau khi đã hoàn tất cửa sổ 200 ms chờ `CfgPkt` và tắt `esp_now_deinit()` / `WiFi.mode(WIFI_OFF)`. Dùng `RTC_DATA_ATTR` để giữ `seq`, `gw_mac`, `wifi_ch`, `cfg_ver`, `zone`, `sample_interval_s`, `soil_dry_raw`, `soil_wet_raw` qua deep sleep mà không cần đọc/ghi NVS liên tục.
 
 ## 5. Build, Nạp & Kiểm tra (PlatformIO)
@@ -109,6 +112,10 @@ pio device monitor -b 115200
 
 # Node dùng SHT30 (nếu mua SHT30 thay AHT20)
 pio run -e node_sht30 -t upload
+
+# Prototype thực tế: Node 1 ESP32 (DHT11 + BH1750 + Soil) & Node 2 ESP8266 (chỉ Soil)
+pio run -e node_dht11 -t upload
+pio run -e node_esp8266 -t upload
 
 # Node chế độ thường (60s + deep sleep)
 pio run -e node -t upload
