@@ -1,59 +1,84 @@
-import { NavLink, Route, Routes, Link } from 'react-router-dom'
+import { Link, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { api, getToken, setToken } from './lib/api'
+import { api } from './lib/api'
+import { AuthProvider, useAuth } from './lib/auth'
+import { WebSocketProvider, useRealtime } from './lib/ws'
+import type { AlertItem } from './lib/types'
 
-import OverviewPage from './pages/OverviewPage'
-import ZoneDetailPage from './pages/ZoneDetailPage'
-import DevicesPage from './pages/DevicesPage'
-import CropProfilesPage from './pages/CropProfilesPage'
 import AlertsPage from './pages/AlertsPage'
+import CropProfilesPage from './pages/CropProfilesPage'
+import DevicesPage from './pages/DevicesPage'
+import LoginPage from './pages/LoginPage'
 import ModelsPage from './pages/ModelsPage'
 import NotificationsPage from './pages/NotificationsPage'
-import LoginPage from './pages/LoginPage'
+import OverviewPage from './pages/OverviewPage'
+import RecommendationsPage from './pages/RecommendationsPage'
+import ZoneDetailPage from './pages/ZoneDetailPage'
 
-const PAGES = [
-  { path: '/', label: '🌿 Tổng quan' },
-  { path: '/devices', label: '📡 Thiết bị' },
-  { path: '/crop-profiles', label: '🌱 Crop profile' },
-  { path: '/alerts', label: '🔔 Cảnh báo' },
-  { path: '/models', label: '🧠 Model & Thí nghiệm' },
-  { path: '/settings/notifications', label: '📲 Thông báo' },
-]
+const ROLE_LABELS: Record<string, string> = {
+  owner: 'Owner',
+  operator: 'Operator',
+  viewer: 'Viewer',
+}
 
-function HealthBadge() {
+function StatusBadges() {
+  const { isAuthenticated } = useAuth()
+  const { connected: wsConnected } = useRealtime()
   const { data, isError } = useQuery({
     queryKey: ['health'],
     queryFn: () => api<{ status: string; db: boolean }>('/health'),
-    refetchInterval: 15_000,
+    refetchInterval: 20_000,
     retry: 1,
   })
-  const ok = !isError && data?.status === 'ok'
+  const apiOk = !isError && data?.status === 'ok'
+
   return (
-    <span className={`badge ${ok ? 'ok' : 'muted'}`} style={{ fontSize: '0.75rem' }}>
-      {ok ? '● Cloud API Online' : '○ Standalone / Mock Mode'}
-    </span>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+      <span className={`badge ${apiOk ? 'ok' : 'bad'}`} style={{ fontSize: '0.73rem' }}>
+        {apiOk ? '● API Online' : '○ API Mất kết nối'}
+      </span>
+      {isAuthenticated && (
+        <span className={`badge ${wsConnected ? 'ok' : 'warning'}`} style={{ fontSize: '0.73rem' }}>
+          {wsConnected ? '⚡ Realtime' : '⏳ Đang nối WS'}
+        </span>
+      )}
+    </div>
   )
 }
 
-function UserBadge() {
-  const token = getToken()
-  if (!token) {
+function UserControls() {
+  const { isAuthenticated, user, logout } = useAuth()
+  if (!isAuthenticated || !user) {
     return (
-      <Link to="/login" className="btn btn-sm btn-secondary" style={{ color: '#fff', borderColor: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.1)' }}>
+      <Link
+        to="/login"
+        className="btn btn-sm btn-secondary"
+        style={{
+          color: '#fff',
+          borderColor: 'rgba(255,255,255,0.4)',
+          background: 'rgba(255,255,255,0.12)',
+        }}
+      >
         Đăng nhập
       </Link>
     )
   }
+
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-      <span style={{ fontSize: '0.8rem', opacity: 0.9 }}>👤 Operator</span>
+      <span style={{ fontSize: '0.78rem', opacity: 0.95 }}>
+        👤 {user.email} ({ROLE_LABELS[user.role] ?? user.role})
+      </span>
       <button
-        onClick={() => {
-          setToken(null)
-          window.location.reload()
-        }}
+        type="button"
+        onClick={logout}
         className="btn btn-sm"
-        style={{ color: '#fff', background: 'rgba(0,0,0,0.2)', padding: '0.2rem 0.5rem', border: 'none' }}
+        style={{
+          color: '#fff',
+          background: 'rgba(0,0,0,0.22)',
+          padding: '0.2rem 0.55rem',
+          border: 'none',
+        }}
       >
         Thoát
       </button>
@@ -61,7 +86,68 @@ function UserBadge() {
   )
 }
 
-export default function App() {
+function ToastContainer() {
+  const { toasts, dismissToast } = useRealtime()
+  if (toasts.length === 0) return null
+
+  return (
+    <div className="toast-container" aria-live="polite">
+      {toasts.map((t) => (
+        <div key={t.id} className={`toast-item toast-${t.severity}`}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: '0.86rem' }}>{t.title}</div>
+            <div style={{ fontSize: '0.8rem', marginTop: '0.15rem' }}>{t.body}</div>
+            {t.url && (
+              <Link
+                to={t.url}
+                style={{ fontSize: '0.78rem', fontWeight: 600, display: 'inline-block', marginTop: '0.25rem' }}
+                onClick={() => dismissToast(t.id)}
+              >
+                Xem chi tiết →
+              </Link>
+            )}
+          </div>
+          <button
+            type="button"
+            className="btn btn-sm btn-secondary"
+            style={{ padding: '0.1rem 0.4rem' }}
+            onClick={() => dismissToast(t.id)}
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function RequireAuth({ children }: { children: JSX.Element }) {
+  const { isAuthenticated, isLoading } = useAuth()
+  const location = useLocation()
+
+  if (isLoading) {
+    return (
+      <div className="card" style={{ textAlign: 'center', padding: '2rem' }}>
+        Đang xác thực phiên đăng nhập...
+      </div>
+    )
+  }
+  if (!isAuthenticated) {
+    return <Navigate to="/login" state={{ from: location.pathname }} replace />
+  }
+  return children
+}
+
+function AppShell() {
+  const { isAuthenticated } = useAuth()
+
+  const openAlertsQuery = useQuery({
+    queryKey: ['alerts', 'open-count'],
+    queryFn: () => api<AlertItem[]>('/alerts?state=open&limit=100'),
+    enabled: isAuthenticated,
+  })
+  const openCount = openAlertsQuery.data?.length ?? 0
+
   return (
     <div className="layout">
       <header>
@@ -70,29 +156,115 @@ export default function App() {
           <span className="logo-tag">SMART AGRI IOT</span>
         </Link>
         <div className="header-actions">
-          <HealthBadge />
-          <UserBadge />
+          <StatusBadges />
+          <UserControls />
         </div>
       </header>
 
-      <nav>
-        {PAGES.map((p) => (
-          <NavLink key={p.path} to={p.path} end>
-            {p.label}
+      {isAuthenticated && (
+        <nav aria-label="Điều hướng chính">
+          <NavLink to="/" end>
+            🌿 Tổng quan
           </NavLink>
-        ))}
-      </nav>
+          <NavLink to="/recommendations">🌱 Gợi ý cây trồng</NavLink>
+          <NavLink to="/devices">📡 Thiết bị</NavLink>
+          <NavLink to="/crop-profiles">📋 Crop Profile</NavLink>
+          <NavLink to="/alerts">
+            🔔 Cảnh báo{' '}
+            {openCount > 0 && (
+              <span className="badge bad" style={{ marginLeft: '0.25rem', padding: '0.05rem 0.4rem' }}>
+                {openCount}
+              </span>
+            )}
+          </NavLink>
+          <NavLink to="/models">🧠 Mô hình AI</NavLink>
+          <NavLink to="/settings/notifications">📲 Thông báo</NavLink>
+        </nav>
+      )}
 
       <main>
         <Routes>
-          <Route path="/" element={<OverviewPage />} />
-          <Route path="/zones/:id" element={<ZoneDetailPage />} />
-          <Route path="/devices" element={<DevicesPage />} />
-          <Route path="/crop-profiles" element={<CropProfilesPage />} />
-          <Route path="/alerts" element={<AlertsPage />} />
-          <Route path="/models" element={<ModelsPage />} />
-          <Route path="/settings/notifications" element={<NotificationsPage />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route
+            path="/"
+            element={
+              <RequireAuth>
+                <OverviewPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/zones/:id"
+            element={
+              <RequireAuth>
+                <ZoneDetailPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/greenhouses/:ghId/control"
+            element={
+              <RequireAuth>
+                <ZoneDetailPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/recommendations"
+            element={
+              <RequireAuth>
+                <RecommendationsPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/greenhouses/:id/recommendations"
+            element={
+              <RequireAuth>
+                <RecommendationsPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/devices"
+            element={
+              <RequireAuth>
+                <DevicesPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/crop-profiles"
+            element={
+              <RequireAuth>
+                <CropProfilesPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/alerts"
+            element={
+              <RequireAuth>
+                <AlertsPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/models"
+            element={
+              <RequireAuth>
+                <ModelsPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/settings/notifications"
+            element={
+              <RequireAuth>
+                <NotificationsPage />
+              </RequireAuth>
+            }
+          />
           <Route
             path="*"
             element={
@@ -106,6 +278,18 @@ export default function App() {
           />
         </Routes>
       </main>
+
+      <ToastContainer />
     </div>
+  )
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <WebSocketProvider>
+        <AppShell />
+      </WebSocketProvider>
+    </AuthProvider>
   )
 }
