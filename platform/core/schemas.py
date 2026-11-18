@@ -207,6 +207,8 @@ class GreenhouseResponse(BaseModel):
     name: str | None
     location: str | None
     created_at: datetime
+    gateway_id: uuid.UUID | None = None
+    is_simulated: bool = False
     online: bool = False
     open_alerts: int = 0
     zones: list[ZoneResponse] = Field(default_factory=list)

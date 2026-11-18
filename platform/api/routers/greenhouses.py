@@ -58,6 +58,8 @@ async def _serialize_greenhouse(session: DbSession, gh: Greenhouse) -> Greenhous
         name=gh.name,
         location=gh.location,
         created_at=gh.created_at,
+        gateway_id=gw.id if gw else None,
+        is_simulated=bool(gw and gw.is_simulated),
         online=bool(gw and gw.online),
         open_alerts=int(open_alerts),
         zones=[ZoneResponse.model_validate(z) for z in zones],

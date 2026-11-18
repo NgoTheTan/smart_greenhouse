@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from api.deps import CurrentOwner, CurrentViewer, DbSession
 from api.provisioning import provision_gateway_mqtt
@@ -84,7 +84,10 @@ async def get_gateway_status(
         await session.execute(
             select(Gateway, Greenhouse)
             .join(Greenhouse, Gateway.greenhouse_id == Greenhouse.id)
-            .where(Gateway.id == gateway_id, Greenhouse.farm_id == user.farm_id)
+            .where(
+                or_(Gateway.id == gateway_id, Gateway.greenhouse_id == gateway_id),
+                Greenhouse.farm_id == user.farm_id,
+            )
         )
     ).first()
     if row is None:
@@ -111,7 +114,7 @@ async def get_gateway_status(
 
 @router.get("/nodes", response_model=list[DeviceNodeResponse])
 async def list_nodes(
-    user: CurrentOwner,
+    user: CurrentViewer,
     session: DbSession,
     node_status: Annotated[str | None, Query(alias="status")] = None,
 ) -> list[DeviceNode]:
