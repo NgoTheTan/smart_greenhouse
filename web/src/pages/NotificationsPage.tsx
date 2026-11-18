@@ -1,117 +1,281 @@
-import { useState, useEffect } from 'react'
-import { subscribePush } from '../lib/push'
+import { useEffect, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { api, formatApiError } from '../lib/api'
+import {
+  getCurrentPushSubscription,
+  subscribePush,
+  unsubscribePush,
+} from '../lib/push'
+import type { AlertSeverity, NotificationPref } from '../lib/types'
 
 export default function NotificationsPage() {
-  const [permission, setPermission] = useState<NotificationPermission>('default')
-  const [subscribing, setSubscribing] = useState(false)
-  const [pushStatus, setPushStatus] = useState<string | null>(null)
-  const [testSent, setTestSent] = useState(false)
+  const queryClient = useQueryClient()
+  const [permission, setPermission] = useState<NotificationPermission>(() =>
+    'Notification' in window ? Notification.permission : 'denied',
+  )
+  const [hasSubscription, setHasSubscription] = useState(false)
+  const [pushBusy, setPushBusy] = useState(false)
+  const [pushMessage, setPushMessage] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const prefsQuery = useQuery({
+    queryKey: ['notification-prefs'],
+    queryFn: () => api<NotificationPref>('/me/notification-prefs'),
+  })
+
+  const [pushEnabled, setPushEnabled] = useState(true)
+  const [emailEnabled, setEmailEnabled] = useState(true)
+  const [minSeverity, setMinSeverity] = useState<AlertSeverity>('warning')
+  const [prefsMsg, setPrefsMsg] = useState<string | null>(null)
 
   useEffect(() => {
-    if ('Notification' in window) {
-      setPermission(Notification.permission)
+    if (prefsQuery.data) {
+      setPushEnabled(prefsQuery.data.push_enabled)
+      setEmailEnabled(prefsQuery.data.email_enabled)
+      setMinSeverity(prefsQuery.data.min_severity)
     }
+  }, [prefsQuery.data])
+
+  useEffect(() => {
+    void getCurrentPushSubscription()
+      .then((sub) => setHasSubscription(Boolean(sub)))
+      .catch(() => setHasSubscription(false))
   }, [])
 
+  const updatePrefsMutation = useMutation({
+    mutationFn: (payload: Partial<NotificationPref>) =>
+      api<NotificationPref>('/me/notification-prefs', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['notification-prefs'], data)
+      setPrefsMsg('Đã lưu tuỳ chọn nhận thông báo.')
+    },
+    onError: (err) => {
+      setPrefsMsg(formatApiError(err))
+    },
+  })
+
   const handleSubscribe = async () => {
-    setSubscribing(true)
-    setPushStatus('Đang xin quyền thông báo từ trình duyệt...')
+    setPushBusy(true)
+    setPushMessage(null)
     try {
       const ok = await subscribePush()
+      if ('Notification' in window) setPermission(Notification.permission)
+      const sub = await getCurrentPushSubscription()
+      setHasSubscription(Boolean(sub))
       if (ok) {
-        setPermission('granted')
-        setPushStatus('✅ Đã đăng ký Web Push thành công! Thiết bị này sẽ nhận thông báo kể cả khi đóng tab.')
+        setPushMessage({
+          ok: true,
+          text: 'Đã đăng ký Web Push thành công! Thiết bị này sẽ nhận cảnh báo ngay cả khi đóng tab.',
+        })
       } else {
-        setPermission(Notification.permission)
-        setPushStatus('ℹ️ Đã cấp quyền thông báo cục bộ (chế độ demo/localhost).')
+        setPushMessage({
+          ok: false,
+          text: 'Trình duyệt chưa cấp quyền thông báo (Permission chưa được Granted).',
+        })
       }
-    } catch {
-      // Khi backend chưa bật endpoint /push/public-key, ta vẫn kích hoạt Notification API cục bộ
-      if ('Notification' in window) {
-        const p = await Notification.requestPermission()
-        setPermission(p)
-        if (p === 'granted') {
-          setPushStatus('✅ Đã cấp quyền Notification của trình duyệt thành công!')
-        } else {
-          setPushStatus('⚠️ Quyền thông báo đã bị từ chối trong cài đặt trình duyệt.')
-        }
-      }
+    } catch (err) {
+      if ('Notification' in window) setPermission(Notification.permission)
+      setPushMessage({ ok: false, text: formatApiError(err) })
     } finally {
-      setSubscribing(false)
+      setPushBusy(false)
     }
   }
 
-  const handleTestNotification = () => {
-    if (Notification.permission === 'granted') {
-      new Notification('🌱 [GreenHub] Cảnh báo thử nghiệm', {
-        body: 'Hệ thống Web Push hoạt động hoàn hảo! VPD Zone 1 đang ở mức tối ưu 0.95 kPa.',
-        icon: '/icon-192.png',
-      })
-      setTestSent(true)
-      setTimeout(() => setTestSent(false), 3000)
-    } else {
-      alert('Vui lòng bấm nút "Bật nhận thông báo Web Push" trước!')
+  const handleUnsubscribe = async () => {
+    setPushBusy(true)
+    setPushMessage(null)
+    try {
+      await unsubscribePush()
+      setHasSubscription(false)
+      setPushMessage({ ok: true, text: 'Đã huỷ đăng ký Web Push trên thiết bị này.' })
+    } catch (err) {
+      setPushMessage({ ok: false, text: formatApiError(err) })
+    } finally {
+      setPushBusy(false)
     }
   }
+
+  const handleSavePrefs = () => {
+    setPrefsMsg(null)
+    updatePrefsMutation.mutate({
+      push_enabled: pushEnabled,
+      email_enabled: emailEnabled,
+      min_severity: minSeverity,
+    })
+  }
+
+  const permLabel =
+    permission === 'granted' ? 'Đã cho phép' : permission === 'denied' ? 'Bị chặn' : 'Chưa bật'
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+      <div className="page-header">
         <div>
-          <h2>📲 Cài đặt Thông báo & Web Push</h2>
-          <p className="muted" style={{ margin: 0 }}>Nhận thông báo sự cố ngay lập tức trên máy tính và điện thoại</p>
+          <h2>📲 Cài đặt Thông báo &amp; Web Push</h2>
+          <p className="muted" style={{ margin: 0 }}>
+            Quản lý đăng ký Web Push (VAPID) trên thiết bị này và tuỳ chọn kênh nhận cảnh báo cá nhân
+          </p>
         </div>
       </div>
 
+      {/* Khối Web Push */}
       <div className="card">
         <div className="card-header">
-          <h3>🔔 Thông báo đẩy Web Push (VAPID + Service Worker)</h3>
-          <span className={`badge ${permission === 'granted' ? 'ok' : 'warning'}`}>
-            Trạng thái: {permission === 'granted' ? 'Đã cho phép' : permission === 'denied' ? 'Bị chặn' : 'Chưa bật'}
-          </span>
+          <h3>🔔 Thông báo đẩy Web Push (Service Worker + VAPID)</h3>
+          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+            <span className={`badge ${permission === 'granted' ? 'ok' : 'warning'}`}>
+              Quyền trình duyệt: {permLabel}
+            </span>
+            <span className={`badge ${hasSubscription ? 'ok' : 'muted'}`}>
+              {hasSubscription ? 'Đã đăng ký thiết bị' : 'Chưa đăng ký thiết bị'}
+            </span>
+          </div>
         </div>
 
-        <p className="muted" style={{ fontSize: '0.85rem' }}>
-          GreenHub sử dụng tiêu chuẩn Web Push mở. Khi có rủi ro nấm bệnh (A3) hoặc đất quá khô, thông báo sẽ rung chuông điện thoại ngay cả khi bạn không mở web.
+        <p className="muted" style={{ fontSize: '0.86rem' }}>
+          Khi phát sinh sự cố nguy cơ nấm bệnh hoặc sốc nhiệt, Web Push sẽ gửi thông báo trực tiếp tới trình duyệt hoặc điện thoại ngay cả khi không mở trang web.
         </p>
 
-        {pushStatus && (
-          <div style={{ padding: '0.6rem 0.85rem', background: '#f8fafc', border: '1px solid var(--border)', borderRadius: 'var(--radius)', marginBottom: '1rem', fontSize: '0.85rem' }}>
-            {pushStatus}
+        {pushMessage && (
+          <div
+            className={`alert-banner ${pushMessage.ok ? 'ok' : 'bad'}`}
+            style={{ marginBottom: '1rem' }}
+          >
+            {pushMessage.text}
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
           <button
+            type="button"
             className="btn btn-primary"
             onClick={handleSubscribe}
-            disabled={subscribing}
+            disabled={pushBusy}
           >
-            {subscribing ? 'Đang kích hoạt...' : '🔔 Bật nhận thông báo Web Push trên thiết bị này'}
+            {pushBusy ? 'Đang xử lý...' : '🔔 Bật thông báo đẩy (Web Push)'}
           </button>
 
-          <button
-            className="btn btn-secondary"
-            onClick={handleTestNotification}
-          >
-            {testSent ? '✓ Đã bắn thông báo!' : '🚀 Gửi thông báo thử nghiệm (Test Push)'}
-          </button>
+          {hasSubscription && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={handleUnsubscribe}
+              disabled={pushBusy}
+            >
+              Huỷ đăng ký trên thiết bị này
+            </button>
+          )}
         </div>
 
-        {/* HƯỚNG DẪN DÀNH CHO IPHONE IOS */}
-        <div style={{ background: '#f1f5f9', padding: '1rem', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
-          <h4 style={{ margin: '0 0 0.5rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-            🍎 Lưu ý quan trọng cho người dùng iPhone / iPad (iOS 16.4+)
+        <div
+          style={{
+            background: '#f1f5f9',
+            padding: '1rem',
+            borderRadius: 'var(--radius)',
+            border: '1px solid var(--border)',
+            marginBottom: '1rem',
+          }}
+        >
+          <h4 style={{ margin: '0 0 0.5rem' }}>
+            🍎 Hướng dẫn riêng cho iPhone / iPad (iOS 16.4 trở lên)
           </h4>
-          <ol style={{ margin: 0, paddingLeft: '1.25rem', fontSize: '0.85rem', color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-            <li>Apple yêu cầu web phải được cài đặt ra màn hình chính thì mới được phép nhận Web Push.</li>
-            <li>Trên trình duyệt Safari: Bấm vào nút <strong>Chia sẻ (Share icon)</strong> ở góc dưới màn hình.</li>
-            <li>Chọn <strong>"Thêm vào Màn hình chính" (Add to Home Screen)</strong>.</li>
-            <li>Mở icon GreenHub từ màn hình chính và bấm nút <em>"Bật nhận thông báo"</em> ở trên.</li>
+          <ol
+            style={{
+              margin: 0,
+              paddingLeft: '1.25rem',
+              fontSize: '0.85rem',
+              color: 'var(--muted)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.25rem',
+            }}
+          >
+            <li>Mở GreenHub bằng trình duyệt Safari qua HTTPS.</li>
+            <li>
+              Bấm biểu tượng <strong>Chia sẻ (Share)</strong> và chọn{' '}
+              <strong>&quot;Thêm vào Màn hình chính&quot; (Add to Home Screen)</strong>.
+            </li>
+            <li>Mở ứng dụng GreenHub từ biểu tượng trên màn hình chính rồi bấm nút bật Web Push ở trên.</li>
           </ol>
         </div>
+
+        <div className="muted" style={{ fontSize: '0.8rem' }}>
+          <strong>Lưu ý giới hạn:</strong> Web Push phụ thuộc dịch vụ đẩy của trình duyệt và có thể bị ẩn khi bật chế độ <em>Không làm phiền (DND)</em>. Vì vậy, với cảnh báo mức <code>critical</code> chưa được xác nhận, hệ thống luôn có lớp dự phòng qua <strong>Email leo thang</strong> và <strong>Buzzer trên Gateway</strong>.
+        </div>
+      </div>
+
+      {/* Khối Tuỳ chọn nhận thông báo */}
+      <div className="card">
+        <div className="card-header">
+          <h3>⚙️ Tuỳ chọn nhận thông báo tài khoản</h3>
+        </div>
+
+        {prefsQuery.isError && (
+          <div className="alert-banner bad" style={{ marginBottom: '1rem' }}>
+            {formatApiError(prefsQuery.error)}
+          </div>
+        )}
+
+        {prefsMsg && (
+          <div className="alert-banner info" style={{ marginBottom: '1rem' }}>
+            {prefsMsg}
+          </div>
+        )}
+
+        <div className="grid grid-cols-3" style={{ marginBottom: '1rem' }}>
+          <label className="checkbox-card">
+            <input
+              type="checkbox"
+              checked={pushEnabled}
+              onChange={(e) => setPushEnabled(e.target.checked)}
+            />
+            <span>
+              <strong>Nhận Web Push</strong>
+              <span className="muted" style={{ display: 'block', fontSize: '0.78rem' }}>
+                Gửi thông báo đẩy qua trình duyệt đã đăng ký
+              </span>
+            </span>
+          </label>
+
+          <label className="checkbox-card">
+            <input
+              type="checkbox"
+              checked={emailEnabled}
+              onChange={(e) => setEmailEnabled(e.target.checked)}
+            />
+            <span>
+              <strong>Nhận Email leo thang</strong>
+              <span className="muted" style={{ display: 'block', fontSize: '0.78rem' }}>
+                Gửi email khi cảnh báo critical chưa được Ack
+              </span>
+            </span>
+          </label>
+
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label htmlFor="min-severity">Mức độ nghiêm trọng tối thiểu</label>
+            <select
+              id="min-severity"
+              value={minSeverity}
+              onChange={(e) => setMinSeverity(e.target.value as AlertSeverity)}
+            >
+              <option value="info">Info (Tất cả cảnh báo)</option>
+              <option value="warning">Warning (Cảnh báo &amp; Nghiêm trọng)</option>
+              <option value="critical">Critical (Chỉ sự cố nghiêm trọng)</option>
+            </select>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={handleSavePrefs}
+          disabled={updatePrefsMutation.isPending || prefsQuery.isLoading}
+        >
+          {updatePrefsMutation.isPending ? 'Đang lưu...' : '💾 Lưu tuỳ chọn thông báo'}
+        </button>
       </div>
     </div>
   )
 }
-
