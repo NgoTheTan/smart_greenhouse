@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from './auth'
+import { isMockMode } from './api'
 import { ALERT_TYPE_LABELS, type AlertSeverity, type ReadingPoint, type WsEvent } from './types'
 
 export interface ToastMessage {
@@ -166,6 +167,35 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         wsRef.current = null
       }
       return
+    }
+
+    // Chế độ Demo Mock Mode: Giả lập kết nối WebSocket Realtime
+    if (isMockMode()) {
+      setConnected(true)
+      const mockTimer = window.setInterval(() => {
+        const fakeTemp = 23.5 + (Math.random() - 0.5) * 0.4
+        const fakeRh = 72.0 + (Math.random() - 0.5) * 1.0
+        handleWsEvent({
+          type: 'telemetry',
+          data: {
+            greenhouse_id: 'gh-dalat-01',
+            zone_id: 'zone-01',
+            ts: new Date().toISOString(),
+            air_temp: Math.round(fakeTemp * 10) / 10,
+            air_rh: Math.round(fakeRh * 10) / 10,
+            vpd: 1.05,
+            soil_moisture: 68.2,
+            soil_raw: 1850,
+            quality: 'ok',
+            source: 'node',
+          },
+        })
+      }, 12_000)
+
+      return () => {
+        window.clearInterval(mockTimer)
+        setConnected(false)
+      }
     }
 
     let cancelled = false

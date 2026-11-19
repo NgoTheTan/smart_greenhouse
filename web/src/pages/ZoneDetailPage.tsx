@@ -83,9 +83,16 @@ export default function ZoneDetailPage() {
   const [startNotes, setStartNotes] = useState('')
   const [cycleError, setCycleError] = useState<string | null>(null)
 
+  // Harvest & Feedback states
   const [showHarvestModal, setShowHarvestModal] = useState(false)
-  const [harvestKg, setHarvestKg] = useState<string>('1.5')
+  const [harvestKg, setHarvestKg] = useState<string>('768')
   const [harvestNotes, setHarvestNotes] = useState('')
+  const [varietyName, setVarietyName] = useState('Cà chua bi Cherry Nova F1')
+  const [qualityRating, setQualityRating] = useState<number>(5)
+  const [lossPct, setLossPct] = useState<number>(4.0)
+  const [aiAccuracyEval, setAiAccuracyEval] = useState<'accurate' | 'overestimated' | 'underestimated'>('accurate')
+  const [farmerNotes, setFarmerNotes] = useState('Chế độ tưới tự động ổn định, độ ẩm đất duy trì 65-75%, trái chín mọng đều, không bị nứt.')
+  const [harvestSuccessToast, setHarvestSuccessToast] = useState<string | null>(null)
 
   const [showZoneEdit, setShowZoneEdit] = useState(false)
   const [editZoneName, setEditZoneName] = useState('')
@@ -296,17 +303,35 @@ export default function ZoneDetailPage() {
   })
 
   const harvestCycleMutation = useMutation({
-    mutationFn: (payload: { cycleId: string; yield_kg: number; notes: string | null }) =>
+    mutationFn: (payload: {
+      cycleId: string
+      yield_kg: number
+      notes: string | null
+      feedback?: {
+        variety?: string
+        quality_rating?: number
+        loss_percentage?: number
+        ai_accuracy_evaluation?: 'accurate' | 'overestimated' | 'underestimated'
+        farmer_notes?: string
+        yield_kg_m2?: number
+      }
+    }) =>
       api<CropCycle>(`/cycles/${payload.cycleId}/harvest`, {
         method: 'POST',
-        body: JSON.stringify({ yield_kg: payload.yield_kg, notes: payload.notes }),
+        body: JSON.stringify(payload),
       }),
     onSuccess: () => {
       setShowHarvestModal(false)
       setCycleError(null)
-      setHarvestNotes('')
+      const kg = Number(harvestKg || 0)
+      const area = activeCycle?.area_m2 || 1
+      const yieldPerM2 = (kg / area).toFixed(2)
+      setHarvestSuccessToast(
+        `🎉 Đã ghi nhận thu hoạch thành công: ${kg} kg (${yieldPerM2} kg/m²)! Dữ liệu phản hồi mùa vụ đã được lưu vào kho mẫu thực địa của AI.`,
+      )
       void queryClient.invalidateQueries({ queryKey: ['cycles', zoneId] })
       void queryClient.invalidateQueries({ queryKey: ['greenhouses'] })
+      void queryClient.invalidateQueries({ queryKey: ['models'] })
     },
     onError: (err) => setCycleError(formatApiError(err)),
   })
@@ -353,6 +378,7 @@ export default function ZoneDetailPage() {
   const progressPct = Math.min(100, Math.round((elapsedDays / expectedDays) * 100))
   const dayOrdinal = Math.max(1, Math.floor(elapsedDays) + 1)
   const isOverdue = Boolean(activeCycle && elapsedDays > expectedDays)
+  const isReadyToHarvest = Boolean(activeCycle && (elapsedDays >= expectedDays || progressPct >= 95))
 
   const handleTriggerActuator = (act: ActuatorName, currentState: string) => {
     const turningOn = currentState !== 'on'
@@ -663,6 +689,99 @@ export default function ZoneDetailPage() {
             </div>
           )}
         </div>
+
+        {harvestSuccessToast && (
+          <div
+            className="alert-banner ok"
+            style={{
+              marginBottom: '1rem',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
+            <span>{harvestSuccessToast}</span>
+            <button
+              type="button"
+              className="btn btn-sm btn-secondary"
+              onClick={() => setHarvestSuccessToast(null)}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {isReadyToHarvest && activeCycle && (
+          <div
+            style={{
+              background: 'linear-gradient(135deg, #fffbeb 0%, #ecfdf5 100%)',
+              border: '2px solid #f59e0b',
+              borderRadius: 'var(--radius)',
+              padding: '1.25rem',
+              marginBottom: '1rem',
+              boxShadow: '0 4px 14px rgba(245, 158, 11, 0.12)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '1.25rem',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.9rem',
+                flex: 1,
+                minWidth: 260,
+              }}
+            >
+              <span style={{ fontSize: '2.4rem' }}>🌾</span>
+              <div>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    marginBottom: '0.2rem',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <span className="badge warning" style={{ fontWeight: 700 }}>
+                    ĐẾN KỲ THU HOẠCH
+                  </span>
+                  <strong style={{ fontSize: '1.05rem', color: '#92400e' }}>
+                    {formatCropName(activeCycle.crop_code, activeCycle.crop_name)} (Ngày {dayOrdinal}/{expectedDays})
+                  </strong>
+                </div>
+                <p style={{ margin: 0, fontSize: '0.86rem', color: '#78350f', lineHeight: 1.45 }}>
+                  Vụ trồng đã chạm thời hạn sinh trưởng dự kiến. Hệ thống mời bạn{' '}
+                  <strong>phản hồi sản lượng và chất lượng thực tế</strong> để tự động bổ sung vào tập
+                  huấn luyện của AI, giúp mô hình dự báo chính xác hơn cho khu vườn của bạn!
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{
+                background: '#d97706',
+                borderColor: '#b45309',
+                fontWeight: 700,
+                fontSize: '0.92rem',
+                padding: '0.65rem 1.25rem',
+                boxShadow: '0 2px 8px rgba(180, 83, 9, 0.25)',
+                whiteSpace: 'nowrap',
+              }}
+              onClick={() => {
+                setCycleError(null)
+                setShowHarvestModal(true)
+              }}
+            >
+              🧺 Phản hồi &amp; Thu hoạch ngay
+            </button>
+          </div>
+        )}
 
         <div className="grid grid-cols-2" style={{ gap: '1rem' }}>
           {/* Vụ hiện tại */}
@@ -1097,6 +1216,7 @@ export default function ZoneDetailPage() {
                   <th>Diện tích (m²)</th>
                   <th>Tổng sản lượng (kg)</th>
                   <th>Năng suất (kg/m²)</th>
+                  <th>Đánh giá &amp; Giống</th>
                   <th>Trạng thái</th>
                   <th>Ghi chú</th>
                 </tr>
@@ -1112,6 +1232,26 @@ export default function ZoneDetailPage() {
                     <td>{c.area_m2}</td>
                     <td>{c.yield_kg !== null ? c.yield_kg.toFixed(2) : '—'}</td>
                     <td>{c.yield_kg_m2 !== null ? c.yield_kg_m2.toFixed(2) : '—'}</td>
+                    <td>
+                      {c.feedback ? (
+                        <div>
+                          <span
+                            className="badge ok"
+                            style={{ fontSize: '0.74rem' }}
+                            title={c.feedback.variety ? `Giống: ${c.feedback.variety}` : ''}
+                          >
+                            ⭐ {c.feedback.quality_rating}/5 {c.feedback.variety ? `· ${c.feedback.variety}` : ''}
+                          </span>
+                          {typeof c.feedback.loss_percentage === 'number' && (
+                            <span className="muted" style={{ fontSize: '0.72rem', display: 'block' }}>
+                              Hao hụt: {c.feedback.loss_percentage}%
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
+                    </td>
                     <td>
                       <span
                         className={`badge ${
@@ -1234,12 +1374,17 @@ export default function ZoneDetailPage() {
         </div>
       )}
 
-      {/* Modal Thu hoạch */}
+      {/* Modal Thu hoạch & Phản hồi Mùa vụ (Harvest & Yield Feedback Modal) */}
       {showHarvestModal && activeCycle && (
         <div className="modal-backdrop" role="dialog" aria-modal="true">
-          <div className="modal-card">
+          <div className="modal-card" style={{ maxWidth: 660, maxHeight: '90vh', overflowY: 'auto' }}>
             <div className="card-header">
-              <h3>🧺 Ghi nhận Thu hoạch Vụ trồng</h3>
+              <div>
+                <h3 style={{ margin: '0 0 0.2rem' }}>🌾 Phản hồi Mùa vụ Thu hoạch &amp; Đóng góp Dữ liệu AI</h3>
+                <span className="badge ok" style={{ fontSize: '0.74rem' }}>
+                  Đóng góp mẫu thực tế (source = &apos;real&apos;)
+                </span>
+              </div>
               <button
                 type="button"
                 className="btn btn-sm btn-secondary"
@@ -1247,6 +1392,13 @@ export default function ZoneDetailPage() {
               >
                 ✕
               </button>
+            </div>
+
+            <div
+              className="alert-banner info"
+              style={{ marginBottom: '1rem', fontSize: '0.82rem', lineHeight: 1.45 }}
+            >
+              💡 <strong>Mục đích:</strong> Thông tin sản lượng và phản hồi từ khu vườn này sẽ được kết hợp với dữ liệu vi khí hậu thu thập tự động để làm giàu kho dữ liệu huấn luyện của mô hình AI, giúp dự báo năng suất và gợi ý cây trồng chuẩn xác hơn cho các vụ sau.
             </div>
 
             {cycleError && (
@@ -1259,58 +1411,234 @@ export default function ZoneDetailPage() {
               onSubmit={(e) => {
                 e.preventDefault()
                 const kg = Number(harvestKg)
-                if (Number.isNaN(kg) || kg < 0) {
-                  setCycleError('Tổng khối lượng thu hoạch phải ≥ 0 kg.')
+                if (Number.isNaN(kg) || kg <= 0) {
+                  setCycleError('Tổng khối lượng thu hoạch phải > 0 kg.')
                   return
                 }
+                const kgPerM2 = Number((kg / activeCycle.area_m2).toFixed(2))
                 harvestCycleMutation.mutate({
                   cycleId: activeCycle.id,
                   yield_kg: kg,
                   notes: harvestNotes.trim() || null,
+                  feedback: {
+                    variety: varietyName.trim() || undefined,
+                    quality_rating: qualityRating,
+                    loss_percentage: Number(lossPct) || 0,
+                    ai_accuracy_evaluation: aiAccuracyEval,
+                    farmer_notes: farmerNotes.trim() || undefined,
+                    yield_kg_m2: kgPerM2,
+                  },
                 })
               }}
             >
+              {/* 1. Thông tin vụ mùa */}
+              <div
+                style={{
+                  background: '#f8fafc',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius)',
+                  padding: '0.85rem',
+                  marginBottom: '1rem',
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                  gap: '0.75rem',
+                  fontSize: '0.84rem',
+                }}
+              >
+                <div>
+                  <span className="muted" style={{ fontSize: '0.72rem', display: 'block' }}>CÂY TRỒNG</span>
+                  <strong>{formatCropName(activeCycle.crop_code, activeCycle.crop_name)}</strong>
+                </div>
+                <div>
+                  <span className="muted" style={{ fontSize: '0.72rem', display: 'block' }}>KHU VƯỜN / ZONE</span>
+                  <strong>{zone?.name || `Zone ${zone?.zone_index}`}</strong>
+                </div>
+                <div>
+                  <span className="muted" style={{ fontSize: '0.72rem', display: 'block' }}>DIỆN TÍCH CANH TÁC</span>
+                  <strong>{activeCycle.area_m2} m²</strong>
+                </div>
+                <div>
+                  <span className="muted" style={{ fontSize: '0.72rem', display: 'block' }}>THỜI GIAN SINH TRƯỞNG</span>
+                  <strong>{dayOrdinal} ngày</strong> ({formatDateTimeVi(activeCycle.started_at).slice(0, 10)})
+                </div>
+              </div>
+
+              {/* Tên giống cây cụ thể */}
               <div className="form-group">
-                <label>Tổng khối lượng thu hoạch (kg) *</label>
+                <label htmlFor="harvest-variety">Tên giống cây cụ thể / Variety *</label>
                 <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={harvestKg}
-                  onChange={(e) => setHarvestKg(e.target.value)}
+                  id="harvest-variety"
+                  type="text"
+                  value={varietyName}
+                  onChange={(e) => setVarietyName(e.target.value)}
+                  placeholder="VD: Cà chua bi Cherry Nova F1, Dâu tây Hana Nhật..."
                   required
                 />
-                <span className="muted" style={{ fontSize: '0.8rem' }}>
-                  Quy đổi năng suất: <strong>{(Number(harvestKg || 0) / activeCycle.area_m2).toFixed(2)} kg/m²</strong>{' '}
-                  (trên {activeCycle.area_m2} m²)
-                </span>
               </div>
+
+              {/* 2. Sản lượng thu hoạch thực tế */}
+              <div
+                style={{
+                  background: '#f0fdf4',
+                  border: '1px solid #86efac',
+                  borderRadius: 'var(--radius)',
+                  padding: '1rem',
+                  marginBottom: '1rem',
+                }}
+              >
+                <div className="form-group" style={{ marginBottom: '0.6rem' }}>
+                  <label htmlFor="harvest-kg" style={{ color: '#166534', fontWeight: 700 }}>
+                    Tổng sản lượng thực tế thu hoạch (kg) *
+                  </label>
+                  <input
+                    id="harvest-kg"
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    value={harvestKg}
+                    onChange={(e) => setHarvestKg(e.target.value)}
+                    style={{ fontSize: '1.25rem', fontWeight: 700, color: '#15803d' }}
+                    required
+                  />
+                </div>
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                    gap: '0.75rem',
+                    paddingTop: '0.6rem',
+                    borderTop: '1px solid #bbf7d0',
+                    fontSize: '0.84rem',
+                  }}
+                >
+                  <div>
+                    <span className="muted" style={{ fontSize: '0.74rem', display: 'block' }}>
+                      NĂNG SUẤT THỰC ĐẠT
+                    </span>
+                    <strong style={{ fontSize: '1.15rem', color: 'var(--primary)' }}>
+                      {(Number(harvestKg || 0) / activeCycle.area_m2).toFixed(2)} kg/m²
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="muted" style={{ fontSize: '0.74rem', display: 'block' }}>
+                      SO VỚI MỨC THAM CHIẾU ({params?.yield.reference_kg_m2 ?? 6.5} kg/m²)
+                    </span>
+                    <span className="badge ok">
+                      {Math.round(
+                        ((Number(harvestKg || 0) / activeCycle.area_m2) /
+                          (params?.yield.reference_kg_m2 ?? 6.5)) *
+                          100,
+                      )}%
+                    </span>
+                  </div>
+                  <div>
+                    <span className="muted" style={{ fontSize: '0.74rem', display: 'block' }}>
+                      SO VỚI AI DỰ BÁO ({typeof forecastVal === 'number' ? `${forecastVal.toFixed(1)} kg/m²` : '—'})
+                    </span>
+                    {typeof forecastVal === 'number' ? (
+                      <span className="badge info">
+                        {((Number(harvestKg || 0) / activeCycle.area_m2) - forecastVal >= 0 ? '+' : '')}
+                        {((Number(harvestKg || 0) / activeCycle.area_m2) - forecastVal).toFixed(2)} kg/m²
+                      </span>
+                    ) : (
+                      <span className="muted">—</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Đánh giá chất lượng nông sản & Tỷ lệ hao hụt */}
+              <div className="grid grid-cols-2" style={{ gap: '0.85rem', marginBottom: '1rem' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label htmlFor="harvest-rating">Chất lượng nông sản vụ này *</label>
+                  <select
+                    id="harvest-rating"
+                    value={qualityRating}
+                    onChange={(e) => setQualityRating(Number(e.target.value))}
+                  >
+                    <option value={5}>⭐⭐⭐⭐⭐ Hạng 1 (Đồng đều, màu đẹp, ngọt đậm)</option>
+                    <option value={4}>⭐⭐⭐⭐ Hạng 2 (Chất lượng thương phẩm tốt)</option>
+                    <option value={3}>⭐⭐⭐ Trung bình (Đạt tiêu chuẩn tiêu thụ)</option>
+                    <option value={2}>⭐⭐ Dưới chuẩn (Trái nhỏ, da nám hoặc dị dạng)</option>
+                    <option value={1}>⭐ Kém / Thất thu (Sâu bệnh hoặc hư hại nặng)</option>
+                  </select>
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label htmlFor="harvest-loss">Tỷ lệ hao hụt / phế phẩm (%)</label>
+                  <input
+                    id="harvest-loss"
+                    type="number"
+                    step="0.5"
+                    min="0"
+                    max="100"
+                    value={lossPct}
+                    onChange={(e) => setLossPct(Number(e.target.value))}
+                  />
+                </div>
+              </div>
+
+              {/* 4. Đánh giá độ chính xác của AI */}
               <div className="form-group">
-                <label>Ghi chú thu hoạch</label>
+                <label>Đánh giá dự báo của AI GreenHub vụ này</label>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  {[
+                    ['accurate', '🎯 Rất chính xác (sai số < 5%)'],
+                    ['overestimated', '📈 AI dự báo cao hơn thực tế'],
+                    ['underestimated', '📉 AI dự báo thấp hơn thực tế'],
+                  ].map(([val, label]) => (
+                    <button
+                      key={val}
+                      type="button"
+                      className={`btn btn-sm ${aiAccuracyEval === val ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => setAiAccuracyEval(val as 'accurate' | 'overestimated' | 'underestimated')}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 5. Nhật ký canh tác & Ghi chú thực tế */}
+              <div className="form-group">
+                <label htmlFor="harvest-farmer-notes">Nhật ký canh tác &amp; Yếu tố thời tiết thực tế</label>
+                <textarea
+                  id="harvest-farmer-notes"
+                  rows={2}
+                  value={farmerNotes}
+                  onChange={(e) => setFarmerNotes(e.target.value)}
+                  placeholder="Ghi nhận điều kiện bón phân, tưới nước, sâu bệnh hoặc thời tiết bất thường..."
+                  style={{ width: '100%', borderRadius: 'var(--radius)', padding: '0.5rem' }}
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="harvest-general-notes">Ghi chú lưu vụ (tùy chọn)</label>
                 <input
+                  id="harvest-general-notes"
                   type="text"
                   value={harvestNotes}
                   onChange={(e) => setHarvestNotes(e.target.value)}
-                  placeholder="Chất lượng lá tốt, không sâu bệnh..."
+                  placeholder="Ghi chú tổng kết vụ..."
                 />
               </div>
-              <p className="muted" style={{ fontSize: '0.78rem' }}>
-                Sau khi ghi nhận, dữ liệu khí hậu &amp; năng suất của vụ sẽ được tổng hợp làm mẫu huấn luyện nếu đủ độ phủ dữ liệu.
-              </p>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem', marginTop: '1.25rem' }}>
                 <button
                   type="button"
                   className="btn btn-secondary"
                   onClick={() => setShowHarvestModal(false)}
                 >
-                  Huỷ
+                  Để sau
                 </button>
                 <button
                   type="submit"
                   className="btn btn-primary"
                   disabled={harvestCycleMutation.isPending}
+                  style={{ fontWeight: 700 }}
                 >
-                  {harvestCycleMutation.isPending ? 'Đang lưu...' : 'Xác nhận Thu hoạch'}
+                  {harvestCycleMutation.isPending ? 'Đang lưu...' : '💾 Gửi Phản hồi & Lưu Thu hoạch'}
                 </button>
               </div>
             </form>

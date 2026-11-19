@@ -27,6 +27,7 @@ node_modules/
 web/dist/
 web/dev-dist/
 *.local
+*.tsbuildinfo
 
 # --- PlatformIO ---
 .pio/
@@ -36,6 +37,8 @@ firmware/**/.vscode/
 backups/
 *.dump
 *.sql.gz
+*.sqlite3
+*.db
 
 # --- OS / IDE ---
 .DS_Store

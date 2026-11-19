@@ -306,6 +306,7 @@ class Alert(Base):
             "dedupe_key",
             unique=True,
             postgresql_where=text("state <> 'resolved'"),
+            sqlite_where=text("state <> 'resolved'"),
         ),
     )
 
@@ -388,6 +389,7 @@ class CropCycle(Base):
             "zone_id",
             unique=True,
             postgresql_where=text("status = 'active'"),
+            sqlite_where=text("status = 'active'"),
         ),
     )
 

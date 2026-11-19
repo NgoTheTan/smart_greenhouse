@@ -9,7 +9,7 @@ import {
 } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { api, getToken, setToken } from './api'
-import { hasMinRole, type User } from './types'
+import type { User } from './types'
 
 interface AuthContextValue {
   token: string | null
@@ -95,8 +95,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       isLoading,
       isAuthenticated: Boolean(token && user),
-      canOperate: hasMinRole(user?.role, 'operator'),
-      isOwner: hasMinRole(user?.role, 'owner'),
+      canOperate: Boolean(user),
+      isOwner: Boolean(user),
       loginWithToken,
       logout,
       refreshMe: fetchMe,

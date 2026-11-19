@@ -443,7 +443,12 @@ class CropCycleCreateRequest(BaseModel):
 class CropCycleHarvestRequest(BaseModel):
     harvested_at: datetime | None = None
     yield_kg: float = Field(ge=0)
-    notes: str | None = Field(default=None, max_length=1000)
+    notes: str | None = Field(default=None, max_length=2000)
+    crop_variety: str | None = None
+    quality_rating: int | None = None
+    loss_pct: float | None = None
+    ai_eval: str | None = None
+    feedback: dict[str, Any] | None = None
 
 
 class CropCycleAbandonRequest(BaseModel):

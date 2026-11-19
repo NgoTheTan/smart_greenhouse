@@ -39,7 +39,12 @@ export default function OverviewPage() {
   const greenhouses = greenhousesQuery.data ?? []
   const profilesById = new Map((profilesQuery.data ?? []).map((p) => [p.id, p]))
 
-  const allZones = greenhouses.flatMap((gh) => gh.zones)
+  const allZones = greenhouses.flatMap((gh) =>
+    gh.zones.map((z) => ({
+      ...z,
+      greenhouseName: gh.name || gh.id,
+    })),
+  )
 
   const activeCycleQueries = useQueries({
     queries: allZones.map((z) => ({
@@ -69,6 +74,16 @@ export default function OverviewPage() {
   const recByGh = new Map<string, PredictionItem<CropRecommendationDetails> | null>()
   greenhouses.forEach((gh, idx) => {
     recByGh.set(gh.id, recommendationQueries[idx]?.data ?? null)
+  })
+
+  // Phát hiện các khu vườn đã đến hoặc quá hạn thu hoạch dự kiến
+  const readyToHarvestZones = allZones.filter((z) => {
+    const cycle = activeCycleByZone.get(z.id)
+    if (!cycle) return false
+    const profile = profilesById.get(cycle.crop_profile_id)
+    const expectedDays = profile?.parameters_json?.cycle?.days ?? 90
+    const elapsedDays = (Date.now() - new Date(cycle.started_at).getTime()) / 86_400_000
+    return elapsedDays >= expectedDays
   })
 
   const createGhMutation = useMutation({
@@ -127,6 +142,63 @@ export default function OverviewPage() {
         </div>
       </div>
 
+      {readyToHarvestZones.length > 0 && (
+        <div
+          style={{
+            background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
+            border: '2px solid #f59e0b',
+            borderRadius: 'var(--radius)',
+            padding: '1.1rem 1.25rem',
+            marginBottom: '1.25rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '1rem',
+            flexWrap: 'wrap',
+            boxShadow: '0 4px 12px rgba(245, 158, 11, 0.15)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', flex: 1, minWidth: 260 }}>
+            <span style={{ fontSize: '2.4rem' }}>🌾</span>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginBottom: '0.2rem' }}>
+                <span className="badge warning" style={{ fontWeight: 700 }}>
+                  THÔNG BÁO MÙA VỤ
+                </span>
+                <strong style={{ color: '#92400e', fontSize: '1rem' }}>
+                  Có {readyToHarvestZones.length} khu vườn đã đến kỳ thu hoạch!
+                </strong>
+              </div>
+              <p style={{ margin: 0, fontSize: '0.86rem', color: '#78350f', lineHeight: 1.4 }}>
+                {readyToHarvestZones
+                  .map((z) => {
+                    const c = activeCycleByZone.get(z.id)
+                    return `${z.greenhouseName} – ${z.name || `Zone ${z.zone_index}`} (${formatCropName(
+                      c?.crop_code,
+                      c?.crop_name,
+                    )})`
+                  })
+                  .join('; ')}
+                . Hãy phản hồi sản lượng thực tế để bổ sung dữ liệu huấn luyện AI!
+              </p>
+            </div>
+          </div>
+          <Link
+            to={`/zones/${readyToHarvestZones[0].id}`}
+            className="btn btn-primary"
+            style={{
+              background: '#d97706',
+              borderColor: '#b45309',
+              fontWeight: 700,
+              whiteSpace: 'nowrap',
+              boxShadow: '0 2px 6px rgba(180, 83, 9, 0.25)',
+            }}
+          >
+            🧺 Đến xem &amp; Phản hồi mùa vụ →
+          </Link>
+        </div>
+      )}
+
       {greenhousesQuery.isLoading && (
         <div className="card muted">Đang tải danh sách nhà kính...</div>
       )}
@@ -141,9 +213,7 @@ export default function OverviewPage() {
         <div className="card" style={{ textAlign: 'center', padding: '2.5rem' }}>
           <h3>Chưa có nhà kính nào trong farm</h3>
           <p className="muted">
-            {isOwner
-              ? 'Bấm "Tạo nhà kính mới" để khởi tạo nhà kính đầu tiên với 2 zone mặc định.'
-              : 'Liên hệ chủ farm (Owner) để tạo nhà kính và cấp phát thiết bị.'}
+            Bấm &quot;Tạo nhà kính mới&quot; để khởi tạo nhà kính đầu tiên cho vườn của bạn với 2 zone mặc định.
           </p>
         </div>
       )}

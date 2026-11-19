@@ -21,8 +21,7 @@ from api.routers import (
     recommendations,
     zones,
 )
-from core.config import get_settings
-from core.db import engine
+from core.db import effective_database_url, engine
 from core.log import setup_logging
 from core.pubsub import CHANNEL_WS, listen_loop
 
@@ -31,11 +30,15 @@ setup_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Khởi tạo vòng lặp lắng nghe PostgreSQL ws_events để fan-out WebSocket."""
-    settings = get_settings()
+    """Khởi tạo cơ sở dữ liệu Dev (nếu dùng SQLite) và vòng lặp lắng nghe ws_events."""
+    if effective_database_url.startswith("sqlite"):
+        from core.dev_db import init_dev_database
+
+        await init_dev_database(engine)
+
     stop_event = asyncio.Event()
     listener_task = asyncio.create_task(
-        listen_loop(settings.database_url, CHANNEL_WS, ws.manager.on_ws_event, stop_event)
+        listen_loop(effective_database_url, CHANNEL_WS, ws.manager.on_ws_event, stop_event)
     )
     try:
         yield

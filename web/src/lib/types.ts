@@ -1,4 +1,4 @@
-export type UserRole = 'viewer' | 'operator' | 'owner'
+export type UserRole = 'owner'
 export type ActuatorName = 'pump_1' | 'pump_2' | 'fan' | 'mist'
 export type ActuatorMode = 'auto' | 'manual'
 export type AlertSeverity = 'info' | 'warning' | 'critical'
@@ -232,6 +232,15 @@ export interface NotificationPref {
   min_severity: AlertSeverity
 }
 
+export interface CropCycleFeedback {
+  variety?: string
+  quality_rating?: number
+  loss_percentage?: number
+  ai_accuracy_evaluation?: 'accurate' | 'overestimated' | 'underestimated'
+  farmer_notes?: string
+  yield_kg_m2?: number
+}
+
 export interface CropCycle {
   id: string
   zone_id: string
@@ -245,6 +254,7 @@ export interface CropCycle {
   yield_kg_m2: number | null
   status: CycleStatus
   notes: string | null
+  feedback?: CropCycleFeedback | null
   created_by: string | null
   created_at: string
 }
@@ -405,17 +415,9 @@ export const QUALITY_LABELS: Record<string, string> = {
   out_of_range: 'Ngoài dải vật lý (Out of range)',
 }
 
-const ROLE_ORDER: Record<UserRole, number> = {
-  viewer: 0,
-  operator: 1,
-  owner: 2,
-}
-
-export function hasMinRole(role: string | undefined | null, minRole: UserRole): boolean {
+export function hasMinRole(role: string | undefined | null, _minRole?: UserRole | string): boolean {
   if (!role) return false
-  const val = ROLE_ORDER[role as UserRole]
-  if (val === undefined) return false
-  return val >= ROLE_ORDER[minRole]
+  return true
 }
 
 export function formatCropName(code: string | null | undefined, fallbackName?: string | null): string {

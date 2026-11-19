@@ -24,6 +24,10 @@ def _asyncpg_dsn(sqlalchemy_url: str) -> str:
 
 async def pg_notify(session: AsyncSession, channel: str, payload: dict[str, Any]) -> None:
     """Gửi thông báo trong cùng transaction hiện tại (chỉ phát khi commit thành công)."""
+    bind = getattr(session, "bind", None)
+    if bind is not None and getattr(bind.dialect, "name", "") != "postgresql":
+        log.debug("Dev non-pg mode: bỏ qua pg_notify trên kênh %s", channel)
+        return
     data = json.dumps(payload, separators=(",", ":"), default=str)
     await session.execute(text("SELECT pg_notify(:ch, :msg)"), {"ch": channel, "msg": data})
 
@@ -35,6 +39,11 @@ async def listen_loop(
     stop_event: asyncio.Event | None = None,
 ) -> None:
     """Giữ kết nối asyncpg riêng để LISTEN kênh `channel`, tự kết nối lại khi DB ngắt."""
+    if not database_url.startswith("postgresql"):
+        log.info("Dev non-pg mode: listen_loop trên kênh %s chuyển sang chế độ chờ.", channel)
+        while stop_event is None or not stop_event.is_set():
+            await asyncio.sleep(1.0)
+        return
     dsn = _asyncpg_dsn(database_url)
     backoff = 1
     queue: asyncio.Queue[str] = asyncio.Queue()

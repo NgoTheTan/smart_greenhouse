@@ -25,12 +25,14 @@ export default function DevicesPage() {
     queryFn: () => api<DeviceNode[]>('/nodes'),
   })
 
-  const greenhouses = greenhousesQuery.data ?? []
+  const greenhouses = Array.isArray(greenhousesQuery.data) ? greenhousesQuery.data : []
   const allZones = greenhouses.flatMap((gh) =>
-    gh.zones.map((z) => ({
-      ...z,
-      greenhouseName: gh.name || gh.id,
-    })),
+    Array.isArray(gh.zones)
+      ? gh.zones.map((z) => ({
+          ...z,
+          greenhouseName: gh.name || gh.id,
+        }))
+      : [],
   )
   const zoneById = new Map(allZones.map((z) => [z.id, z]))
   const ghById = new Map(greenhouses.map((g) => [g.id, g]))
@@ -193,7 +195,7 @@ export default function DevicesPage() {
     })
   }
 
-  const nodes = nodesQuery.data ?? []
+  const nodes = Array.isArray(nodesQuery.data) ? nodesQuery.data : []
   const discoveredNodes = nodes.filter((n) => n.status === 'discovered')
   const pairedNodes = nodes.filter((n) => n.status === 'paired')
 
