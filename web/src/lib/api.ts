@@ -1,24 +1,10 @@
-import { handleMockApiRequest } from './mockData'
-
 // Client REST: base /api, gắn JWT từ localStorage và xử lý 401.
 const BASE = '/api'
 const TOKEN_KEY = 'gh_token'
-const MOCK_KEY = 'gh_mock_mode'
 
 export const getToken = () => localStorage.getItem(TOKEN_KEY)
 export const setToken = (t: string | null) =>
   t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY)
-
-// Mặc định kết nối backend thật (port 8000), chỉ bật mock khi user yêu cầu
-export const isMockMode = (): boolean => {
-  const val = localStorage.getItem(MOCK_KEY)
-  return val === 'true'
-}
-
-export const setMockMode = (enabled: boolean) => {
-  localStorage.setItem(MOCK_KEY, String(enabled))
-  window.dispatchEvent(new CustomEvent('gh:mock_mode_changed'))
-}
 
 export class ApiError extends Error {
   constructor(
@@ -62,41 +48,21 @@ export function formatApiError(err: unknown): string {
 }
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-  // 1. Nếu đang bật Mock mode -> trả về mock ngay
-  if (isMockMode()) {
-    await new Promise((resolve) => setTimeout(resolve, 80))
-    return handleMockApiRequest(path, init) as T
-  }
-
   const headers = new Headers(init.headers)
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   const token = getToken()
   if (token) headers.set('Authorization', `Bearer ${token}`)
 
-  try {
-    const res = await fetch(`${BASE}${path}`, { ...init, headers })
-    const isJson = res.headers.get('content-type')?.includes('json')
-    const body = isJson ? await res.json() : await res.text()
+  const res = await fetch(`${BASE}${path}`, { ...init, headers })
+  const isJson = res.headers.get('content-type')?.includes('json')
+  const body = isJson ? await res.json() : await res.text()
 
-    if (!res.ok) {
-      // Nếu backend offline (HTTP 500 / 502 / 503 / 504), tự động fallback sang mock
-      if (res.status >= 500) {
-        console.warn(`[GreenHub] Backend ${res.status} tại ${path}, chuyển sang Mock Data.`)
-        return handleMockApiRequest(path, init) as T
-      }
-
-      if (res.status === 401 && !path.startsWith('/auth/login')) {
-        setToken(null)
-        window.dispatchEvent(new CustomEvent('gh:unauthorized'))
-      }
-      throw new ApiError(res.status, body)
+  if (!res.ok) {
+    if (res.status === 401 && !path.startsWith('/auth/login')) {
+      setToken(null)
+      window.dispatchEvent(new CustomEvent('gh:unauthorized'))
     }
-    return body as T
-  } catch (err) {
-    if (!(err instanceof ApiError)) {
-      console.warn(`[GreenHub] Lỗi kết nối backend tại ${path}, sử dụng Mock Data.`)
-      return handleMockApiRequest(path, init) as T
-    }
-    throw err
+    throw new ApiError(res.status, body)
   }
+  return body as T
 }

@@ -29,7 +29,8 @@ Một dòng cho mỗi quyết định khi spec chưa rõ (spec mục 0). Định
 - 2026-11-11 – [deploy] Chuyển triển khai chính từ AWS EC2 `t3.small` sang một VPS Linux bất kỳ (≥ 2 vCPU, 2 GB RAM, 2 GB swap, Ubuntu 24.04) với `ufw` + SSH key và prod compose chỉ publish cổng 80/443/8883 – tránh phụ thuộc nhà cung cấp cloud và khắc phục việc Docker publish bỏ qua `ufw`.
 - 2026-11-16 – [firmware] Bổ sung môi trường `node_dht11` (ESP32 dùng DHT11 + BH1750 + Soil) và `node_esp8266` (ESP8266 chỉ gắn Soil trên `A0`, gửi `GH_AIR_T_NONE`/`GH_AIR_RH_NONE`), đồng thời Gateway tự chia sẻ số đo nhiệt–ẩm mới nhất từ zone có cảm biến nhiệt–ẩm sang zone dùng chung – tận dụng phần cứng prototype hiện có mà không làm hỏng kiểm tra chất lượng dữ liệu ở backend.
 - 2026-11-17 – [firmware] Đặt chu kỳ đo phần cứng tại Sensor Node thành 5 giây (`SENSOR_MEASURE_INTERVAL_S = 5`) và bổ sung bộ tiền xử lý tại Gateway (giữ nguyên lỗi phần cứng/ngoài dải, loại bỏ gai nhiễu 1 mẫu, lọc trung vị 3 mẫu + EMA α=0.5, kiểm tra kẹt trên mẫu thô) – giảm nhiễu cảm biến DHT11/ẩm đất điện dung trước khi đẩy lên MQTT và chạy failsafe cục bộ.
-- 2026-11-19 – [platform] Bổ sung cơ chế tự động chuyển sang Dev SQLite DB (`greenhub_dev.sqlite3`) khi chạy local dev không có Docker/PostgreSQL – cho phép test full-stack web console và REST API ngay lập tức mà không cần cài đặt Docker/TimescaleDB trên máy Windows dev.
+- 2026-11-19 – [platform] Giữ PostgreSQL/TimescaleDB làm CSDL chính mặc định; chế độ Dev SQLite (`greenhub_dev.sqlite3`) được tách riêng và chỉ kích hoạt khi bật tường minh `USE_DEV_SQLITE=true` (hoặc `DATABASE_URL=sqlite...`) – tránh tự chuyển DB ngầm khi chạy test/backend chính, vẫn hỗ trợ test độc lập không cần Docker.
+- 2026-11-19 – [platform] Bổ sung cột `crop_cycles.feedback` (JSONB, migration `0005`) lưu phản hồi thu hoạch (giống, đánh giá chất lượng, hao hụt, nhận xét canh tác) và bỏ hoàn toàn `mockData.ts` ở frontend để Web Console luôn dùng dữ liệu thật từ API/WebSocket.
 
 
 

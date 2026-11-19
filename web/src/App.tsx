@@ -1,6 +1,6 @@
 import { Link, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { api, isMockMode, setMockMode } from './lib/api'
+import { api } from './lib/api'
 import { AuthProvider, useAuth } from './lib/auth'
 import { WebSocketProvider, useRealtime } from './lib/ws'
 import type { AlertItem } from './lib/types'
@@ -17,15 +17,16 @@ import ZoneDetailPage from './pages/ZoneDetailPage'
 
 const ROLE_LABELS: Record<string, string> = {
   owner: 'Chủ farm',
+  operator: 'Operator',
+  viewer: 'Viewer',
 }
 
 function StatusBadges() {
   const { isAuthenticated } = useAuth()
   const { connected: wsConnected } = useRealtime()
-  const mockActive = isMockMode()
   const { data, isError } = useQuery({
     queryKey: ['health'],
-    queryFn: () => api<{ status: string; db: boolean; mock?: boolean }>('/health'),
+    queryFn: () => api<{ status: string; db: boolean }>('/health'),
     refetchInterval: 20_000,
     retry: 1,
   })
@@ -33,33 +34,9 @@ function StatusBadges() {
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-      {mockActive ? (
-        <span
-          className="badge warning"
-          style={{ fontSize: '0.73rem', cursor: 'pointer', padding: '0.15rem 0.5rem' }}
-          title="Đang chạy chế độ Demo Mock Data (click để tắt nếu muốn nối Backend thật)"
-          onClick={() => {
-            if (confirm('Bạn muốn tắt chế độ Demo và thử kết nối lại API Backend thật?')) {
-              setMockMode(false)
-              window.location.reload()
-            }
-          }}
-        >
-          ✨ Chế độ Demo
-        </span>
-      ) : (
-        <span
-          className={`badge ${apiOk ? 'ok' : 'bad'}`}
-          style={{ fontSize: '0.73rem', cursor: 'pointer' }}
-          title="Click để bật chế độ Demo nếu Backend chưa chạy"
-          onClick={() => {
-            setMockMode(true)
-            window.location.reload()
-          }}
-        >
-          {apiOk ? '● API Online' : '○ API Mất kết nối (Click để bật Demo)'}
-        </span>
-      )}
+      <span className={`badge ${apiOk ? 'ok' : 'bad'}`} style={{ fontSize: '0.73rem' }}>
+        {apiOk ? '● API Online' : '○ API Mất kết nối'}
+      </span>
       {isAuthenticated && (
         <span className={`badge ${wsConnected ? 'ok' : 'warning'}`} style={{ fontSize: '0.73rem' }}>
           {wsConnected ? '⚡ Realtime' : '⏳ Đang nối WS'}

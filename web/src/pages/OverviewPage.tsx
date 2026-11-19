@@ -179,7 +179,7 @@ export default function OverviewPage() {
                     )})`
                   })
                   .join('; ')}
-                . Hãy phản hồi sản lượng thực tế để bổ sung dữ liệu huấn luyện AI!
+                . Hãy ghi nhận sản lượng thực tế và đánh giá mùa vụ. Cảm ơn bạn đã đóng góp!
               </p>
             </div>
           </div>

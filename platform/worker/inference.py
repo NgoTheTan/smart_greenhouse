@@ -499,6 +499,14 @@ class InferenceService:
 
         source = "sim" if (gw is not None and gw.is_simulated) else "real"
         yield_kg_m2 = round(float(cycle.yield_kg) / float(cycle.area_m2), 4)
+        sample_meta: dict[str, Any] = {
+            "zone_id": str(zone.id),
+            "crop_profile_id": str(profile.id),
+        }
+        cycle_feedback = getattr(cycle, "feedback", None)
+        if isinstance(cycle_feedback, dict) and cycle_feedback:
+            sample_meta["feedback"] = cycle_feedback
+
         sample = YieldSample(
             id=uuid.uuid4(),
             source=source,
@@ -513,7 +521,7 @@ class InferenceService:
             features=feat_res.features,
             coverage=feat_res.coverage,
             yield_kg_m2=yield_kg_m2,
-            meta={"zone_id": str(zone.id), "crop_profile_id": str(profile.id)},
+            meta=sample_meta,
         )
         session.add(sample)
         await session.flush()

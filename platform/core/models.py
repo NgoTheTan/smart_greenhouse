@@ -413,6 +413,7 @@ class CropCycle(Base):
         String(10), nullable=False, default="active", server_default=text("'active'")
     )
     notes: Mapped[str | None] = mapped_column(Text)
+    feedback: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id")
     )

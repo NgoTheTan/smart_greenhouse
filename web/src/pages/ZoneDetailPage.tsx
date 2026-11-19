@@ -327,7 +327,7 @@ export default function ZoneDetailPage() {
       const area = activeCycle?.area_m2 || 1
       const yieldPerM2 = (kg / area).toFixed(2)
       setHarvestSuccessToast(
-        `🎉 Đã ghi nhận thu hoạch thành công: ${kg} kg (${yieldPerM2} kg/m²)! Dữ liệu phản hồi mùa vụ đã được lưu vào kho mẫu thực địa của AI.`,
+        `🎉 Đã ghi nhận thu hoạch thành công: ${kg} kg (${yieldPerM2} kg/m²)! Cảm ơn bạn đã đóng góp.`,
       )
       void queryClient.invalidateQueries({ queryKey: ['cycles', zoneId] })
       void queryClient.invalidateQueries({ queryKey: ['greenhouses'] })
@@ -755,9 +755,8 @@ export default function ZoneDetailPage() {
                   </strong>
                 </div>
                 <p style={{ margin: 0, fontSize: '0.86rem', color: '#78350f', lineHeight: 1.45 }}>
-                  Vụ trồng đã chạm thời hạn sinh trưởng dự kiến. Hệ thống mời bạn{' '}
-                  <strong>phản hồi sản lượng và chất lượng thực tế</strong> để tự động bổ sung vào tập
-                  huấn luyện của AI, giúp mô hình dự báo chính xác hơn cho khu vườn của bạn!
+                  Vụ trồng đã chạm thời hạn sinh trưởng dự kiến. Bạn có thể ghi nhận{' '}
+                  <strong>sản lượng và đánh giá chất lượng thu hoạch thực tế</strong> ngay tại đây. Cảm ơn bạn đã đóng góp!
                 </p>
               </div>
             </div>
@@ -1380,9 +1379,9 @@ export default function ZoneDetailPage() {
           <div className="modal-card" style={{ maxWidth: 660, maxHeight: '90vh', overflowY: 'auto' }}>
             <div className="card-header">
               <div>
-                <h3 style={{ margin: '0 0 0.2rem' }}>🌾 Phản hồi Mùa vụ Thu hoạch &amp; Đóng góp Dữ liệu AI</h3>
+                <h3 style={{ margin: '0 0 0.2rem' }}>🌾 Ghi nhận Thu hoạch &amp; Phản hồi Mùa vụ</h3>
                 <span className="badge ok" style={{ fontSize: '0.74rem' }}>
-                  Đóng góp mẫu thực tế (source = &apos;real&apos;)
+                  Cảm ơn bạn đã đóng góp
                 </span>
               </div>
               <button
@@ -1398,7 +1397,7 @@ export default function ZoneDetailPage() {
               className="alert-banner info"
               style={{ marginBottom: '1rem', fontSize: '0.82rem', lineHeight: 1.45 }}
             >
-              💡 <strong>Mục đích:</strong> Thông tin sản lượng và phản hồi từ khu vườn này sẽ được kết hợp với dữ liệu vi khí hậu thu thập tự động để làm giàu kho dữ liệu huấn luyện của mô hình AI, giúp dự báo năng suất và gợi ý cây trồng chuẩn xác hơn cho các vụ sau.
+              💡 Thông tin sản lượng và phản hồi chất lượng mùa vụ giúp lưu trữ đầy đủ lịch sử canh tác của khu vườn. Cảm ơn bạn đã đóng góp!
             </div>
 
             {cycleError && (

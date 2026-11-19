@@ -46,6 +46,7 @@ def _serialize_cycle(cycle: CropCycle, profile: CropProfile | None) -> CropCycle
         yield_kg_m2=yield_kg_m2,
         status=cycle.status,
         notes=cycle.notes,
+        feedback=getattr(cycle, "feedback", None),
         created_by=cycle.created_by,
         created_at=cycle.created_at,
     )
@@ -228,6 +229,27 @@ async def harvest_cycle(
     cycle.yield_kg = float(body.yield_kg)
     if body.notes is not None:
         cycle.notes = body.notes
+
+    feedback_dict: dict = {}
+    if body.feedback is not None:
+        raw_fb = (
+            body.feedback.model_dump(exclude_none=True)
+            if hasattr(body.feedback, "model_dump")
+            else dict(body.feedback)
+        )
+        feedback_dict.update({k: v for k, v in raw_fb.items() if v is not None})
+    if body.crop_variety is not None and "variety" not in feedback_dict:
+        feedback_dict["variety"] = body.crop_variety
+    if body.quality_rating is not None and "quality_rating" not in feedback_dict:
+        feedback_dict["quality_rating"] = body.quality_rating
+    if body.loss_pct is not None and "loss_percentage" not in feedback_dict:
+        feedback_dict["loss_percentage"] = body.loss_pct
+    if body.ai_eval is not None and "ai_accuracy_evaluation" not in feedback_dict:
+        feedback_dict["ai_accuracy_evaluation"] = body.ai_eval
+    if feedback_dict and "yield_kg_m2" not in feedback_dict and cycle.area_m2 and cycle.area_m2 > 0:
+        feedback_dict["yield_kg_m2"] = round(cycle.yield_kg / cycle.area_m2, 4)
+    if feedback_dict:
+        cycle.feedback = feedback_dict
 
     await session.flush()
     await pg_notify(

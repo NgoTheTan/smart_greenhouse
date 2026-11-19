@@ -21,7 +21,7 @@ from api.routers import (
     recommendations,
     zones,
 )
-from core.db import effective_database_url, engine
+from core.db import effective_database_url, engine, is_dev_sqlite
 from core.log import setup_logging
 from core.pubsub import CHANNEL_WS, listen_loop
 
@@ -30,8 +30,8 @@ setup_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Khởi tạo cơ sở dữ liệu Dev (nếu dùng SQLite) và vòng lặp lắng nghe ws_events."""
-    if effective_database_url.startswith("sqlite"):
+    """Khởi tạo cơ sở dữ liệu Dev (chỉ khi bật USE_DEV_SQLITE) và vòng lặp lắng nghe ws_events."""
+    if is_dev_sqlite:
         from core.dev_db import init_dev_database
 
         await init_dev_database(engine)

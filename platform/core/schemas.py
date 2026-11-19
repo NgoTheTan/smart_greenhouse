@@ -440,15 +440,24 @@ class CropCycleCreateRequest(BaseModel):
     notes: str | None = Field(default=None, max_length=1000)
 
 
+class CropCycleFeedbackSchema(BaseModel):
+    variety: str | None = None
+    quality_rating: int | None = Field(default=None, ge=1, le=5)
+    loss_percentage: float | None = Field(default=None, ge=0, le=100)
+    ai_accuracy_evaluation: Literal["accurate", "overestimated", "underestimated"] | None = None
+    farmer_notes: str | None = Field(default=None, max_length=2000)
+    yield_kg_m2: float | None = Field(default=None, ge=0)
+
+
 class CropCycleHarvestRequest(BaseModel):
     harvested_at: datetime | None = None
     yield_kg: float = Field(ge=0)
     notes: str | None = Field(default=None, max_length=2000)
     crop_variety: str | None = None
-    quality_rating: int | None = None
-    loss_pct: float | None = None
-    ai_eval: str | None = None
-    feedback: dict[str, Any] | None = None
+    quality_rating: int | None = Field(default=None, ge=1, le=5)
+    loss_pct: float | None = Field(default=None, ge=0, le=100)
+    ai_eval: Literal["accurate", "overestimated", "underestimated"] | None = None
+    feedback: CropCycleFeedbackSchema | dict[str, Any] | None = None
 
 
 class CropCycleAbandonRequest(BaseModel):
@@ -470,6 +479,7 @@ class CropCycleResponse(BaseModel):
     yield_kg_m2: float | None = None
     status: str
     notes: str | None = None
+    feedback: CropCycleFeedbackSchema | dict[str, Any] | None = None
     created_by: uuid.UUID | None = None
     created_at: datetime
 

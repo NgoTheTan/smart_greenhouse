@@ -163,13 +163,27 @@ def test_cycles_create_conflict_harvest_and_abandon() -> None:
     harvested = _run_coro(
         harvest_cycle(
             cycle_id=active_cycle.id,
-            body=CropCycleHarvestRequest(yield_kg=4.2, notes="Thu lứa 1"),
+            body=CropCycleHarvestRequest(
+                yield_kg=4.2,
+                notes="Thu lứa 1",
+                feedback={
+                    "variety": "Xà lách búp",
+                    "quality_rating": 5,
+                    "loss_percentage": 3.5,
+                    "ai_accuracy_evaluation": "accurate",
+                    "farmer_notes": "Lá xanh giòn",
+                },
+            ),
             user=user,
             session=session,
         )
     )
     assert harvested.status == "harvested"
     assert harvested.yield_kg_m2 == pytest.approx(2.8, abs=1e-4)
+    assert active_cycle.feedback is not None
+    assert active_cycle.feedback["variety"] == "Xà lách búp"
+    assert active_cycle.feedback["quality_rating"] == 5
+    assert active_cycle.feedback["yield_kg_m2"] == pytest.approx(2.8, abs=1e-4)
 
     # 4. Huỷ vụ
     ab_cycle = CropCycle(

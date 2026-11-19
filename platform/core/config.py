@@ -16,8 +16,9 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # DB
+    # DB (PostgreSQL/TimescaleDB là DB chính; chỉ bật use_dev_sqlite khi test riêng bằng SQLite)
     database_url: str = "postgresql+asyncpg://greenhub:greenhub@localhost:5432/greenhub"
+    use_dev_sqlite: bool = False
 
     # Auth
     jwt_secret: str = "dev-secret-change-me"

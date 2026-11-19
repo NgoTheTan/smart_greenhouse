@@ -1,4 +1,4 @@
-"""Cơ sở dữ liệu Dev SQLite & Tự động Seed khi chạy không có Docker/PostgreSQL."""
+"""Cơ sở dữ liệu Dev SQLite & Seed dữ liệu mẫu (chỉ kích hoạt khi bật USE_DEV_SQLITE=true)."""
 
 import logging
 import uuid
@@ -10,6 +10,15 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 from sqlalchemy.ext.compiler import compiles
 
+from core.crop_templates import (
+    SYSTEM_CROP_TEMPLATES,
+    TEMPLATE_STRAWBERRY_DEMO_ID,
+    TEMPLATE_TOMATO_DEMO_ID,
+)
+from core.db import Base
+from core.security import hash_password
+from core.vpd import calc_vpd
+
 
 @compiles(UUID, "sqlite")
 def _compile_uuid_for_sqlite(type_, compiler, **kw):
@@ -20,14 +29,6 @@ def _compile_uuid_for_sqlite(type_, compiler, **kw):
 def _compile_jsonb_for_sqlite(type_, compiler, **kw):
     return "JSON"
 
-from core.crop_templates import (
-    SYSTEM_CROP_TEMPLATES,
-    TEMPLATE_STRAWBERRY_DEMO_ID,
-    TEMPLATE_TOMATO_DEMO_ID,
-)
-from core.db import Base
-from core.security import hash_password
-from core.vpd import calc_vpd
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 DEV_DB_FILE = _REPO_ROOT / "greenhub_dev.sqlite3"
@@ -47,7 +48,7 @@ MODEL_ID = uuid.UUID("77777777-a100-4777-8777-777777777777")
 
 
 async def init_dev_database(engine: AsyncEngine) -> None:
-    """Tạo bảng và seed dữ liệu mẫu vào SQLite để test frontend không cần Docker."""
+    """Tạo bảng và seed dữ liệu mẫu vào SQLite khi bật chế độ test USE_DEV_SQLITE."""
     from core.models import (
         CropCycle,
         CropProfile,
@@ -61,6 +62,7 @@ async def init_dev_database(engine: AsyncEngine) -> None:
         User,
         Zone,
     )
+
     # Bỏ các cú pháp riêng của PostgreSQL trong server_default (::jsonb, gen_random_uuid)
     for t in Base.metadata.tables.values():
         for col in t.columns:
@@ -71,7 +73,6 @@ async def init_dev_database(engine: AsyncEngine) -> None:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Tạo bảng liên tục readings_1m và readings_1h cho SQLite
         await conn.execute(
             text(
                 """
@@ -107,7 +108,9 @@ async def init_dev_database(engine: AsyncEngine) -> None:
 
     sm = async_sessionmaker(engine, expire_on_commit=False)
     async with sm() as session:
-        existing = (await session.execute(select(Farm).where(Farm.id == FARM_ID))).scalar_one_or_none()
+        existing = (
+            await session.execute(select(Farm).where(Farm.id == FARM_ID))
+        ).scalar_one_or_none()
         if existing is not None:
             log.info("Dev SQLite DB đã có dữ liệu Farm, bỏ qua seed.")
             return
@@ -115,8 +118,12 @@ async def init_dev_database(engine: AsyncEngine) -> None:
         log.info("Đang khởi tạo dữ liệu mẫu cho Dev SQLite DB...")
         now = datetime.now(UTC)
 
-        # 1. Farm & User (Chủ farm duy nhất)
-        farm = Farm(id=FARM_ID, name="Nông trại Thông minh GreenHub", created_at=now - timedelta(days=90))
+        # 1. Farm & User
+        farm = Farm(
+            id=FARM_ID,
+            name="Nông trại Thông minh GreenHub",
+            created_at=now - timedelta(days=90),
+        )
         session.add(farm)
 
         owner = User(
@@ -185,7 +192,7 @@ async def init_dev_database(engine: AsyncEngine) -> None:
             session.add(cp)
 
         # 4. Zones
-        # Zone 1: Cà chua bi, diện tích 25m², gieo từ 60 ngày trước (quá cycle 55 ngày -> Đến vụ thu hoạch!)
+        # Zone 1: Cà chua bi, diện tích 25m², gieo từ 60 ngày trước
         zone1 = Zone(
             id=ZONE_1_ID,
             greenhouse_id=GREENHOUSE_ID,
@@ -216,7 +223,7 @@ async def init_dev_database(engine: AsyncEngine) -> None:
         session.add(zone2)
 
         # 5. Crop Cycles
-        # Cycle 1: Cà chua bi đến vụ thu hoạch (đã trồng 60 ngày, chu kỳ chuẩn 55 ngày) -> nhảy thông báo
+        # Cycle 1: Cà chua bi đến vụ thu hoạch (đã trồng 60 ngày)
         cycle1 = CropCycle(
             id=CYCLE_1_ID,
             zone_id=ZONE_1_ID,
@@ -275,9 +282,9 @@ async def init_dev_database(engine: AsyncEngine) -> None:
         model = MlModel(
             id=MODEL_ID,
             task="yield",
-            version=1,
+            version=2,
             feature_version=1,
-            artifact_path="models/yield/lgbm_v1.joblib",
+            artifact_path="models/yield/v2.joblib",
             trained_at=now - timedelta(days=7),
             n_samples=204,
             n_greenhouses=8,
@@ -314,12 +321,23 @@ async def init_dev_database(engine: AsyncEngine) -> None:
                 "b1_test_mae": 0.142,
             },
             is_active=True,
-            notes="Mô hình chính thức v1.2.0: vượt baseline B0 và B1 trên cả 5 cây trồng.",
+            notes="Mô hình chính thức v2: vượt baseline B0 và B1 trên cả 5 cây trồng.",
         )
         session.add(model)
         await session.commit()
 
-        # 8. Sinh 24 giờ dữ liệu readings để biểu đồ hiển thị đẹp mắt
+        # 8. Sinh 24 giờ dữ liệu readings để biểu đồ hiển thị
+        insert_1h = text(
+            "INSERT INTO readings_1h "
+            "(bucket, zone_id, air_temp, air_rh, vpd, soil_moisture, lux, n) "
+            "VALUES (:b, :zid, :t, :rh, :vpd, :soil, :lux, 60)"
+        )
+        insert_1m = text(
+            "INSERT INTO readings_1m "
+            "(bucket, zone_id, air_temp, air_rh, vpd, soil_moisture, lux, n) "
+            "VALUES (:b, :zid, :t, :rh, :vpd, :soil, :lux, 1)"
+        )
+
         for hour_idx in range(24, 0, -1):
             ts = now - timedelta(hours=hour_idx)
             hour_val = ts.hour
@@ -347,41 +365,19 @@ async def init_dev_database(engine: AsyncEngine) -> None:
                 )
                 session.add(r)
 
-                # Chèn luôn vào continuous table
-                await session.execute(
-                    text(
-                        """
-                    INSERT INTO readings_1h (bucket, zone_id, air_temp, air_rh, vpd, soil_moisture, lux, n)
-                    VALUES (:b, :zid, :t, :rh, :vpd, :soil, :lux, 60)
-                    """
-                    ),
-                    {
-                        "b": ts,
-                        "zid": str(z_id),
-                        "t": r.air_temp,
-                        "rh": r.air_rh,
-                        "vpd": r.vpd,
-                        "soil": r.soil_moisture,
-                        "lux": r.lux,
-                    },
-                )
-                await session.execute(
-                    text(
-                        """
-                    INSERT INTO readings_1m (bucket, zone_id, air_temp, air_rh, vpd, soil_moisture, lux, n)
-                    VALUES (:b, :zid, :t, :rh, :vpd, :soil, :lux, 1)
-                    """
-                    ),
-                    {
-                        "b": ts,
-                        "zid": str(z_id),
-                        "t": r.air_temp,
-                        "rh": r.air_rh,
-                        "vpd": r.vpd,
-                        "soil": r.soil_moisture,
-                        "lux": r.lux,
-                    },
-                )
+                params = {
+                    "b": ts,
+                    "zid": str(z_id),
+                    "t": r.air_temp,
+                    "rh": r.air_rh,
+                    "vpd": r.vpd,
+                    "soil": r.soil_moisture,
+                    "lux": r.lux,
+                }
+                await session.execute(insert_1h, params)
+                await session.execute(insert_1m, params)
 
         await session.commit()
-        log.info("Khởi tạo dữ liệu mẫu Dev SQLite thành công! Chủ farm: owner@greenhub.vn / greenhub123")
+        log.info(
+            "Khởi tạo dữ liệu mẫu Dev SQLite thành công! Chủ farm: owner@greenhub.vn / greenhub123"
+        )
