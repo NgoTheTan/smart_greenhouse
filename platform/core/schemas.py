@@ -150,7 +150,13 @@ class CfgPayload(BaseModel):
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=1)
+    password: str = Field(min_length=6)
+
+
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=6)
+    farm_name: str | None = None
 
 
 class TokenResponse(BaseModel):
@@ -166,6 +172,7 @@ class UserResponse(BaseModel):
     email: str
     role: str
     created_at: datetime
+    farm_name: str | None = None
 
 
 class ZoneCreateSpec(BaseModel):

@@ -8,6 +8,7 @@ import type { AlertItem } from './lib/types'
 import AlertsPage from './pages/AlertsPage'
 import CropProfilesPage from './pages/CropProfilesPage'
 import DevicesPage from './pages/DevicesPage'
+import GreenhousePage from './pages/GreenhousePage'
 import LoginPage from './pages/LoginPage'
 import ModelsPage from './pages/ModelsPage'
 import NotificationsPage from './pages/NotificationsPage'
@@ -15,34 +16,71 @@ import OverviewPage from './pages/OverviewPage'
 import RecommendationsPage from './pages/RecommendationsPage'
 import ZoneDetailPage from './pages/ZoneDetailPage'
 
-const ROLE_LABELS: Record<string, string> = {
-  owner: 'Chủ farm',
-  operator: 'Operator',
-  viewer: 'Viewer',
-}
-
-function StatusBadges() {
+function AlertBell() {
   const { isAuthenticated } = useAuth()
-  const { connected: wsConnected } = useRealtime()
-  const { data, isError } = useQuery({
-    queryKey: ['health'],
-    queryFn: () => api<{ status: string; db: boolean }>('/health'),
-    refetchInterval: 20_000,
-    retry: 1,
+  const openAlertsQuery = useQuery({
+    queryKey: ['alerts', 'open-count'],
+    queryFn: () => api<AlertItem[]>('/alerts?state=open&limit=100'),
+    enabled: isAuthenticated,
+    refetchInterval: 15_000,
   })
-  const apiOk = !isError && data?.status === 'ok'
+  const openCount = openAlertsQuery.data?.length ?? 0
+
+  if (!isAuthenticated) return null
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-      <span className={`badge ${apiOk ? 'ok' : 'bad'}`} style={{ fontSize: '0.73rem' }}>
-        {apiOk ? '● API Online' : '○ API Mất kết nối'}
-      </span>
-      {isAuthenticated && (
-        <span className={`badge ${wsConnected ? 'ok' : 'warning'}`} style={{ fontSize: '0.73rem' }}>
-          {wsConnected ? '⚡ Realtime' : '⏳ Đang nối WS'}
+    <Link
+      to="/alerts"
+      title={openCount > 0 ? `Có ${openCount} cảnh báo đang mở` : 'Xem cảnh báo'}
+      aria-label="Cảnh báo"
+      style={{
+        position: 'relative',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '2.1rem',
+        height: '2.1rem',
+        borderRadius: '50%',
+        background: 'rgba(255, 255, 255, 0.15)',
+        color: '#fff',
+        textDecoration: 'none',
+        fontSize: '1.1rem',
+        transition: 'background 0.15s ease',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.28)'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)'
+      }}
+    >
+      🔔
+      {openCount > 0 && (
+        <span
+          style={{
+            position: 'absolute',
+            top: '-2px',
+            right: '-2px',
+            background: 'var(--danger, #ef4444)',
+            color: '#fff',
+            fontSize: '0.65rem',
+            fontWeight: 700,
+            borderRadius: '9999px',
+            minWidth: '1.1rem',
+            height: '1.1rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '0 0.25rem',
+            border: '2px solid #16a34a',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+            lineHeight: 1,
+          }}
+        >
+          {openCount > 99 ? '99+' : openCount}
         </span>
       )}
-    </div>
+    </Link>
   )
 }
 
@@ -66,8 +104,11 @@ function UserControls() {
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-      <span style={{ fontSize: '0.78rem', opacity: 0.95 }}>
-        👤 {user.email} ({ROLE_LABELS[user.role] ?? user.role})
+      <span
+        style={{ fontSize: '0.82rem', fontWeight: 600, opacity: 0.95 }}
+        title={`Tài khoản: ${user.email}`}
+      >
+        🏡 {user.farm_name || user.email}
       </span>
       <button
         type="button"
@@ -140,13 +181,13 @@ function RequireAuth({ children }: { children: JSX.Element }) {
 
 function AppShell() {
   const { isAuthenticated } = useAuth()
+  const location = useLocation()
 
-  const openAlertsQuery = useQuery({
-    queryKey: ['alerts', 'open-count'],
-    queryFn: () => api<AlertItem[]>('/alerts?state=open&limit=100'),
-    enabled: isAuthenticated,
-  })
-  const openCount = openAlertsQuery.data?.length ?? 0
+  // Nút Tổng quan sáng khi ở trang chủ, chi tiết nhà kính hoặc chi tiết zone
+  const isOverviewActive =
+    location.pathname === '/' ||
+    location.pathname.startsWith('/greenhouses') ||
+    location.pathname.startsWith('/zones')
 
   return (
     <div className="layout">
@@ -156,29 +197,21 @@ function AppShell() {
           <span className="logo-tag">SMART AGRI IOT</span>
         </Link>
         <div className="header-actions">
-          <StatusBadges />
+          <AlertBell />
           <UserControls />
         </div>
       </header>
 
       {isAuthenticated && (
         <nav aria-label="Điều hướng chính">
-          <NavLink to="/" end>
+          <NavLink
+            to="/"
+            className={({ isActive }) => (isActive || isOverviewActive ? 'active' : undefined)}
+          >
             🌿 Tổng quan
           </NavLink>
-          <NavLink to="/recommendations">🌱 Gợi ý cây trồng</NavLink>
           <NavLink to="/devices">📡 Thiết bị</NavLink>
           <NavLink to="/crop-profiles">📋 Crop Profile</NavLink>
-          <NavLink to="/alerts">
-            🔔 Cảnh báo{' '}
-            {openCount > 0 && (
-              <span className="badge bad" style={{ marginLeft: '0.25rem', padding: '0.05rem 0.4rem' }}>
-                {openCount}
-              </span>
-            )}
-          </NavLink>
-          <NavLink to="/models">🧠 Mô hình AI</NavLink>
-          <NavLink to="/settings/notifications">📲 Thông báo</NavLink>
         </nav>
       )}
 
@@ -190,6 +223,14 @@ function AppShell() {
             element={
               <RequireAuth>
                 <OverviewPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/greenhouses/:ghId"
+            element={
+              <RequireAuth>
+                <GreenhousePage />
               </RequireAuth>
             }
           />

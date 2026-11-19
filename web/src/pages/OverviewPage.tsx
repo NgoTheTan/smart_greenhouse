@@ -228,7 +228,14 @@ export default function OverviewPage() {
               <div className="card-header">
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
-                    <h3 style={{ margin: 0 }}>{gh.name || 'Nhà kính chưa đặt tên'}</h3>
+                    <Link
+                      to={`/greenhouses/${gh.id}`}
+                      style={{ textDecoration: 'none', color: 'inherit' }}
+                    >
+                      <h3 style={{ margin: 0, cursor: 'pointer' }}>
+                        🏡 {gh.name || 'Nhà kính chưa đặt tên'}
+                      </h3>
+                    </Link>
                     {gh.is_simulated && <span className="badge info">Mô phỏng</span>}
                   </div>
                   <span className="muted" style={{ fontSize: '0.8rem' }}>
@@ -264,20 +271,17 @@ export default function OverviewPage() {
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '0.4rem' }}>
-                  <Link
-                    to={`/greenhouses/${gh.id}/control`}
-                    className="btn btn-sm btn-secondary"
-                  >
-                    🎛️ Điều khiển
-                  </Link>
-                  <Link
-                    to={`/greenhouses/${gh.id}/recommendations`}
-                    className="btn btn-sm btn-secondary"
-                  >
-                    🌱 Gợi ý cây trồng
-                  </Link>
-                </div>
+                <Link
+                  to={`/greenhouses/${gh.id}`}
+                  style={{
+                    color: 'var(--primary)',
+                    fontWeight: 600,
+                    textDecoration: 'none',
+                    fontSize: '0.84rem',
+                  }}
+                >
+                  Vào nhà kính →
+                </Link>
               </div>
 
               {top1 && (

@@ -103,14 +103,21 @@ async def get_zone_readings(
     start_ts = dt_from or (end_ts - timedelta(hours=6))
 
     if agg == "raw":
-        rows = (
-            await session.execute(
-                select(Reading)
-                .where(Reading.zone_id == zone_id, Reading.ts >= start_ts, Reading.ts <= end_ts)
-                .order_by(Reading.ts.asc())
-                .limit(limit)
-            )
-        ).scalars().all()
+        stmt = select(Reading).where(Reading.zone_id == zone_id)
+        if dt_from is not None:
+            stmt = stmt.where(Reading.ts >= dt_from)
+        if dt_to is not None:
+            stmt = stmt.where(Reading.ts <= dt_to)
+        elif dt_from is not None:
+            stmt = stmt.where(Reading.ts <= end_ts)
+
+        if dt_from is None and dt_to is None:
+            stmt = stmt.order_by(Reading.ts.desc()).limit(limit)
+            rows = list(reversed((await session.execute(stmt)).scalars().all()))
+        else:
+            stmt = stmt.order_by(Reading.ts.asc()).limit(limit)
+            rows = (await session.execute(stmt)).scalars().all()
+
         return [
             ReadingPoint(
                 ts=r.ts,
@@ -127,15 +134,31 @@ async def get_zone_readings(
         ]
 
     view_name = "readings_1m" if agg == "1m" else "readings_1h"
+    is_sqlite = (session.get_bind().dialect.name == "sqlite") if session.get_bind() else False
+    zid_param = str(zone_id) if is_sqlite else zone_id
+
+    where_clauses = ["zone_id = :zid"]
+    params: dict[str, Any] = {"zid": zid_param, "lim": limit}
+    if dt_from is not None:
+        where_clauses.append("bucket >= :start")
+        params["start"] = dt_from
+    if dt_to is not None:
+        where_clauses.append("bucket <= :end")
+        params["end"] = dt_to
+    elif dt_from is not None:
+        where_clauses.append("bucket <= :end")
+        params["end"] = end_ts
+
+    where_sql = " AND ".join(where_clauses)
     agg_rows = (
         await session.execute(
             text(
                 f"SELECT bucket, air_temp, air_rh, vpd, soil_moisture, lux "  # noqa: S608
                 f"FROM {view_name} "
-                f"WHERE zone_id = :zid AND bucket >= :start AND bucket <= :end "
+                f"WHERE {where_sql} "
                 f"ORDER BY bucket ASC LIMIT :lim"
             ),
-            {"zid": zone_id, "start": start_ts, "end": end_ts, "lim": limit},
+            params,
         )
     ).mappings().all()
 

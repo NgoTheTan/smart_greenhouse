@@ -12,6 +12,7 @@ export interface User {
   email: string
   role: UserRole
   created_at: string
+  farm_name?: string | null
 }
 
 export interface TokenResponse {

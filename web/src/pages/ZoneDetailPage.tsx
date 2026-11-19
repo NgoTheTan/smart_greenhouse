@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Area,
@@ -65,10 +65,38 @@ const CMD_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   timeout: { label: 'Timeout ACK', cls: 'warning' },
 }
 
+type ZoneSection = 'telemetry' | 'control' | 'cycles'
+
+const ZONE_SECTIONS: { key: ZoneSection; label: string; icon: string }[] = [
+  { key: 'telemetry', label: 'Thông số & Biểu đồ', icon: '📊' },
+  { key: 'control', label: 'Điều khiển Chấp hành', icon: '🎛️' },
+  { key: 'cycles', label: 'Vụ trồng & Năng suất AI', icon: '🌾' },
+]
+
 export default function ZoneDetailPage() {
   const { id: routeZoneId, ghId: routeGhId } = useParams<{ id: string; ghId: string }>()
-  const navigate = useNavigate()
-  const { canOperate, isOwner } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab') as ZoneSection | null
+  const [activeSection, setActiveSection] = useState<ZoneSection>(
+    tabParam && ['telemetry', 'control', 'cycles'].includes(tabParam)
+      ? tabParam
+      : 'telemetry',
+  )
+
+  const handleSectionChange = (sec: ZoneSection) => {
+    setActiveSection(sec)
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (sec === 'telemetry') next.delete('tab')
+        else next.set('tab', sec)
+        return next
+      },
+      { replace: true },
+    )
+  }
+
+  const { canOperate } = useAuth()
   const queryClient = useQueryClient()
 
   const [rangeKey, setRangeKey] = useState<RangeKey>('1h')
@@ -93,12 +121,6 @@ export default function ZoneDetailPage() {
   const [aiAccuracyEval, setAiAccuracyEval] = useState<'accurate' | 'overestimated' | 'underestimated'>('accurate')
   const [farmerNotes, setFarmerNotes] = useState('Chế độ tưới tự động ổn định, độ ẩm đất duy trì 65-75%, trái chín mọng đều, không bị nứt.')
   const [harvestSuccessToast, setHarvestSuccessToast] = useState<string | null>(null)
-
-  const [showZoneEdit, setShowZoneEdit] = useState(false)
-  const [editZoneName, setEditZoneName] = useState('')
-  const [editZoneProfileId, setEditZoneProfileId] = useState('')
-  const [editZoneArea, setEditZoneArea] = useState('')
-  const [zoneEditMsg, setZoneEditMsg] = useState<string | null>(null)
 
   const greenhousesQuery = useQuery({
     queryKey: ['greenhouses'],
@@ -193,9 +215,6 @@ export default function ZoneDetailPage() {
 
   useEffect(() => {
     if (zone) {
-      setEditZoneName(zone.name || '')
-      setEditZoneProfileId(zone.crop_profile_id || '')
-      setEditZoneArea(zone.area_m2 ? String(zone.area_m2) : '1.0')
       setStartProfileId(zone.crop_profile_id || profiles[0]?.id || '')
       setStartAreaM2(zone.area_m2 ? String(zone.area_m2) : '1.0')
     }
@@ -349,21 +368,6 @@ export default function ZoneDetailPage() {
     onError: (err) => setCycleError(formatApiError(err)),
   })
 
-  const updateZoneMutation = useMutation({
-    mutationFn: (payload: { name: string; crop_profile_id: string | null; area_m2: number | null }) =>
-      api<Zone>(`/zones/${zoneId}`, {
-        method: 'PUT',
-        body: JSON.stringify(payload),
-      }),
-    onSuccess: () => {
-      setShowZoneEdit(false)
-      setZoneEditMsg('Đã cập nhật thông tin Zone.')
-      void queryClient.invalidateQueries({ queryKey: ['zone', zoneId] })
-      void queryClient.invalidateQueries({ queryKey: ['greenhouses'] })
-    },
-    onError: (err) => setZoneEditMsg(formatApiError(err)),
-  })
-
   const gwStatus = gwStatusQuery.data
   const reportedActuators = gwStatus?.reported?.actuators ?? {}
   const desiredModes = gwStatus?.desired?.modes ?? {}
@@ -412,16 +416,6 @@ export default function ZoneDetailPage() {
     setModeMutation.mutate({ actuator: act, mode: nextMode, until })
   }
 
-  const handleZoneEditSubmit = (e: FormEvent) => {
-    e.preventDefault()
-    const parsedArea = Number(editZoneArea)
-    updateZoneMutation.mutate({
-      name: editZoneName.trim(),
-      crop_profile_id: editZoneProfileId || null,
-      area_m2: parsedArea > 0 ? parsedArea : null,
-    })
-  }
-
   const dliVal = dliQuery.data?.dli_mol_m2_day
   const dliOpt = params?.light.dli_optimal
   const vpdOpt = params?.vpd.optimal ?? [0.8, 1.2]
@@ -453,8 +447,17 @@ export default function ZoneDetailPage() {
       <div className="page-header">
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-            <Link to="/" style={{ color: 'var(--muted)', textDecoration: 'none' }}>
-              ← Tổng quan
+            <Link
+              to={gh ? `/greenhouses/${gh.id}` : '/'}
+              style={{
+                color: 'var(--primary)',
+                fontWeight: 600,
+                textDecoration: 'none',
+                fontSize: '0.84rem',
+              }}
+              title="Quay lại sơ đồ nhà kính"
+            >
+              ← {gh?.name || 'Nhà kính'}
             </Link>
             <h2 style={{ margin: 0 }}>
               🌱 {zone?.name || (zone ? `Zone ${zone.zone_index}` : 'Chi tiết Zone & Điều khiển')}
@@ -473,93 +476,78 @@ export default function ZoneDetailPage() {
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.45rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          {(gh?.zones ?? []).map((z) => (
-            <button
-              key={z.id}
-              type="button"
-              className={`btn btn-sm ${z.id === zoneId ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => navigate(`/zones/${z.id}`)}
-            >
-              {z.name || `Zone ${z.zone_index}`}
-            </button>
-          ))}
-          {isOwner && zone && (
-            <button
-              type="button"
-              className="btn btn-sm btn-secondary"
-              onClick={() => setShowZoneEdit((v) => !v)}
-            >
-              ✏️ Sửa Zone
-            </button>
-          )}
-        </div>
       </div>
 
-      {zoneEditMsg && (
-        <div className="alert-banner info" style={{ marginBottom: '1rem' }}>
-          {zoneEditMsg}
-        </div>
-      )}
-
-      {showZoneEdit && isOwner && (
-        <form onSubmit={handleZoneEditSubmit} className="card">
-          <div className="card-header">
-            <h3>✏️ Cập nhật thông tin Zone</h3>
-          </div>
-          <div className="grid grid-cols-3">
-            <div className="form-group">
-              <label>Tên Zone</label>
-              <input
-                type="text"
-                value={editZoneName}
-                onChange={(e) => setEditZoneName(e.target.value)}
-                required
-              />
-            </div>
-            <div className="form-group">
-              <label>Crop Profile</label>
-              <select
-                value={editZoneProfileId}
-                onChange={(e) => setEditZoneProfileId(e.target.value)}
-              >
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.crop_name} ({p.variety || 'real'})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="form-group">
-              <label>Diện tích canh tác (m²)</label>
-              <input
-                type="number"
-                step="0.1"
-                min="0.05"
-                value={editZoneArea}
-                onChange={(e) => setEditZoneArea(e.target.value)}
-              />
-            </div>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-            <button type="button" className="btn btn-secondary" onClick={() => setShowZoneEdit(false)}>
-              Huỷ
+      {/* 3 Mục tab điều hướng theo phong cách nav chính */}
+      <div
+        role="tablist"
+        aria-label="Các mục của vùng trồng"
+        style={{
+          display: 'flex',
+          gap: '0.35rem',
+          overflowX: 'auto',
+          padding: '0.25rem 0',
+          marginBottom: '1.25rem',
+          borderBottom: '1px solid var(--border)',
+          scrollbarWidth: 'thin',
+        }}
+      >
+        {ZONE_SECTIONS.map((sec) => {
+          const isActive = activeSection === sec.key
+          return (
+            <button
+              key={sec.key}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              style={{
+                padding: '0.5rem 1.05rem',
+                borderRadius: 'var(--radius)',
+                border: 'none',
+                background: isActive ? 'var(--primary-light)' : 'transparent',
+                color: isActive ? 'var(--primary-text)' : 'var(--muted)',
+                fontWeight: isActive ? 600 : 500,
+                fontSize: '0.88rem',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.15s ease',
+              }}
+              onMouseEnter={(e) => {
+                if (!isActive) {
+                  e.currentTarget.style.background = '#f1f5f9'
+                  e.currentTarget.style.color = 'var(--text)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isActive) {
+                  e.currentTarget.style.background = 'transparent'
+                  e.currentTarget.style.color = 'var(--muted)'
+                }
+              }}
+              onClick={() => handleSectionChange(sec.key)}
+            >
+              <span style={{ fontSize: '1rem', lineHeight: 1 }}>{sec.icon}</span>
+              <span>{sec.label}</span>
             </button>
-            <button type="submit" className="btn btn-primary" disabled={updateZoneMutation.isPending}>
-              Lưu thay đổi
-            </button>
-          </div>
-        </form>
-      )}
+          )
+        })}
+      </div>
 
-      {/* Cảnh báo chất lượng dữ liệu nếu mẫu mới nhất != ok */}
-      {latest && latest.quality && latest.quality !== 'ok' && (
-        <div className="alert-banner warning" style={{ marginBottom: '1rem' }}>
-          <strong>⚠ Cảnh báo chất lượng dữ liệu (Kiểm tra luật):</strong> Mẫu gần nhất lúc{' '}
-          {formatTimeShortVi(latest.ts)} bị gắn nhãn{' '}
-          <strong>{QUALITY_LABELS[latest.quality] ?? latest.quality}</strong> và đã được loại khỏi vòng điều khiển tự động.
-        </div>
-      )}
+      {/* ── MỤC 1: THÔNG SỐ CẢM BIẾN & BIỂU ĐỒ ── */}
+      {activeSection === 'telemetry' && (
+        <section id="zone-section-1" style={{ marginBottom: '1.5rem' }}>
+
+          {/* Cảnh báo chất lượng dữ liệu nếu mẫu mới nhất != ok */}
+          {latest && latest.quality && latest.quality !== 'ok' && (
+            <div className="alert-banner warning" style={{ marginBottom: '1rem' }}>
+              <strong>⚠ Cảnh báo chất lượng dữ liệu (Kiểm tra luật):</strong> Mẫu gần nhất lúc{' '}
+              {formatTimeShortVi(latest.ts)} bị gắn nhãn{' '}
+              <strong>{QUALITY_LABELS[latest.quality] ?? latest.quality}</strong> và đã được loại khỏi vòng điều khiển tự động.
+            </div>
+          )}
 
       {/* Thẻ chỉ số tức thời */}
       <div className="grid grid-cols-4" style={{ marginBottom: '1.25rem' }}>
@@ -624,6 +612,385 @@ export default function ZoneDetailPage() {
             {dliOpt ? ` · Tối ưu ${dliOpt[0]}–${dliOpt[1]}` : ''}
           </span>
         </div>
+      </div>
+
+      {/* Bộ chọn khoảng thời gian & 4 Biểu đồ trực tiếp */}
+      <div className="card">
+        <div className="card-header">
+          <div>
+            <h3>📈 Biểu đồ Vi khí hậu &amp; Lớp phủ Sự kiện</h3>
+            <span className="muted" style={{ fontSize: '0.8rem' }}>
+              Độ mịn: <code>agg={rangeOpt.agg}</code> • {readings.length} điểm dữ liệu
+            </span>
+          </div>
+          <div className="tab-strip">
+            {RANGE_OPTIONS.map((r) => (
+              <button
+                key={r.key}
+                type="button"
+                className={`btn btn-sm ${rangeKey === r.key ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setRangeKey(r.key)}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {overlayEvents.length > 0 && (
+          <div style={{ display: 'flex', gap: '0.45rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+            <span className="muted" style={{ fontSize: '0.78rem', alignSelf: 'center' }}>
+              Sự kiện trong khung giờ:
+            </span>
+            {overlayEvents.map((ev, i) => (
+              <span key={`${ev.timeLabel}-${i}`} className="badge muted" style={{ borderColor: ev.color }}>
+                {ev.timeLabel} · {ev.label}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {readingsQuery.isLoading ? (
+          <p className="muted">Đang tải dữ liệu chuỗi thời gian...</p>
+        ) : chartData.length === 0 ? (
+          <p className="muted" style={{ textAlign: 'center', padding: '2rem 0' }}>
+            Chưa có dữ liệu cảm biến trong khoảng thời gian đã chọn.
+          </p>
+        ) : (
+          <div className="grid grid-cols-2" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+            {/* 1. Biểu đồ VPD */}
+            <div className="chart-box" style={{ marginBottom: 0 }}>
+              <div className="chart-header">
+                <strong>VPD (kPa) – Dải tối ưu [{vpdOpt[0]}–{vpdOpt[1]}]</strong>
+              </div>
+              <div style={{ width: '100%', height: 240 }}>
+                <ResponsiveContainer>
+                  <AreaChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="timeLabel" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} width={40} />
+                    <Tooltip />
+                    <ReferenceArea y1={vpdOpt[0]} y2={vpdOpt[1]} fill="#dcfce7" fillOpacity={0.7} />
+                    <ReferenceLine y={vpdLowCrit} stroke="#ef4444" strokeDasharray="4 4" label="Low Crit" />
+                    <ReferenceLine y={vpdHighCrit} stroke="#f59e0b" strokeDasharray="4 4" label="High Crit" />
+                    {overlayEvents.map((ev, i) => (
+                      <ReferenceLine key={i} x={ev.timeLabel} stroke={ev.color} strokeDasharray="2 2" />
+                    ))}
+                    <Area type="monotone" dataKey="vpd" name="VPD (kPa)" stroke="#15803d" fill="#bbf7d0" strokeWidth={2} dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* 2. Nhiệt độ & Độ ẩm */}
+            <div className="chart-box" style={{ marginBottom: 0 }}>
+              <div className="chart-header">
+                <strong>Nhiệt độ (°C) &amp; Độ ẩm không khí (%RH)</strong>
+              </div>
+              <div style={{ width: '100%', height: 240 }}>
+                <ResponsiveContainer>
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="timeLabel" tick={{ fontSize: 11 }} />
+                    <YAxis yAxisId="left" tick={{ fontSize: 11 }} width={36} />
+                    <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} width={38} domain={[0, 100]} />
+                    <Tooltip />
+                    <Legend />
+                    <Line yAxisId="left" type="monotone" dataKey="air_temp" name="Nhiệt độ (°C)" stroke="#ef4444" strokeWidth={2} dot={false} />
+                    <Line yAxisId="right" type="monotone" dataKey="air_rh" name="Độ ẩm (%RH)" stroke="#0284c7" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* 3. Độ ẩm đất */}
+            <div className="chart-box" style={{ marginBottom: 0 }}>
+              <div className="chart-header">
+                <strong>Độ ẩm đất (%) – Hysteresis [{soilMin}%–{soilMax}%]</strong>
+              </div>
+              <div style={{ width: '100%', height: 240 }}>
+                <ResponsiveContainer>
+                  <AreaChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="timeLabel" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} width={38} domain={[0, 100]} />
+                    <Tooltip />
+                    <ReferenceLine y={soilMin} stroke="#ef4444" strokeDasharray="4 4" label="Min tưới" />
+                    <ReferenceLine y={soilMax} stroke="#15803d" strokeDasharray="4 4" label="Max ngắt" />
+                    <Area type="monotone" dataKey="soil_moisture" name="Ẩm đất (%)" stroke="#0369a1" fill="#bae6fd" strokeWidth={2} dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* 4. Ánh sáng Lux */}
+            <div className="chart-box" style={{ marginBottom: 0 }}>
+              <div className="chart-header">
+                <strong>Ánh sáng (Lux)</strong>
+              </div>
+              <div style={{ width: '100%', height: 240 }}>
+                <ResponsiveContainer>
+                  <AreaChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="timeLabel" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} width={48} />
+                    <Tooltip />
+                    <Area type="monotone" dataKey="lux" name="Ánh sáng (lux)" stroke="#d97706" fill="#fde68a" strokeWidth={2} dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  )}
+
+  {/* ── MỤC 2: ĐIỀU KHIỂN CHẤP HÀNH ── */}
+  {activeSection === 'control' && (
+    <section id="zone-section-2" style={{ marginBottom: '1.5rem' }}>
+      {/* Khối Điều khiển thiết bị chấp hành & Interlock */}
+      <div id="control-section" className="card">
+        <div className="card-header">
+          <div>
+            <h3>🎛️ Điều khiển Chấp hành (Hysteresis Cố định &amp; Manual)</h3>
+            <span className="muted" style={{ fontSize: '0.8rem' }}>
+              Chế độ Auto dùng luật hysteresis cố định theo Crop Profile (Ẩm đất {soilMin}–{soilMax}%, VPD {vpdLowCrit}–{vpdHighCrit} kPa).
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+              Thời lượng bật (s):
+              <input
+                type="number"
+                min={1}
+                max={3600}
+                style={{ width: 85 }}
+                value={durationInput}
+                onChange={(e) => setDurationInput(Number(e.target.value))}
+              />
+            </label>
+            <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+              Hạn Manual:
+              <select
+                style={{ width: 'auto' }}
+                value={manualMinutes}
+                onChange={(e) => setManualMinutes(Number(e.target.value))}
+              >
+                <option value={15}>15 phút</option>
+                <option value={30}>30 phút</option>
+                <option value={60}>60 phút</option>
+                <option value={0}>Không giới hạn</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div className="alert-banner warning" style={{ marginBottom: '1rem' }}>
+          <strong>Quy tắc Interlock (Quạt ↔ Tạo ẩm):</strong> Quạt đối lưu và Máy tạo ẩm <strong>không</strong> chạy đồng thời. Khi quạt bật do rủi ro nấm/nhiệt hoặc thủ công, máy tạo ẩm bị ép tắt và khoá tạm thời.
+        </div>
+
+        {cmdFeedback && (
+          <div
+            className={`alert-banner ${cmdFeedback.ok ? 'ok' : 'bad'}`}
+            style={{ marginBottom: '1rem' }}
+          >
+            {cmdFeedback.text}
+          </div>
+        )}
+
+        <div className="grid grid-cols-4" style={{ marginBottom: '1.25rem' }}>
+          {ACTUATORS.map((act) => {
+            const state = reportedActuators[act] ?? 'off'
+            const modeObj = desiredModes[act]
+            const mode = modeObj?.mode ?? 'auto'
+            const isOn = state === 'on'
+            const interlockLocked = act === 'mist' && reportedActuators.fan === 'on'
+
+            return (
+              <div key={act} className={`actuator-card ${isOn ? 'on' : ''}`}>
+                <div className="title-row">
+                  <strong>{ACTUATOR_LABELS[act]}</strong>
+                  <span className="status-indicator" />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.82rem' }}>
+                  <span>
+                    Trạng thái: <strong>{isOn ? 'ĐANG BẬT' : 'TẮT'}</strong>
+                  </span>
+                  <span className={`badge ${mode === 'manual' ? 'warning' : 'info'}`}>
+                    {mode === 'manual' ? 'Manual' : 'Auto'}
+                  </span>
+                </div>
+                {mode === 'manual' && modeObj?.until && (
+                  <div className="muted" style={{ fontSize: '0.73rem' }}>
+                    Hết hạn: {formatTimeShortVi(modeObj.until)}
+                  </div>
+                )}
+                {canOperate && (
+                  <div style={{ display: 'flex', gap: '0.4rem' }}>
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${isOn ? 'btn-danger' : 'btn-primary'}`}
+                      style={{ flex: 1 }}
+                      disabled={sendCommandMutation.isPending || (!isOn && interlockLocked)}
+                      onClick={() => handleTriggerActuator(act, state)}
+                    >
+                      {isOn ? 'TẮT' : `BẬT (${durationInput}s)`}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-secondary"
+                      disabled={setModeMutation.isPending}
+                      onClick={() => handleToggleMode(act, mode)}
+                    >
+                      {mode === 'manual' ? 'Về Auto' : 'Manual'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Lịch sử lệnh gần nhất */}
+        <h4 style={{ margin: '0 0 0.6rem', fontSize: '0.9rem' }}>📜 Lịch sử lệnh điều khiển gần nhất</h4>
+        {commands.length === 0 ? (
+          <p className="muted" style={{ margin: 0 }}>
+            Chưa có lệnh điều khiển nào cho nhà kính này.
+          </p>
+        ) : (
+          <div className="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Thời gian</th>
+                  <th>Thiết bị</th>
+                  <th>Hành động</th>
+                  <th>Nguồn</th>
+                  <th>Trạng thái</th>
+                  <th>Lý do / Ghi chú</th>
+                </tr>
+              </thead>
+              <tbody>
+                {commands.map((c) => {
+                  const st = CMD_STATUS_BADGE[c.status] ?? { label: c.status, cls: 'muted' }
+                  return (
+                    <tr key={c.id}>
+                      <td className="muted">{formatTimeShortVi(c.created_at)}</td>
+                      <td>
+                        <strong>{ACTUATOR_LABELS[c.actuator as ActuatorName] ?? c.actuator}</strong>
+                      </td>
+                      <td>
+                        {c.action.toUpperCase()}
+                        {c.duration_s ? ` (${c.duration_s}s)` : ''}
+                      </td>
+                      <td>
+                        <span className="badge muted">{c.source}</span>
+                      </td>
+                      <td>
+                        <span className={`badge ${st.cls}`}>{st.label}</span>
+                      </td>
+                      <td className="muted" style={{ fontSize: '0.8rem' }}>
+                        {c.reject_reason || c.reason || '—'}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </section>
+  )}
+
+  {/* ── MỤC 3: VỤ TRỒNG & NĂNG SUẤT AI ── */}
+  {activeSection === 'cycles' && (
+    <section id="zone-section-3" style={{ marginBottom: '1.5rem' }}>
+      {/* Lịch sử vụ trồng */}
+      <div className="card">
+        <div className="card-header">
+          <h3>📅 Lịch sử Vụ trồng của Zone</h3>
+          <span className="badge info">{cycles.length} vụ</span>
+        </div>
+
+        {cycles.length === 0 ? (
+          <p className="muted" style={{ margin: 0 }}>
+            Zone này chưa có lịch sử vụ trồng nào.
+          </p>
+        ) : (
+          <div className="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cây trồng</th>
+                  <th>Bắt đầu</th>
+                  <th>Thu hoạch</th>
+                  <th>Diện tích (m²)</th>
+                  <th>Tổng sản lượng (kg)</th>
+                  <th>Năng suất (kg/m²)</th>
+                  <th>Đánh giá &amp; Giống</th>
+                  <th>Trạng thái</th>
+                  <th>Ghi chú</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cycles.map((c) => (
+                  <tr key={c.id}>
+                    <td>
+                      <strong>{formatCropName(c.crop_code, c.crop_name)}</strong>
+                    </td>
+                    <td>{formatDateTimeVi(c.started_at)}</td>
+                    <td>{formatDateTimeVi(c.harvested_at)}</td>
+                    <td>{c.area_m2}</td>
+                    <td>{c.yield_kg !== null ? c.yield_kg.toFixed(2) : '—'}</td>
+                    <td>{c.yield_kg_m2 !== null ? c.yield_kg_m2.toFixed(2) : '—'}</td>
+                    <td>
+                      {c.feedback ? (
+                        <div>
+                          <span
+                            className="badge ok"
+                            style={{ fontSize: '0.74rem' }}
+                            title={c.feedback.variety ? `Giống: ${c.feedback.variety}` : ''}
+                          >
+                            ⭐ {c.feedback.quality_rating}/5 {c.feedback.variety ? `· ${c.feedback.variety}` : ''}
+                          </span>
+                          {typeof c.feedback.loss_percentage === 'number' && (
+                            <span className="muted" style={{ fontSize: '0.72rem', display: 'block' }}>
+                              Hao hụt: {c.feedback.loss_percentage}%
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
+                    </td>
+                    <td>
+                      <span
+                        className={`badge ${
+                          c.status === 'active'
+                            ? 'info'
+                            : c.status === 'harvested'
+                              ? 'ok'
+                              : 'muted'
+                        }`}
+                      >
+                        {c.status === 'active'
+                          ? 'Đang trồng'
+                          : c.status === 'harvested'
+                            ? 'Đã thu hoạch'
+                            : 'Đã huỷ'}
+                      </span>
+                    </td>
+                    <td className="muted" style={{ fontSize: '0.8rem' }}>
+                      {c.notes || '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Khung AI – Vụ trồng & Năng suất dự kiến */}
@@ -909,375 +1276,8 @@ export default function ZoneDetailPage() {
           </div>
         )}
       </div>
-
-      {/* Bộ chọn khoảng thời gian & 4 Biểu đồ trực tiếp */}
-      <div className="card">
-        <div className="card-header">
-          <div>
-            <h3>📈 Biểu đồ Vi khí hậu &amp; Lớp phủ Sự kiện</h3>
-            <span className="muted" style={{ fontSize: '0.8rem' }}>
-              Độ mịn: <code>agg={rangeOpt.agg}</code> • {readings.length} điểm dữ liệu
-            </span>
-          </div>
-          <div className="tab-strip">
-            {RANGE_OPTIONS.map((r) => (
-              <button
-                key={r.key}
-                type="button"
-                className={`btn btn-sm ${rangeKey === r.key ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => setRangeKey(r.key)}
-              >
-                {r.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {overlayEvents.length > 0 && (
-          <div style={{ display: 'flex', gap: '0.45rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-            <span className="muted" style={{ fontSize: '0.78rem', alignSelf: 'center' }}>
-              Sự kiện trong khung giờ:
-            </span>
-            {overlayEvents.map((ev, i) => (
-              <span key={`${ev.timeLabel}-${i}`} className="badge muted" style={{ borderColor: ev.color }}>
-                {ev.timeLabel} · {ev.label}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {readingsQuery.isLoading ? (
-          <p className="muted">Đang tải dữ liệu chuỗi thời gian...</p>
-        ) : chartData.length === 0 ? (
-          <p className="muted" style={{ textAlign: 'center', padding: '2rem 0' }}>
-            Chưa có dữ liệu cảm biến trong khoảng thời gian đã chọn.
-          </p>
-        ) : (
-          <div className="grid grid-cols-2">
-            {/* 1. Biểu đồ VPD */}
-            <div className="chart-box" style={{ marginBottom: 0 }}>
-              <div className="chart-header">
-                <strong>VPD (kPa) – Dải tối ưu [{vpdOpt[0]}–{vpdOpt[1]}]</strong>
-              </div>
-              <div style={{ width: '100%', height: 240 }}>
-                <ResponsiveContainer>
-                  <AreaChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="timeLabel" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} width={40} />
-                    <Tooltip />
-                    <ReferenceArea y1={vpdOpt[0]} y2={vpdOpt[1]} fill="#dcfce7" fillOpacity={0.7} />
-                    <ReferenceLine y={vpdLowCrit} stroke="#ef4444" strokeDasharray="4 4" label="Low Crit" />
-                    <ReferenceLine y={vpdHighCrit} stroke="#f59e0b" strokeDasharray="4 4" label="High Crit" />
-                    {overlayEvents.map((ev, i) => (
-                      <ReferenceLine key={i} x={ev.timeLabel} stroke={ev.color} strokeDasharray="2 2" />
-                    ))}
-                    <Area type="monotone" dataKey="vpd" name="VPD (kPa)" stroke="#15803d" fill="#bbf7d0" strokeWidth={2} dot={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* 2. Nhiệt độ & Độ ẩm */}
-            <div className="chart-box" style={{ marginBottom: 0 }}>
-              <div className="chart-header">
-                <strong>Nhiệt độ (°C) &amp; Độ ẩm không khí (%RH)</strong>
-              </div>
-              <div style={{ width: '100%', height: 240 }}>
-                <ResponsiveContainer>
-                  <LineChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="timeLabel" tick={{ fontSize: 11 }} />
-                    <YAxis yAxisId="left" tick={{ fontSize: 11 }} width={36} />
-                    <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} width={38} domain={[0, 100]} />
-                    <Tooltip />
-                    <Legend />
-                    <Line yAxisId="left" type="monotone" dataKey="air_temp" name="Nhiệt độ (°C)" stroke="#ef4444" strokeWidth={2} dot={false} />
-                    <Line yAxisId="right" type="monotone" dataKey="air_rh" name="Độ ẩm (%RH)" stroke="#0284c7" strokeWidth={2} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* 3. Độ ẩm đất */}
-            <div className="chart-box" style={{ marginBottom: 0 }}>
-              <div className="chart-header">
-                <strong>Độ ẩm đất (%) – Hysteresis [{soilMin}%–{soilMax}%]</strong>
-              </div>
-              <div style={{ width: '100%', height: 240 }}>
-                <ResponsiveContainer>
-                  <AreaChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="timeLabel" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} width={38} domain={[0, 100]} />
-                    <Tooltip />
-                    <ReferenceLine y={soilMin} stroke="#ef4444" strokeDasharray="4 4" label="Min tưới" />
-                    <ReferenceLine y={soilMax} stroke="#15803d" strokeDasharray="4 4" label="Max ngắt" />
-                    <Area type="monotone" dataKey="soil_moisture" name="Ẩm đất (%)" stroke="#0369a1" fill="#bae6fd" strokeWidth={2} dot={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* 4. Ánh sáng Lux */}
-            <div className="chart-box" style={{ marginBottom: 0 }}>
-              <div className="chart-header">
-                <strong>Ánh sáng (Lux)</strong>
-              </div>
-              <div style={{ width: '100%', height: 240 }}>
-                <ResponsiveContainer>
-                  <AreaChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="timeLabel" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} width={48} />
-                    <Tooltip />
-                    <Area type="monotone" dataKey="lux" name="Ánh sáng (lux)" stroke="#d97706" fill="#fde68a" strokeWidth={2} dot={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Khối Điều khiển thiết bị chấp hành & Interlock */}
-      <div id="control-section" className="card">
-        <div className="card-header">
-          <div>
-            <h3>🎛️ Điều khiển Chấp hành (Hysteresis Cố định &amp; Manual)</h3>
-            <span className="muted" style={{ fontSize: '0.8rem' }}>
-              Chế độ Auto dùng luật hysteresis cố định theo Crop Profile (Ẩm đất {soilMin}–{soilMax}%, VPD {vpdLowCrit}–{vpdHighCrit} kPa).
-            </span>
-          </div>
-          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
-              Thời lượng bật (s):
-              <input
-                type="number"
-                min={1}
-                max={3600}
-                style={{ width: 85 }}
-                value={durationInput}
-                onChange={(e) => setDurationInput(Number(e.target.value))}
-              />
-            </label>
-            <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
-              Hạn Manual:
-              <select
-                style={{ width: 'auto' }}
-                value={manualMinutes}
-                onChange={(e) => setManualMinutes(Number(e.target.value))}
-              >
-                <option value={15}>15 phút</option>
-                <option value={30}>30 phút</option>
-                <option value={60}>60 phút</option>
-                <option value={0}>Không giới hạn</option>
-              </select>
-            </label>
-          </div>
-        </div>
-
-        <div className="alert-banner warning" style={{ marginBottom: '1rem' }}>
-          <strong>Quy tắc Interlock (Quạt ↔ Tạo ẩm):</strong> Quạt đối lưu và Máy tạo ẩm <strong>không</strong> chạy đồng thời. Khi quạt bật do rủi ro nấm/nhiệt hoặc thủ công, máy tạo ẩm bị ép tắt và khoá tạm thời.
-        </div>
-
-        {cmdFeedback && (
-          <div
-            className={`alert-banner ${cmdFeedback.ok ? 'ok' : 'bad'}`}
-            style={{ marginBottom: '1rem' }}
-          >
-            {cmdFeedback.text}
-          </div>
-        )}
-
-        <div className="grid grid-cols-4" style={{ marginBottom: '1.25rem' }}>
-          {ACTUATORS.map((act) => {
-            const state = reportedActuators[act] ?? 'off'
-            const modeObj = desiredModes[act]
-            const mode = modeObj?.mode ?? 'auto'
-            const isOn = state === 'on'
-            const interlockLocked = act === 'mist' && reportedActuators.fan === 'on'
-
-            return (
-              <div key={act} className={`actuator-card ${isOn ? 'on' : ''}`}>
-                <div className="title-row">
-                  <strong>{ACTUATOR_LABELS[act]}</strong>
-                  <span className="status-indicator" />
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.82rem' }}>
-                  <span>
-                    Trạng thái: <strong>{isOn ? 'ĐANG BẬT' : 'TẮT'}</strong>
-                  </span>
-                  <span className={`badge ${mode === 'manual' ? 'warning' : 'info'}`}>
-                    {mode === 'manual' ? 'Manual' : 'Auto'}
-                  </span>
-                </div>
-                {mode === 'manual' && modeObj?.until && (
-                  <div className="muted" style={{ fontSize: '0.73rem' }}>
-                    Hết hạn: {formatTimeShortVi(modeObj.until)}
-                  </div>
-                )}
-                {canOperate && (
-                  <div style={{ display: 'flex', gap: '0.4rem' }}>
-                    <button
-                      type="button"
-                      className={`btn btn-sm ${isOn ? 'btn-danger' : 'btn-primary'}`}
-                      style={{ flex: 1 }}
-                      disabled={sendCommandMutation.isPending || (!isOn && interlockLocked)}
-                      onClick={() => handleTriggerActuator(act, state)}
-                    >
-                      {isOn ? 'TẮT' : `BẬT (${durationInput}s)`}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-secondary"
-                      disabled={setModeMutation.isPending}
-                      onClick={() => handleToggleMode(act, mode)}
-                    >
-                      {mode === 'manual' ? 'Về Auto' : 'Manual'}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-
-        {/* Lịch sử lệnh gần nhất */}
-        <h4 style={{ margin: '0 0 0.6rem', fontSize: '0.9rem' }}>📜 Lịch sử lệnh điều khiển gần nhất</h4>
-        {commands.length === 0 ? (
-          <p className="muted" style={{ margin: 0 }}>
-            Chưa có lệnh điều khiển nào cho nhà kính này.
-          </p>
-        ) : (
-          <div className="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th>Thời gian</th>
-                  <th>Thiết bị</th>
-                  <th>Hành động</th>
-                  <th>Nguồn</th>
-                  <th>Trạng thái</th>
-                  <th>Lý do / Ghi chú</th>
-                </tr>
-              </thead>
-              <tbody>
-                {commands.map((c) => {
-                  const st = CMD_STATUS_BADGE[c.status] ?? { label: c.status, cls: 'muted' }
-                  return (
-                    <tr key={c.id}>
-                      <td className="muted">{formatTimeShortVi(c.created_at)}</td>
-                      <td>
-                        <strong>{ACTUATOR_LABELS[c.actuator as ActuatorName] ?? c.actuator}</strong>
-                      </td>
-                      <td>
-                        {c.action.toUpperCase()}
-                        {c.duration_s ? ` (${c.duration_s}s)` : ''}
-                      </td>
-                      <td>
-                        <span className="badge muted">{c.source}</span>
-                      </td>
-                      <td>
-                        <span className={`badge ${st.cls}`}>{st.label}</span>
-                      </td>
-                      <td className="muted" style={{ fontSize: '0.8rem' }}>
-                        {c.reject_reason || c.reason || '—'}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Lịch sử vụ trồng */}
-      <div className="card">
-        <div className="card-header">
-          <h3>📅 Lịch sử Vụ trồng của Zone</h3>
-          <span className="badge info">{cycles.length} vụ</span>
-        </div>
-
-        {cycles.length === 0 ? (
-          <p className="muted" style={{ margin: 0 }}>
-            Zone này chưa có lịch sử vụ trồng nào.
-          </p>
-        ) : (
-          <div className="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th>Cây trồng</th>
-                  <th>Bắt đầu</th>
-                  <th>Thu hoạch</th>
-                  <th>Diện tích (m²)</th>
-                  <th>Tổng sản lượng (kg)</th>
-                  <th>Năng suất (kg/m²)</th>
-                  <th>Đánh giá &amp; Giống</th>
-                  <th>Trạng thái</th>
-                  <th>Ghi chú</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cycles.map((c) => (
-                  <tr key={c.id}>
-                    <td>
-                      <strong>{formatCropName(c.crop_code, c.crop_name)}</strong>
-                    </td>
-                    <td>{formatDateTimeVi(c.started_at)}</td>
-                    <td>{formatDateTimeVi(c.harvested_at)}</td>
-                    <td>{c.area_m2}</td>
-                    <td>{c.yield_kg !== null ? c.yield_kg.toFixed(2) : '—'}</td>
-                    <td>{c.yield_kg_m2 !== null ? c.yield_kg_m2.toFixed(2) : '—'}</td>
-                    <td>
-                      {c.feedback ? (
-                        <div>
-                          <span
-                            className="badge ok"
-                            style={{ fontSize: '0.74rem' }}
-                            title={c.feedback.variety ? `Giống: ${c.feedback.variety}` : ''}
-                          >
-                            ⭐ {c.feedback.quality_rating}/5 {c.feedback.variety ? `· ${c.feedback.variety}` : ''}
-                          </span>
-                          {typeof c.feedback.loss_percentage === 'number' && (
-                            <span className="muted" style={{ fontSize: '0.72rem', display: 'block' }}>
-                              Hao hụt: {c.feedback.loss_percentage}%
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="muted">—</span>
-                      )}
-                    </td>
-                    <td>
-                      <span
-                        className={`badge ${
-                          c.status === 'active'
-                            ? 'info'
-                            : c.status === 'harvested'
-                              ? 'ok'
-                              : 'muted'
-                        }`}
-                      >
-                        {c.status === 'active'
-                          ? 'Đang trồng'
-                          : c.status === 'harvested'
-                            ? 'Đã thu hoạch'
-                            : 'Đã huỷ'}
-                      </span>
-                    </td>
-                    <td className="muted" style={{ fontSize: '0.8rem' }}>
-                      {c.notes || '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+    </section>
+  )}
 
       {/* Modal Bắt đầu vụ */}
       {showStartModal && (
