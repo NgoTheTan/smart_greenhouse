@@ -2,15 +2,24 @@
 
 import uuid
 from datetime import UTC, date, datetime, time, timedelta
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import ValidationError
-from sqlalchemy import or_, select, text
+from sqlalchemy import delete, func, or_, select, text, update
 
 from api.deps import CurrentOwner, CurrentViewer, DbSession
 from core.crop_templates import CropParameters
-from core.models import CropProfile, Greenhouse, Reading, Zone
+from core.models import (
+    Alert,
+    CropCycle,
+    CropProfile,
+    DeviceNode,
+    Greenhouse,
+    Prediction,
+    Reading,
+    Zone,
+)
 from core.pubsub import CHANNEL_WORKER, pg_notify
 from core.schemas import (
     CropProfileResponse,
@@ -85,6 +94,61 @@ async def update_zone(
     await session.commit()
     await session.refresh(zone)
     return zone
+
+
+@router.delete("/zones/{zone_id}", status_code=status.HTTP_200_OK)
+async def delete_zone(
+    zone_id: uuid.UUID,
+    user: CurrentOwner,
+    session: DbSession,
+) -> dict[str, Any]:
+    zone, gh = await _get_owned_zone(session, zone_id, user.farm_id)
+
+    count = (
+        await session.execute(
+            select(func.count()).select_from(Zone).where(Zone.greenhouse_id == gh.id)
+        )
+    ).scalar_one()
+    if count <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nhà kính phải có ít nhất 1 vùng trồng. Không thể xóa vùng trồng cuối cùng.",
+        )
+
+    # Gỡ liên kết DeviceNode
+    await session.execute(
+        update(DeviceNode).where(DeviceNode.zone_id == zone.id).values(zone_id=None)
+    )
+
+    # Gỡ liên kết Alert
+    await session.execute(
+        update(Alert).where(Alert.zone_id == zone.id).values(zone_id=None)
+    )
+
+    # Xóa Readings
+    await session.execute(delete(Reading).where(Reading.zone_id == zone.id))
+
+    # Xóa bảng tổng hợp nếu ở chế độ sqlite
+    bind = getattr(session, "bind", None) or (session.get_bind() if hasattr(session, "get_bind") else None)
+    if bind and getattr(bind.dialect, "name", "") == "sqlite":
+        await session.execute(text("DELETE FROM readings_1m WHERE zone_id = :zid"), {"zid": str(zone.id)})
+        await session.execute(text("DELETE FROM readings_1h WHERE zone_id = :zid"), {"zid": str(zone.id)})
+
+    # Xóa CropCycles & Predictions
+    await session.execute(delete(CropCycle).where(CropCycle.zone_id == zone.id))
+    await session.execute(delete(Prediction).where(Prediction.zone_id == zone.id))
+
+    # Xóa Zone
+    await session.delete(zone)
+
+    # Đồng bộ shadow
+    await bump_cfg_version(session, gh.id)
+    await pg_notify(
+        session, CHANNEL_WORKER, {"type": "cfg_updated", "greenhouse_id": str(gh.id)}
+    )
+    await session.commit()
+    return {"ok": True, "message": f"Đã xóa thành công {zone.name or f'Zone {zone.zone_index}'}"}
+
 
 
 @router.get("/zones/{zone_id}/readings", response_model=list[ReadingPoint])

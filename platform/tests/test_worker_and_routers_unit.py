@@ -16,6 +16,7 @@ from api.routers.commands import create_command
 from api.routers.devices import pair_node
 from core.models import (
     ActuatorLog,
+    Alert,
     Command,
     DeviceNode,
     DeviceState,
@@ -48,6 +49,9 @@ class _FakeResult:
         return self._value
 
     def scalar_one_or_none(self) -> Any:
+        return self._value
+
+    def scalar_one(self) -> Any:
         return self._value
 
     def scalars(self) -> "_FakeResult":
@@ -208,3 +212,99 @@ def test_expire_manual_modes_resets_past_until() -> None:
     assert changed == 1
     assert st.desired["modes"]["fan"] == {"mode": "auto", "until": None}
     assert st.desired["modes"]["mist"]["mode"] == "manual"
+
+
+def test_create_and_delete_zone_endpoints() -> None:
+    from api.routers.greenhouses import create_zone
+    from api.routers.zones import delete_zone
+    from core.schemas import ZoneCreateRequest
+
+    farm_id = uuid.uuid4()
+    gh = Greenhouse(id=uuid.uuid4(), farm_id=farm_id, name="Test GH")
+    z1 = Zone(id=uuid.uuid4(), greenhouse_id=gh.id, zone_index=1, name="Zone 1")
+    z2 = Zone(id=uuid.uuid4(), greenhouse_id=gh.id, zone_index=2, name="Zone 2")
+
+    user = User(id=uuid.uuid4(), farm_id=farm_id, email="o@gh.vn", role="owner")
+
+    # 1. Test create_zone adds zone with next index = 3
+    added_objs = []
+    fake_session = AsyncMock()
+    fake_session.add.side_effect = lambda obj: added_objs.append(obj)
+    fake_session.execute.side_effect = [
+        _FakeResult(gh),        # get_owned_greenhouse
+        _FakeResult([z1, z2]),  # existing_zones
+    ]
+
+    new_zone = _run_coro(
+        create_zone(
+            gh.id,
+            ZoneCreateRequest(name="Zone 3 - Dưa leo", area_m2=30.0),
+            user,
+            fake_session,
+        )
+    )
+    assert new_zone.zone_index == 3
+    assert new_zone.name == "Zone 3 - Dưa leo"
+
+    # 2. Test delete_zone rejects deleting last remaining zone
+    fake_session2 = AsyncMock()
+    fake_session2.execute.side_effect = [
+        _FakeResult((z1, gh)),  # _get_owned_zone
+        _FakeResult(1),         # count = 1
+    ]
+    with pytest.raises(HTTPException) as exc_info:
+        _run_coro(delete_zone(z1.id, user, fake_session2))
+    assert exc_info.value.status_code == 400
+    assert "ít nhất 1 vùng trồng" in exc_info.value.detail
+
+    # 3. Test delete_zone succeeds when multiple zones exist
+    fake_session3 = AsyncMock()
+    fake_session3.execute.side_effect = [
+        _FakeResult((z2, gh)),  # _get_owned_zone
+        _FakeResult(2),         # count = 2
+        _FakeResult(None),      # unpair nodes
+        _FakeResult(None),      # detach alerts
+        _FakeResult(None),      # delete readings
+        _FakeResult(None),      # delete cycles
+        _FakeResult(None),      # delete predictions
+    ]
+    res = _run_coro(delete_zone(z2.id, user, fake_session3))
+    assert res["ok"] is True
+    fake_session3.delete.assert_called_once_with(z2)
+
+
+def test_acknowledge_all_alerts_endpoint() -> None:
+    from api.routers.alerts import acknowledge_all_alerts
+
+    farm_id = uuid.uuid4()
+    gh_id = uuid.uuid4()
+    user = User(id=uuid.uuid4(), farm_id=farm_id, email="op@gh.vn", role="operator")
+    a1 = Alert(
+        id=uuid.uuid4(),
+        greenhouse_id=gh_id,
+        alert_type="HEAT_STRESS",
+        severity="critical",
+        state="raised",
+        dedupe_key="k1",
+    )
+    a2 = Alert(
+        id=uuid.uuid4(),
+        greenhouse_id=gh_id,
+        alert_type="SOIL_DRY",
+        severity="warning",
+        state="notified",
+        dedupe_key="k2",
+    )
+
+    fake_session = AsyncMock()
+    fake_session.execute.return_value = _FakeResult([a1, a2])
+
+    res = _run_coro(acknowledge_all_alerts(user, fake_session))
+    assert res["acknowledged_count"] == 2
+    assert a1.state == "acknowledged"
+    assert a1.acked_by == user.id
+    assert a2.state == "acknowledged"
+    assert a2.acked_by == user.id
+    fake_session.commit.assert_awaited_once()
+
+

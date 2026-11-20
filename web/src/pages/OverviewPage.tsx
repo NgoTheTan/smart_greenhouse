@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, formatApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
+import { Button, Card, Field, SelectField, StatusDot } from '../components/ui'
 import {
   formatCropName,
   type CropCycle,
@@ -10,6 +11,7 @@ import {
   type CropRecommendationDetails,
   type Greenhouse,
   type PredictionItem,
+  type ReadingPoint,
 } from '../lib/types'
 
 function cycleDayNumber(startedAt: string): number {
@@ -17,13 +19,25 @@ function cycleDayNumber(startedAt: string): number {
   return Math.max(1, Math.floor(diffMs / 86_400_000) + 1)
 }
 
+function fmtTemp(v: number | null | undefined): string | null {
+  return v != null ? `${v.toFixed(1)}°C` : null
+}
+function fmtRh(v: number | null | undefined): string | null {
+  return v != null ? `${v.toFixed(0)}%` : null
+}
+function fmtSoil(v: number | null | undefined): string | null {
+  return v != null ? `${v.toFixed(0)}%` : null
+}
+
 export default function OverviewPage() {
   const { isOwner } = useAuth()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
 
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newName, setNewName] = useState('')
   const [newLocation, setNewLocation] = useState('')
+  const [newZonesCount, setNewZonesCount] = useState<number>(2)
   const [createError, setCreateError] = useState<string | null>(null)
 
   const greenhousesQuery = useQuery({
@@ -62,6 +76,24 @@ export default function OverviewPage() {
     }
   })
 
+  // Đọc dữ liệu cảm biến mới nhất của từng zone (nếu có telemetry từ Node)
+  const readingQueries = useQueries({
+    queries: allZones.map((z) => ({
+      queryKey: ['readings', z.id, 'latest'],
+      queryFn: () =>
+        api<ReadingPoint[]>(`/zones/${z.id}/readings?limit=1&agg=raw`).then(
+          (arr) => arr?.[0] ?? null,
+        ),
+      enabled: allZones.length > 0,
+      refetchInterval: 15_000,
+    })),
+  })
+
+  const readingByZone = new Map<string, ReadingPoint | null>()
+  allZones.forEach((z, idx) => {
+    readingByZone.set(z.id, readingQueries[idx]?.data ?? null)
+  })
+
   const recommendationQueries = useQueries({
     queries: greenhouses.map((gh) => ({
       queryKey: ['recommendations', gh.id],
@@ -87,7 +119,7 @@ export default function OverviewPage() {
   })
 
   const createGhMutation = useMutation({
-    mutationFn: (payload: { name: string; location: string | null }) =>
+    mutationFn: (payload: { name: string; location: string | null; zones?: Array<{ zone_index: number; name: string; crop_profile_id: string | null; pump_channel: number; area_m2: number }> }) =>
       api<Greenhouse>('/greenhouses', {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -97,6 +129,7 @@ export default function OverviewPage() {
       setShowCreateModal(false)
       setNewName('')
       setNewLocation('')
+      setNewZonesCount(2)
       setCreateError(null)
     },
     onError: (err) => {
@@ -108,9 +141,24 @@ export default function OverviewPage() {
     e.preventDefault()
     if (!newName.trim()) return
     setCreateError(null)
+
+    const availableProfiles = (profilesQuery.data ?? []).filter((p) => p.variety !== 'demo')
+    const initialZones = Array.from({ length: newZonesCount }, (_, idx) => {
+      const zIndex = idx + 1
+      const defaultProf = availableProfiles[idx % (availableProfiles.length || 1)]
+      return {
+        zone_index: zIndex,
+        name: `Khu ${zIndex}`,
+        crop_profile_id: defaultProf?.id ?? null,
+        pump_channel: zIndex,
+        area_m2: 20.0,
+      }
+    })
+
     createGhMutation.mutate({
       name: newName.trim(),
       location: newLocation.trim() ? newLocation.trim() : null,
+      zones: initialZones,
     })
   }
 
@@ -118,58 +166,50 @@ export default function OverviewPage() {
 
   return (
     <div>
+      {/* Header trang Tổng quan chuẩn theo ảnh thiết kế */}
       <div className="page-header">
         <div>
-          <h2>🌿 Tổng quan Nhà kính &amp; Farm</h2>
-          <p className="muted" style={{ margin: 0 }}>
-            Theo dõi vi khí hậu, vụ trồng hiện tại và gợi ý cây trồng theo từng nhà kính
-          </p>
+          <h2>Tổng quan</h2>
+          <p className="muted">Vi khí hậu và vụ trồng hiện tại của từng nhà kính.</p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-          <span className="badge ok">
-            ● {onlineCount}/{greenhouses.length} Nhà kính Online
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap' }}>
+          <StatusDot
+            status="ok"
+            textColor="var(--text-muted, #626861)"
+            label={`${onlineCount}/${greenhouses.length} nhà kính online`}
+          />
           {isOwner && (
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => setShowCreateModal(true)}
-            >
+            <Button variant="primary" onClick={() => setShowCreateModal(true)}>
               + Tạo nhà kính mới
-            </button>
+            </Button>
           )}
         </div>
       </div>
 
       {readyToHarvestZones.length > 0 && (
-        <div
+        <Card
           style={{
-            background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
-            border: '2px solid #f59e0b',
-            borderRadius: 'var(--radius)',
-            padding: '1.1rem 1.25rem',
-            marginBottom: '1.25rem',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '1rem',
-            flexWrap: 'wrap',
-            boxShadow: '0 4px 12px rgba(245, 158, 11, 0.15)',
+            borderColor: '#F59E0B',
+            background: '#FFFBEB',
+            marginBottom: '1.5rem',
+            padding: '1rem 1.25rem',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', flex: 1, minWidth: 260 }}>
-            <span style={{ fontSize: '2.4rem' }}>🌾</span>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '1rem',
+              flexWrap: 'wrap',
+            }}
+          >
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginBottom: '0.2rem' }}>
-                <span className="badge warning" style={{ fontWeight: 700 }}>
-                  THÔNG BÁO MÙA VỤ
-                </span>
-                <strong style={{ color: '#92400e', fontSize: '1rem' }}>
-                  Có {readyToHarvestZones.length} khu vườn đã đến kỳ thu hoạch!
-                </strong>
-              </div>
-              <p style={{ margin: 0, fontSize: '0.86rem', color: '#78350f', lineHeight: 1.4 }}>
+              <strong style={{ color: '#92400E', fontSize: '0.95rem', display: 'block', marginBottom: '0.2rem' }}>
+                Thông báo mùa vụ: Có {readyToHarvestZones.length} khu vườn đã đến kỳ thu hoạch!
+              </strong>
+              <p style={{ margin: 0, fontSize: '0.85rem', color: '#78350F' }}>
                 {readyToHarvestZones
                   .map((z) => {
                     const c = activeCycleByZone.get(z.id)
@@ -179,28 +219,30 @@ export default function OverviewPage() {
                     )})`
                   })
                   .join('; ')}
-                . Hãy ghi nhận sản lượng thực tế và đánh giá mùa vụ. Cảm ơn bạn đã đóng góp!
+                . Hãy ghi nhận sản lượng thực tế và đánh giá mùa vụ.
               </p>
             </div>
+            <Link
+              to={`/zones/${readyToHarvestZones[0].id}`}
+              className="btn btn-sm btn-secondary"
+              style={{
+                borderColor: '#B45309',
+                color: '#92400E',
+                background: '#FFFFFF',
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Đến xem &amp; Phản hồi mùa vụ →
+            </Link>
           </div>
-          <Link
-            to={`/zones/${readyToHarvestZones[0].id}`}
-            className="btn btn-primary"
-            style={{
-              background: '#d97706',
-              borderColor: '#b45309',
-              fontWeight: 700,
-              whiteSpace: 'nowrap',
-              boxShadow: '0 2px 6px rgba(180, 83, 9, 0.25)',
-            }}
-          >
-            🧺 Đến xem &amp; Phản hồi mùa vụ →
-          </Link>
-        </div>
+        </Card>
       )}
 
       {greenhousesQuery.isLoading && (
-        <div className="card muted">Đang tải danh sách nhà kính...</div>
+        <Card>
+          <p className="muted" style={{ margin: 0 }}>Đang tải danh sách nhà kính...</p>
+        </Card>
       )}
 
       {greenhousesQuery.isError && (
@@ -210,227 +252,303 @@ export default function OverviewPage() {
       )}
 
       {!greenhousesQuery.isLoading && greenhouses.length === 0 && (
-        <div className="card" style={{ textAlign: 'center', padding: '2.5rem' }}>
-          <h3>Chưa có nhà kính nào trong farm</h3>
-          <p className="muted">
-            Bấm &quot;Tạo nhà kính mới&quot; để khởi tạo nhà kính đầu tiên cho vườn của bạn với 2 zone mặc định.
+        <Card style={{ textAlign: 'center', padding: '3rem 1.5rem' }}>
+          <h3 style={{ margin: '0 0 0.5rem 0' }}>Chưa có nhà kính nào trong farm</h3>
+          <p className="muted" style={{ margin: 0 }}>
+            Bấm &quot;+ Tạo nhà kính mới&quot; để khởi tạo nhà kính đầu tiên cho vườn của bạn.
           </p>
-        </div>
+        </Card>
       )}
 
+      {/* Grid danh sách Nhà kính theo thiết kế mới (đúng 1200px, hàng kẻ chạy hết bề ngang card) */}
       <div className="grid grid-cols-2">
         {greenhouses.map((gh) => {
-          const rec = recByGh.get(gh.id)
-          const top1 = rec?.details?.ranking?.[0]
-
           return (
-            <div key={gh.id} className="card">
-              <div className="card-header">
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
-                    <Link
-                      to={`/greenhouses/${gh.id}`}
-                      style={{ textDecoration: 'none', color: 'inherit' }}
-                    >
-                      <h3 style={{ margin: 0, cursor: 'pointer' }}>
-                        🏡 {gh.name || 'Nhà kính chưa đặt tên'}
-                      </h3>
-                    </Link>
-                    {gh.is_simulated && <span className="badge info">Mô phỏng</span>}
-                  </div>
-                  <span className="muted" style={{ fontSize: '0.8rem' }}>
-                    📍 {gh.location || 'Chưa cập nhật vị trí'}
-                  </span>
-                </div>
-                <span className={`badge ${gh.online ? 'ok' : 'bad'}`}>
-                  {gh.online ? '● Online' : '○ Offline'}
-                </span>
-              </div>
-
+            <Card
+              key={gh.id}
+              style={{
+                padding: 0,
+                overflow: 'hidden',
+                borderRadius: '10px',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
+              {/* Header card nhà kính: Tên, trạng thái Online/Offline, Vị trí, Số liệu tổng quan & Link Vào nhà kính */}
               <div
                 style={{
-                  display: 'flex',
-                  gap: '1rem',
-                  marginBottom: '1rem',
-                  fontSize: '0.85rem',
-                  flexWrap: 'wrap',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
+                  padding: '20px 24px 16px 24px',
+                  borderBottom: '1px solid var(--border-row, #EEECE5)',
+                  cursor: 'pointer',
                 }}
+                onClick={() => navigate(`/greenhouses/${gh.id}`)}
               >
-                <div style={{ display: 'flex', gap: '1rem' }}>
-                  <div>
-                    <span className="muted">Cảnh báo mở: </span>
-                    <strong style={{ color: gh.open_alerts > 0 ? 'var(--danger)' : 'var(--success)' }}>
-                      {gh.open_alerts}
-                    </strong>
-                  </div>
-                  <div>
-                    <span className="muted">Số vùng: </span>
-                    <strong>{gh.zones.length}</strong>
-                  </div>
-                </div>
-
-                <Link
-                  to={`/greenhouses/${gh.id}`}
-                  style={{
-                    color: 'var(--primary)',
-                    fontWeight: 600,
-                    textDecoration: 'none',
-                    fontSize: '0.84rem',
-                  }}
-                >
-                  Vào nhà kính →
-                </Link>
-              </div>
-
-              {top1 && (
                 <div
                   style={{
-                    background: '#f0fdf4',
-                    border: '1px solid #bbf7d0',
-                    borderRadius: 'var(--radius)',
-                    padding: '0.55rem 0.75rem',
-                    marginBottom: '0.9rem',
-                    fontSize: '0.82rem',
                     display: 'flex',
-                    justifyContent: 'space-between',
                     alignItems: 'center',
+                    justifyContent: 'space-between',
                     gap: '0.5rem',
-                    flexWrap: 'wrap',
+                    marginBottom: '4px',
                   }}
                 >
-                  <span>
-                    🏆 Gợi ý phù hợp nhất (ước tính):{' '}
-                    <strong>{formatCropName(top1.crop_code, top1.crop_name)}</strong>
-                  </span>
-                  <span className="badge ok">
-                    {Math.round(top1.relative_yield * 100)}% (~{top1.expected_kg_m2.toFixed(1)} kg/m²)
-                  </span>
+                  <h3
+                    style={{
+                      margin: 0,
+                      fontSize: '16px',
+                      fontWeight: 700,
+                      color: 'var(--text-main, #1C211E)',
+                      lineHeight: 1.3,
+                    }}
+                  >
+                    {gh.name || 'Nhà kính chưa đặt tên'}
+                  </h3>
+
+                  <StatusDot
+                    status={gh.online ? 'ok' : 'offline'}
+                    label={gh.online ? 'Online' : 'Offline'}
+                  />
                 </div>
-              )}
 
-              <div>
-                <h4
+                <div
                   style={{
-                    fontSize: '0.8rem',
-                    margin: '0 0 0.5rem',
-                    color: 'var(--muted)',
-                    textTransform: 'uppercase',
+                    fontSize: '13px',
+                    color: 'var(--text-muted, #626861)',
+                    marginBottom: '16px',
                   }}
                 >
-                  Các vùng trồng (Zones)
-                </h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {gh.zones.map((z) => {
-                    const profile = z.crop_profile_id ? profilesById.get(z.crop_profile_id) : undefined
-                    const activeCycle = activeCycleByZone.get(z.id)
-                    const cropLabel = activeCycle
-                      ? formatCropName(activeCycle.crop_code, activeCycle.crop_name)
-                      : profile
-                        ? formatCropName(profile.crop_code, profile.crop_name)
-                        : 'Chưa gắn cây'
+                  {gh.location || 'Chưa cập nhật vị trí'}
+                </div>
 
-                    return (
-                      <Link
-                        key={z.id}
-                        to={`/zones/${z.id}`}
-                        className="zone-list-item"
-                      >
-                        <div>
-                          <div style={{ fontWeight: 600 }}>
-                            🌱 {z.name || `Zone ${z.zone_index}`}
-                          </div>
-                          <div className="muted" style={{ fontSize: '0.78rem', marginTop: '0.15rem' }}>
-                            Cây: <strong>{cropLabel}</strong>
-                            {z.area_m2 ? ` • ${z.area_m2} m²` : ''}
-                          </div>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          {activeCycle ? (
-                            <span className="badge ok">
-                              Đang trồng – Ngày thứ {cycleDayNumber(activeCycle.started_at)}
-                            </span>
-                          ) : (
-                            <span className="badge muted">Chưa có vụ</span>
-                          )}
-                          <span style={{ color: 'var(--primary)', fontWeight: 600, fontSize: '0.85rem' }}>
-                            Chi tiết →
-                          </span>
-                        </div>
-                      </Link>
-                    )
-                  })}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    fontSize: '13px',
+                  }}
+                >
+                  <span style={{ color: 'var(--text-muted, #626861)' }}>
+                    {gh.open_alerts} cảnh báo · {gh.zones.length} vùng trồng
+                  </span>
+
+                  <Link
+                    to={`/greenhouses/${gh.id}`}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      color: 'var(--accent, #1E6B47)',
+                      fontWeight: 500,
+                      textDecoration: 'none',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    <span>Vào nhà kính</span>
+                    <span style={{ fontSize: '14px' }}>→</span>
+                  </Link>
                 </div>
               </div>
-            </div>
+
+              {/* Danh sách các Zone trong Nhà kính - đường kẻ chạy hết bề ngang card */}
+              <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+                {gh.zones.map((z, idx) => {
+                  const profile = z.crop_profile_id ? profilesById.get(z.crop_profile_id) : undefined
+                  const activeCycle = activeCycleByZone.get(z.id)
+                  const cropLabel = activeCycle
+                    ? formatCropName(activeCycle.crop_code, activeCycle.crop_name)
+                    : profile
+                      ? formatCropName(profile.crop_code, profile.crop_name)
+                      : 'Chưa gắn cây'
+
+                  const reading = readingByZone.get(z.id)
+                  const hasReading =
+                    reading &&
+                    (reading.air_temp != null || reading.air_rh != null || reading.soil_moisture != null)
+
+                  const isLast = idx === gh.zones.length - 1
+
+                  return (
+                    <div
+                      key={z.id}
+                      onClick={() => navigate(`/zones/${z.id}`)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '14px 24px',
+                        borderBottom: isLast ? 'none' : '1px solid var(--border-row, #EEECE5)',
+                        cursor: 'pointer',
+                        gap: '0.75rem',
+                        flexWrap: 'wrap',
+                        transition: 'background-color 0.1s ease',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#FAFAF8'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'transparent'
+                      }}
+                    >
+                      {/* Cột 1: Tên Zone & Cây trồng */}
+                      <div style={{ minWidth: '120px', flex: '1 1 auto' }}>
+                        <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-main, #1C211E)' }}>
+                          {z.name || `Zone ${z.zone_index}`}
+                        </div>
+                        <div style={{ fontSize: '13px', color: 'var(--text-muted, #626861)', marginTop: '2px' }}>
+                          {cropLabel}
+                          {z.area_m2 ? ` · ${z.area_m2} m²` : ''}
+                        </div>
+                      </div>
+
+                      {/* Cột 2: Số liệu cảm biến */}
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '1.25rem',
+                          fontVariantNumeric: 'tabular-nums',
+                          justifyContent: 'center',
+                          flex: '1 1 auto',
+                        }}
+                      >
+                        {hasReading ? (
+                          <>
+                            <div style={{ textAlign: 'center' }}>
+                              <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-main)' }}>
+                                {fmtTemp(reading.air_temp) ?? '—'}
+                              </div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Nhiệt độ</div>
+                            </div>
+                            <div style={{ textAlign: 'center' }}>
+                              <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-main)' }}>
+                                {fmtRh(reading.air_rh) ?? '—'}
+                              </div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Ẩm KK</div>
+                            </div>
+                            <div style={{ textAlign: 'center' }}>
+                              <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-main)' }}>
+                                {fmtSoil(reading.soil_moisture) ?? '—'}
+                              </div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Ẩm đất</div>
+                            </div>
+                          </>
+                        ) : (
+                          <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                            Không có dữ liệu cảm biến
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Cột 3: Trạng thái mùa vụ & Chevron */}
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.65rem',
+                          justifyContent: 'flex-end',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {activeCycle ? (
+                          <StatusDot
+                            status="ok"
+                            label={`Ngày thứ ${cycleDayNumber(activeCycle.started_at)}`}
+                          />
+                        ) : (
+                          <StatusDot
+                            status="unallocated"
+                            label="Chưa có vụ"
+                          />
+                        )}
+                        <span
+                          style={{
+                            color: 'var(--text-muted, #626861)',
+                            fontSize: '15px',
+                            fontWeight: 400,
+                            lineHeight: 1,
+                          }}
+                        >
+                          ›
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </Card>
           )
         })}
       </div>
 
+      {/* Modal Tạo nhà kính mới */}
       {showCreateModal && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true">
-          <div className="modal-card">
+        <div className="modal-backdrop" onClick={() => setShowCreateModal(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="card-header">
-              <h3>➕ Tạo nhà kính mới</h3>
+              <h3 style={{ margin: 0 }}>Tạo nhà kính mới</h3>
               <button
                 type="button"
                 className="btn btn-sm btn-secondary"
                 onClick={() => setShowCreateModal(false)}
+                style={{ padding: '0.1rem 0.5rem' }}
               >
                 ✕
               </button>
             </div>
 
             {createError && (
-              <div className="alert-banner bad" style={{ marginBottom: '0.85rem' }}>
+              <div className="alert-banner bad" style={{ marginBottom: '1rem' }}>
                 {createError}
               </div>
             )}
 
             <form onSubmit={handleCreateSubmit}>
-              <div className="form-group">
-                <label htmlFor="gh-name">Tên nhà kính *</label>
-                <input
-                  id="gh-name"
-                  type="text"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="VD: Nhà kính Đà Lạt 01"
-                  required
-                />
-              </div>
+              <Field
+                label="Tên nhà kính *"
+                type="text"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="Ví dụ: Nhà kính A1 – Đà Lạt"
+                required
+                autoFocus
+              />
 
-              <div className="form-group">
-                <label htmlFor="gh-location">Vị trí / Khu vực</label>
-                <input
-                  id="gh-location"
-                  type="text"
-                  value={newLocation}
-                  onChange={(e) => setNewLocation(e.target.value)}
-                  placeholder="VD: Khu A – Lâm Đồng"
-                />
-              </div>
+              <Field
+                label="Vị trí / Địa chỉ"
+                type="text"
+                value={newLocation}
+                onChange={(e) => setNewLocation(e.target.value)}
+                placeholder="Ví dụ: Phường 7, TP. Đà Lạt"
+              />
 
-              <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
-                Hệ thống sẽ tự tạo sẵn 2 Zone mặc định (Zone 1 – Cà chua bi, Zone 2 – Dâu tây). Sau đó bạn vào trang Thiết bị để cấp phát Gateway.
-              </p>
+              <SelectField
+                label="Số vùng trồng (Zone) khởi tạo ban đầu"
+                value={newZonesCount}
+                onChange={(e) => setNewZonesCount(Number(e.target.value))}
+                hint="Bạn có thể thêm hoặc bớt zone bất cứ lúc nào trong bảng cấu hình nhà kính."
+              >
+                <option value={1}>1 zone</option>
+                <option value={2}>2 zone</option>
+                <option value={3}>3 zone</option>
+                <option value={4}>4 zone</option>
+              </SelectField>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                <button
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.65rem', marginTop: '1.25rem' }}>
+                <Button
                   type="button"
-                  className="btn btn-secondary"
+                  variant="secondary"
                   onClick={() => setShowCreateModal(false)}
                 >
-                  Huỷ
-                </button>
-                <button
+                  Hủy
+                </Button>
+                <Button
                   type="submit"
-                  className="btn btn-primary"
-                  disabled={createGhMutation.isPending}
+                  variant="primary"
+                  disabled={createGhMutation.isPending || !newName.trim()}
                 >
                   {createGhMutation.isPending ? 'Đang tạo...' : 'Tạo nhà kính'}
-                </button>
+                </Button>
               </div>
             </form>
           </div>

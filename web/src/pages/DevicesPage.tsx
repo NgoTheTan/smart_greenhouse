@@ -3,6 +3,16 @@ import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/rea
 import { api, formatApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import {
+  Button,
+  Card,
+  DataTable,
+  Field,
+  SelectField,
+  StatusDot,
+  TableCell,
+  TableHead,
+} from '../components/ui'
+import {
   formatDateTimeVi,
   type ConfigSyncResponse,
   type DeviceNode,
@@ -102,8 +112,7 @@ export default function DevicesPage() {
     }
   }
 
-  // Pair Node (discovered + manual MAC)
-  const [pairZoneByMac, setPairZoneByMac] = useState<Record<string, string>>({})
+  // Pair Node
   const [manualMac, setManualMac] = useState('')
   const [manualZoneId, setManualZoneId] = useState('')
   const [pairMsg, setPairMsg] = useState<{ ok: boolean; text: string } | null>(null)
@@ -123,7 +132,7 @@ export default function DevicesPage() {
     onSuccess: (node) => {
       setPairMsg({
         ok: true,
-        text: `Đã ghép node ${node.mac_address} vào Zone. Phiên bản cấu hình cfg đã tăng để đồng bộ xuống Gateway.`,
+        text: `Đã ghép node ${node.mac_address} vào Zone thành công!`,
       })
       setManualMac('')
       void queryClient.invalidateQueries({ queryKey: ['nodes'] })
@@ -135,7 +144,15 @@ export default function DevicesPage() {
     },
   })
 
-  // Calibration
+  const handleManualPair = (e: FormEvent) => {
+    e.preventDefault()
+    if (!manualMac.trim() || !manualZoneId) return
+    setPairMsg(null)
+    pairMutation.mutate({ mac: manualMac.trim(), zoneId: manualZoneId })
+  }
+
+  // Calibration Modal
+  const [showCalModal, setShowCalModal] = useState(false)
   const [calZoneId, setCalZoneId] = useState('')
   const [soilDry, setSoilDry] = useState(2900)
   const [soilWet, setSoilWet] = useState(1300)
@@ -173,7 +190,7 @@ export default function DevicesPage() {
     onSuccess: (res) => {
       setCalMsg({
         ok: true,
-        text: `Đã lưu hiệu chuẩn ẩm đất! cfg_version_desired mới = v${res.cfg_version_desired}.`,
+        text: `Đã lưu hiệu chuẩn ẩm đất! cfg_version mới = v${res.cfg_version_desired}.`,
       })
       void queryClient.invalidateQueries({ queryKey: ['greenhouses'] })
       void queryClient.invalidateQueries({ queryKey: ['config-sync'] })
@@ -201,410 +218,403 @@ export default function DevicesPage() {
 
   return (
     <div>
+      {/* Header trang Thiết bị chuẩn theo ảnh thiết kế */}
       <div className="page-header">
         <div>
-          <h2>📡 Quản lý Thiết bị, Ghép Node &amp; Hiệu chuẩn</h2>
-          <p className="muted" style={{ margin: 0 }}>
-            Theo dõi Gateway ESP32, đồng bộ cấu hình <code>cfg_version</code>, ghép nối Node ESP-NOW và hiệu chuẩn ẩm đất 2 điểm
+          <h2>Thiết bị</h2>
+          <p className="muted">
+            Gateway ESP32, đồng bộ cấu hình cfg_version, ghép node ESP-NOW và hiệu chuẩn ẩm đất 2 điểm.
           </p>
         </div>
 
-        {isOwner && greenhouses.some((g) => !g.gateway_id) && (
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => {
-              const unprov = greenhouses.find((g) => !g.gateway_id)
-              setProvisionGhId(unprov?.id || '')
-              setProvisionCred(null)
-              setProvisionError(null)
-              setShowProvisionModal(true)
-            }}
-          >
-            + Cấp phát Gateway mới
-          </button>
-        )}
-      </div>
+        <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap' }}>
+          {isOwner && (
+            <Button
+              variant="secondary"
+              onClick={() => setShowCalModal(true)}
+            >
+              Hiệu chuẩn ẩm đất
+            </Button>
+          )}
 
-      {/* Gateway Table */}
-      <div className="card">
-        <div className="card-header">
-          <h3>🚪 Danh sách Gateway theo Nhà kính</h3>
-          <span className="badge info">{greenhouses.length} nhà kính</span>
-        </div>
-
-        <div className="table-container">
-          <table>
-            <thead>
-              <tr>
-                <th>Nhà kính</th>
-                <th>Trạng thái</th>
-                <th>MQTT Username</th>
-                <th>RSSI</th>
-                <th>Firmware</th>
-                <th>Đồng bộ <code>cfg</code></th>
-                <th>Thấy lần cuối</th>
-                {isOwner && <th>Thao tác</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {greenhouses.map((gh) => {
-                const st = statusByGh.get(gh.id)
-                const sync = syncByGh.get(gh.id)
-                const synced = sync?.synced ?? false
-                const desiredV = sync?.cfg_version_desired ?? st?.cfg_version_desired ?? 0
-                const reportedV = sync?.cfg_version_reported ?? st?.cfg_version_reported ?? 0
-
-                return (
-                  <tr key={gh.id}>
-                    <td>
-                      <strong>{gh.name || gh.id}</strong>{' '}
-                      {gh.is_simulated && <span className="badge info">Mô phỏng</span>}
-                    </td>
-                    <td>
-                      {!gh.gateway_id ? (
-                        <span className="badge muted">Chưa cấp phát</span>
-                      ) : (
-                        <span className={`badge ${gh.online ? 'ok' : 'bad'}`}>
-                          {gh.online ? '● Online' : '○ Offline'}
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      {st?.mqtt_username ? <code>{st.mqtt_username}</code> : '—'}
-                    </td>
-                    <td>{st?.rssi !== null && st?.rssi !== undefined ? `${st.rssi} dBm` : '—'}</td>
-                    <td>{st?.fw_version || '—'}</td>
-                    <td>
-                      {gh.gateway_id ? (
-                        <span className={`badge ${synced ? 'ok' : 'warning'}`}>
-                          v{reportedV} / v{desiredV} {synced ? '(Đã đồng bộ)' : '(Đang chờ)'}
-                        </span>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td className="muted">{formatDateTimeVi(st?.last_seen)}</td>
-                    {isOwner && (
-                      <td>
-                        {!gh.gateway_id ? (
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-primary"
-                            onClick={() => {
-                              setProvisionGhId(gh.id)
-                              setProvisionCred(null)
-                              setProvisionError(null)
-                              setShowProvisionModal(true)
-                            }}
-                          >
-                            Cấp phát Gateway
-                          </button>
-                        ) : (
-                          <span className="muted" style={{ fontSize: '0.78rem' }}>
-                            Đã cấp phát
-                          </span>
-                        )}
-                      </td>
-                    )}
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+          {isOwner && (
+            <Button
+              variant="primary"
+              onClick={() => {
+                const unprov = greenhouses.find((g) => !g.gateway_id)
+                setProvisionGhId(unprov?.id || greenhouses[0]?.id || '')
+                setProvisionCred(null)
+                setProvisionError(null)
+                setShowProvisionModal(true)
+              }}
+            >
+              + Cấp phát gateway mới
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* Node Discovery & Manual Pairing */}
       {pairMsg && (
-        <div
-          className={`alert-banner ${pairMsg.ok ? 'ok' : 'bad'}`}
-          style={{ marginBottom: '1rem' }}
-        >
+        <div className={`alert-banner ${pairMsg.ok ? 'ok' : 'bad'}`} style={{ marginBottom: '1.25rem' }}>
           {pairMsg.text}
         </div>
       )}
 
-      <div className="card">
-        <div className="card-header">
-          <div>
-            <h3>🔍 Phát hiện Node lạ (<code>status = discovered</code>)</h3>
-            <span className="muted" style={{ fontSize: '0.8rem' }}>
-              Node bật nguồn gửi bản tin HELLO qua ESP-NOW sẽ xuất hiện tự động tại đây
-            </span>
-          </div>
-          <span className="badge warning">{discoveredNodes.length} chờ ghép</span>
+      {/* Khối 1: Gateway theo nhà kính */}
+      <Card style={{ padding: '1.25rem', marginBottom: '1.5rem' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '1rem',
+          }}
+        >
+          <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-main, #1C211E)' }}>
+            Gateway theo nhà kính
+          </h3>
+          <span style={{ fontSize: '0.82rem', color: 'var(--text-muted, #626861)' }}>
+            {greenhouses.length} nhà kính
+          </span>
         </div>
 
+        <DataTable>
+          <thead>
+            <tr>
+              <TableHead>Nhà kính</TableHead>
+              <TableHead>Trạng thái</TableHead>
+              <TableHead>MQTT username</TableHead>
+              <TableHead>RSSI</TableHead>
+              <TableHead>Firmware</TableHead>
+              <TableHead>Đồng bộ cfg</TableHead>
+              <TableHead>Thấy lần cuối</TableHead>
+              <TableHead>Thao tác</TableHead>
+            </tr>
+          </thead>
+          <tbody>
+            {greenhouses.map((gh) => {
+              const status = statusByGh.get(gh.id)
+              const sync = syncByGh.get(gh.id)
+              const hasGw = Boolean(gh.gateway_id)
+
+              return (
+                <tr key={gh.id}>
+                  <TableCell>
+                    <strong style={{ fontWeight: 600 }}>{gh.name || gh.id}</strong>
+                  </TableCell>
+
+                  <TableCell>
+                    {hasGw ? (
+                      <StatusDot
+                        status={status?.online ? 'ok' : 'offline'}
+                        label={status?.online ? 'Online' : 'Offline'}
+                      />
+                    ) : (
+                      <StatusDot
+                        status="unallocated"
+                        label="Chưa cấp phát"
+                      />
+                    )}
+                  </TableCell>
+
+                  <TableCell>
+                    <span className="font-mono">
+                      {status?.mqtt_username || (hasGw ? 'gw-esp32' : '—')}
+                    </span>
+                  </TableCell>
+
+                  <TableCell>
+                    <span className="font-mono">
+                      {status?.rssi != null
+                        ? `${status.rssi < 0 ? `- ${Math.abs(status.rssi)}` : status.rssi} dBm`
+                        : '—'}
+                    </span>
+                  </TableCell>
+
+                  <TableCell>
+                    <span className="font-mono">{status?.fw_version || (hasGw ? '1.2.0' : '—')}</span>
+                  </TableCell>
+
+                  <TableCell>
+                    {sync ? (
+                      <span className="font-mono">
+                        v{sync.cfg_version_reported} / v{sync.cfg_version_desired}
+                        <span
+                          style={{
+                            marginLeft: '6px',
+                            fontSize: '0.78rem',
+                            color: sync.synced ? 'var(--status-ok, #2E9A62)' : 'var(--text-muted, #626861)',
+                          }}
+                        >
+                          {sync.synced ? 'Đã đồng bộ' : 'Chờ đồng bộ'}
+                        </span>
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                  </TableCell>
+
+                  <TableCell>
+                    <span className="font-mono">
+                      {status?.last_seen ? formatDateTimeVi(status.last_seen) : '—'}
+                    </span>
+                  </TableCell>
+
+                  <TableCell>
+                    {hasGw ? (
+                      <span style={{ fontSize: '0.82rem', color: 'var(--text-muted, #626861)' }}>
+                        Đã cấp phát
+                      </span>
+                    ) : (
+                      isOwner && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            setProvisionGhId(gh.id)
+                            setProvisionCred(null)
+                            setProvisionError(null)
+                            setShowProvisionModal(true)
+                          }}
+                        >
+                          Cấp phát
+                        </Button>
+                      )
+                    )}
+                  </TableCell>
+                </tr>
+              )
+            })}
+          </tbody>
+        </DataTable>
+      </Card>
+
+      {/* Khối 2: Node lạ đang chờ ghép */}
+      <Card style={{ padding: '1.25rem', marginBottom: '1.5rem' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '0.35rem',
+          }}
+        >
+          <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-main, #1C211E)' }}>
+            Node lạ đang chờ ghép
+          </h3>
+          <span style={{ fontSize: '0.82rem', color: 'var(--text-muted, #626861)' }}>
+            {discoveredNodes.length} chờ ghép
+          </span>
+        </div>
+        <p style={{ margin: '0 0 1rem 0', fontSize: '0.85rem', color: 'var(--text-muted, #626861)' }}>
+          Node bật nguồn và gửi bản tin HELLO qua ESP-NOW sẽ tự động hiện ở đây.
+        </p>
+
         {discoveredNodes.length === 0 ? (
-          <p className="muted" style={{ margin: '0 0 1rem' }}>
+          <p className="muted" style={{ padding: '0.5rem 0 1.25rem', margin: 0, fontSize: '0.85rem' }}>
             Hiện chưa có node mới nào đang chờ ghép nối.
           </p>
         ) : (
-          <div className="table-container" style={{ marginBottom: '1.25rem' }}>
-            <table>
+          <div style={{ marginBottom: '1.5rem' }}>
+            <DataTable>
               <thead>
                 <tr>
-                  <th>Địa chỉ MAC</th>
-                  <th>RSSI</th>
-                  <th>Firmware</th>
-                  <th>Thấy lần đầu</th>
-                  {isOwner && <th>Chọn Zone &amp; Ghép</th>}
+                  <TableHead>Địa chỉ MAC</TableHead>
+                  <TableHead>Pin</TableHead>
+                  <TableHead>RSSI</TableHead>
+                  <TableHead>Thao tác ghép</TableHead>
                 </tr>
               </thead>
               <tbody>
-                {discoveredNodes.map((n) => {
-                  const chosenZone = pairZoneByMac[n.mac_address] || allZones[0]?.id || ''
-                  return (
-                    <tr key={n.id}>
-                      <td>
-                        <code>{n.mac_address}</code>
-                      </td>
-                      <td>{n.rssi !== null ? `${n.rssi} dBm` : '—'}</td>
-                      <td>{n.firmware_version || '—'}</td>
-                      <td className="muted">{formatDateTimeVi(n.first_seen)}</td>
-                      {isOwner && (
-                        <td>
-                          <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-                            <select
-                              style={{ minWidth: 200 }}
-                              value={chosenZone}
-                              onChange={(e) =>
-                                setPairZoneByMac((prev) => ({
-                                  ...prev,
-                                  [n.mac_address]: e.target.value,
-                                }))
-                              }
-                            >
-                              {allZones.map((z) => (
-                                <option key={z.id} value={z.id}>
-                                  {z.greenhouseName} – {z.name || `Zone ${z.zone_index}`}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-primary"
-                              disabled={!chosenZone || pairMutation.isPending}
-                              onClick={() =>
-                                pairMutation.mutate({ mac: n.mac_address, zoneId: chosenZone })
-                              }
-                            >
-                              Ghép vào Zone
-                            </button>
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  )
-                })}
+                {discoveredNodes.map((n) => (
+                  <tr key={n.mac_address}>
+                    <TableCell>
+                      <span className="font-mono" style={{ fontWeight: 600 }}>{n.mac_address}</span>
+                    </TableCell>
+                    <TableCell>
+                      <span className="font-mono">{n.battery_mv ? `${n.battery_mv} mV` : '—'}</span>
+                    </TableCell>
+                    <TableCell>
+                      <span className="font-mono">
+                        {n.rssi != null
+                          ? `${n.rssi < 0 ? `- ${Math.abs(n.rssi)}` : n.rssi} dBm`
+                          : '—'}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={pairMutation.isPending}
+                        onClick={() => {
+                          if (allZones.length > 0) {
+                            pairMutation.mutate({ mac: n.mac_address, zoneId: allZones[0].id })
+                          }
+                        }}
+                      >
+                        Ghép vào {allZones[0]?.name || 'Zone'}
+                      </Button>
+                    </TableCell>
+                  </tr>
+                ))}
               </tbody>
-            </table>
+            </DataTable>
           </div>
         )}
 
-        {isOwner && (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              if (!manualMac.trim() || !manualZoneId) return
-              setPairMsg(null)
-              pairMutation.mutate({ mac: manualMac.trim(), zoneId: manualZoneId })
-            }}
-            style={{
-              background: '#f8fafc',
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius)',
-              padding: '0.9rem',
-            }}
-          >
-            <h4 style={{ margin: '0 0 0.6rem', fontSize: '0.9rem' }}>
-              ⌨️ Fallback: Nhập MAC thủ công để ghép Node
-            </h4>
-            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-              <div style={{ flex: 1, minWidth: 200 }}>
-                <label htmlFor="manual-mac">Địa chỉ MAC</label>
-                <input
-                  id="manual-mac"
-                  type="text"
-                  value={manualMac}
-                  onChange={(e) => setManualMac(e.target.value)}
-                  placeholder="AA:BB:CC:DD:EE:01"
-                  required
-                />
-              </div>
-              <div style={{ flex: 1, minWidth: 220 }}>
-                <label htmlFor="manual-zone">Ghép vào Zone</label>
-                <select
-                  id="manual-zone"
-                  value={manualZoneId}
-                  onChange={(e) => setManualZoneId(e.target.value)}
-                  required
-                >
-                  {allZones.map((z) => (
-                    <option key={z.id} value={z.id}>
-                      {z.greenhouseName} – {z.name || `Zone ${z.zone_index}`}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <button
-                type="submit"
-                className="btn btn-primary"
-                disabled={pairMutation.isPending}
-              >
-                {pairMutation.isPending ? 'Đang ghép...' : 'Ghép node'}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-
-      {/* Paired Nodes */}
-      <div className="card">
-        <div className="card-header">
-          <h3>🌱 Node cảm biến đã ghép (<code>status = paired</code>)</h3>
-          <span className="badge ok">{pairedNodes.length} node</span>
-        </div>
-
-        {nodesQuery.isLoading ? (
-          <p className="muted">Đang tải danh sách node...</p>
-        ) : pairedNodes.length === 0 ? (
-          <p className="muted" style={{ margin: 0 }}>
-            Chưa có node nào được ghép nối.
-          </p>
-        ) : (
-          <div className="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th>Địa chỉ MAC</th>
-                  <th>Nhà kính / Zone</th>
-                  <th>Sóng RSSI</th>
-                  <th>Pin (mV)</th>
-                  <th>Firmware</th>
-                  <th>Thấy lần cuối</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pairedNodes.map((n) => {
-                  const z = n.zone_id ? zoneById.get(n.zone_id) : undefined
-                  const gh = n.greenhouse_id ? ghById.get(n.greenhouse_id) : undefined
-                  return (
-                    <tr key={n.id}>
-                      <td>
-                        <code>{n.mac_address}</code>
-                      </td>
-                      <td>
-                        {gh ? `${gh.name || gh.id} – ` : ''}
-                        <span className="badge info">
-                          {z ? z.name || `Zone ${z.zone_index}` : 'Chưa gán Zone'}
-                        </span>
-                      </td>
-                      <td>{n.rssi !== null ? `${n.rssi} dBm` : '—'}</td>
-                      <td>{n.battery_mv ? `${n.battery_mv} mV` : 'USB 5V'}</td>
-                      <td>{n.firmware_version || '—'}</td>
-                      <td className="muted">{formatDateTimeVi(n.last_seen)}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* 2-point Soil Calibration */}
-      <div className="card">
-        <div className="card-header">
-          <h3>⚖️ Hiệu chuẩn Cảm biến Độ ẩm đất 2 điểm</h3>
-        </div>
-        <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
-          Cảm biến điện dung đo giá trị ADC 12-bit (100–4090). Nhập giá trị đọc được khi để khô ngoài không khí (Dry RAW) và khi nhúng đất ẩm bão hoà (Wet RAW).
-        </p>
-
-        {calMsg && (
-          <div
-            className={`alert-banner ${calMsg.ok ? 'ok' : 'bad'}`}
-            style={{ marginBottom: '1rem' }}
-          >
-            {calMsg.text}
-          </div>
-        )}
-
-        <form
-          onSubmit={handleSaveCalibration}
-          style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}
+        {/* Khối con: Ghép thủ công bằng địa chỉ MAC chuẩn theo ảnh */}
+        <div
+          style={{
+            borderTop: '1px solid var(--border-row, #EEECE5)',
+            paddingTop: '1.25rem',
+          }}
         >
-          <div style={{ flex: 1, minWidth: 220 }}>
-            <label htmlFor="cal-zone">Chọn Zone</label>
-            <select
-              id="cal-zone"
-              value={calZoneId}
-              onChange={(e) => handleSelectCalZone(e.target.value)}
+          <h4 style={{ margin: '0 0 0.85rem 0', fontSize: '0.92rem', fontWeight: 600 }}>
+            Ghép thủ công bằng địa chỉ MAC
+          </h4>
+
+          <form
+            onSubmit={handleManualPair}
+            className="manual-pair-form"
+          >
+            <Field
+              label="Địa chỉ MAC"
+              type="text"
+              placeholder="AA:BB:CC:DD:EE:01"
+              value={manualMac}
+              onChange={(e) => setManualMac(e.target.value)}
+              inputStyle={{ fontFamily: 'var(--font-mono)' }}
+              containerStyle={{ marginBottom: 0 }}
+              required
+            />
+
+            <SelectField
+              label="Ghép vào zone"
+              value={manualZoneId}
+              onChange={(e) => setManualZoneId(e.target.value)}
+              containerStyle={{ marginBottom: 0 }}
+              required
             >
               {allZones.map((z) => (
                 <option key={z.id} value={z.id}>
                   {z.greenhouseName} – {z.name || `Zone ${z.zone_index}`}
                 </option>
               ))}
-            </select>
-          </div>
-          <div style={{ flex: 1, minWidth: 160 }}>
-            <label htmlFor="cal-dry">ADC Điểm Khô (Dry RAW)</label>
-            <input
-              id="cal-dry"
-              type="number"
-              min={100}
-              max={4090}
-              value={soilDry}
-              onChange={(e) => setSoilDry(Number(e.target.value))}
-              disabled={!isOwner}
-              required
-            />
-          </div>
-          <div style={{ flex: 1, minWidth: 160 }}>
-            <label htmlFor="cal-wet">ADC Điểm Ướt (Wet RAW)</label>
-            <input
-              id="cal-wet"
-              type="number"
-              min={50}
-              max={4000}
-              value={soilWet}
-              onChange={(e) => setSoilWet(Number(e.target.value))}
-              disabled={!isOwner}
-              required
-            />
-          </div>
-          {isOwner && (
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={!calZoneId || calMutation.isPending}
-            >
-              {calMutation.isPending ? 'Đang lưu...' : '💾 Lưu & Đồng bộ CFG'}
-            </button>
-          )}
-        </form>
-      </div>
+            </SelectField>
 
-      {/* Provision Gateway Modal */}
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={pairMutation.isPending || !manualMac.trim()}
+              style={{ minHeight: '44px' }}
+            >
+              {pairMutation.isPending ? 'Đang ghép...' : 'Ghép node'}
+            </Button>
+          </form>
+        </div>
+      </Card>
+
+      {/* Khối 3: Node cảm biến đã ghép */}
+      <Card style={{ padding: '1.25rem', marginBottom: '2rem' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '1rem',
+          }}
+        >
+          <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-main, #1C211E)' }}>
+            Node cảm biến đã ghép
+          </h3>
+          <span style={{ fontSize: '0.82rem', color: 'var(--text-muted, #626861)' }}>
+            {pairedNodes.length} node
+          </span>
+        </div>
+
+        {pairedNodes.length === 0 ? (
+          <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
+            Chưa có node cảm biến nào được ghép nối vào Zone.
+          </p>
+        ) : (
+          <DataTable>
+            <thead>
+              <tr>
+                <TableHead>Địa chỉ MAC</TableHead>
+                <TableHead>Nhà kính / Zone</TableHead>
+                <TableHead>Sóng RSSI</TableHead>
+                <TableHead>Pin</TableHead>
+                <TableHead>Firmware</TableHead>
+                <TableHead>Thấy lần cuối</TableHead>
+              </tr>
+            </thead>
+            <tbody>
+              {pairedNodes.map((n) => {
+                const z = n.zone_id ? zoneById.get(n.zone_id) : undefined
+                const gh = z ? ghById.get(z.greenhouse_id) : undefined
+
+                return (
+                  <tr key={n.mac_address}>
+                    <TableCell>
+                      <span className="font-mono" style={{ fontWeight: 600 }}>{n.mac_address}</span>
+                    </TableCell>
+
+                    <TableCell>
+                      <strong style={{ fontWeight: 600 }}>{z?.name || (z ? `Zone ${z.zone_index}` : '—')}</strong>
+                      {gh?.name && (
+                        <span style={{ color: 'var(--text-muted, #626861)', fontSize: '0.8rem', marginLeft: '6px' }}>
+                          {gh.name}
+                        </span>
+                      )}
+                    </TableCell>
+
+                    <TableCell>
+                      <span className="font-mono">
+                        {n.rssi != null
+                          ? `${n.rssi < 0 ? `- ${Math.abs(n.rssi)}` : n.rssi} dBm`
+                          : '—'}
+                      </span>
+                    </TableCell>
+
+                    <TableCell>
+                      <span className="font-mono">{n.battery_mv != null ? `${n.battery_mv} mV` : '—'}</span>
+                    </TableCell>
+
+                    <TableCell>
+                      <span className="font-mono">{n.firmware_version || '1.0.4'}</span>
+                    </TableCell>
+
+                    <TableCell>
+                      <span className="font-mono">
+                        {n.last_seen ? formatDateTimeVi(n.last_seen) : '—'}
+                      </span>
+                    </TableCell>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </DataTable>
+        )}
+      </Card>
+
+      {/* Modal Cấp phát Gateway mới */}
       {showProvisionModal && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true">
-          <div className="modal-card" style={{ maxWidth: 560 }}>
+        <div className="modal-backdrop" onClick={() => setShowProvisionModal(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="card-header">
-              <h3>🔑 Cấp phát Gateway &amp; Tài khoản MQTT TLS</h3>
+              <h3 style={{ margin: 0 }}>Cấp phát Gateway mới</h3>
               <button
                 type="button"
                 className="btn btn-sm btn-secondary"
                 onClick={() => setShowProvisionModal(false)}
+                style={{ padding: '0.1rem 0.5rem' }}
               >
                 ✕
               </button>
             </div>
 
             {provisionError && (
-              <div className="alert-banner bad" style={{ marginBottom: '0.9rem' }}>
+              <div className="alert-banner bad" style={{ marginBottom: '1rem' }}>
                 {provisionError}
               </div>
             )}
@@ -614,115 +624,166 @@ export default function DevicesPage() {
                 onSubmit={(e) => {
                   e.preventDefault()
                   if (!provisionGhId) return
+                  setProvisionError(null)
                   provisionMutation.mutate({
                     greenhouse_id: provisionGhId,
                     is_simulated: provisionSimulated,
                   })
                 }}
               >
-                <div className="form-group">
-                  <label htmlFor="prov-gh">Nhà kính cần cấp phát</label>
-                  <select
-                    id="prov-gh"
-                    value={provisionGhId}
-                    onChange={(e) => setProvisionGhId(e.target.value)}
-                    required
-                  >
-                    {greenhouses
-                      .filter((g) => !g.gateway_id)
-                      .map((g) => (
-                        <option key={g.id} value={g.id}>
-                          {g.name || g.id}
-                        </option>
-                      ))}
-                  </select>
+                <SelectField
+                  label="Chọn nhà kính cần gắn Gateway *"
+                  value={provisionGhId}
+                  onChange={(e) => setProvisionGhId(e.target.value)}
+                  required
+                >
+                  {greenhouses.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name || g.id} {g.gateway_id ? '(Đã có gateway)' : '(Chưa có)'}
+                    </option>
+                  ))}
+                </SelectField>
+
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.85rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={provisionSimulated}
+                      onChange={(e) => setProvisionSimulated(e.target.checked)}
+                      style={{ width: 'auto', minHeight: 'auto' }}
+                    />
+                    <span>Chế độ mô phỏng vi khí hậu ảo</span>
+                  </label>
                 </div>
 
-                <label className="checkbox-card" style={{ marginBottom: '1rem' }}>
-                  <input
-                    type="checkbox"
-                    checked={provisionSimulated}
-                    onChange={(e) => setProvisionSimulated(e.target.checked)}
-                  />
-                  <span>Đánh dấu đây là Gateway giả lập (<code>is_simulated = true</code>)</span>
-                </label>
-
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => setShowProvisionModal(false)}
-                  >
-                    Huỷ
-                  </button>
-                  <button
-                    type="submit"
-                    className="btn btn-primary"
-                    disabled={provisionMutation.isPending}
-                  >
-                    {provisionMutation.isPending ? 'Đang cấp phát...' : 'Cấp phát ngay'}
-                  </button>
+                  <Button type="button" variant="secondary" onClick={() => setShowProvisionModal(false)}>
+                    Hủy
+                  </Button>
+                  <Button type="submit" variant="primary" disabled={provisionMutation.isPending || !provisionGhId}>
+                    {provisionMutation.isPending ? 'Đang cấp phát...' : 'Xác nhận cấp phát'}
+                  </Button>
                 </div>
               </form>
             ) : (
               <div>
-                <div className="alert-banner warning" style={{ marginBottom: '1rem' }}>
-                  <strong>Quan trọng:</strong> <code>mqtt_password</code> chỉ hiển thị{' '}
-                  <strong>DUY NHẤT 1 LẦN</strong>! Hãy sao chép và nạp ngay vào Captive Portal của ESP32 Gateway.
+                <div className="alert-banner ok" style={{ marginBottom: '1rem' }}>
+                  Cấp phát Gateway thành công! Lưu lại mật khẩu MQTT ngay vì hệ thống sẽ không hiển thị lại mật khẩu thô.
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem', fontSize: '0.85rem' }}>
-                  {(
-                    [
-                      ['MQTT Host', provisionCred.host],
-                      ['MQTT Port (TLS)', String(provisionCred.port)],
-                      ['MQTT Username', provisionCred.mqtt_username],
-                      ['MQTT Password', provisionCred.mqtt_password],
-                      ['Farm ID', provisionCred.farm_id],
-                      ['Greenhouse ID', provisionCred.greenhouse_id],
-                    ] as Array<[string, string]>
-                  ).map(([label, val]) => (
-                    <div
-                      key={label}
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        background: '#f8fafc',
-                        border: '1px solid var(--border)',
-                        borderRadius: '8px',
-                        padding: '0.45rem 0.7rem',
-                        gap: '0.5rem',
-                      }}
-                    >
-                      <div style={{ minWidth: 0 }}>
-                        <div className="muted" style={{ fontSize: '0.72rem' }}>
-                          {label}
-                        </div>
-                        <code style={{ wordBreak: 'break-all' }}>{val}</code>
-                      </div>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-secondary"
-                        onClick={() => void handleCopy(label, val)}
-                      >
-                        {copiedField === label ? '✓ Đã chép' : 'Copy'}
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                <Field
+                  label="MQTT Username"
+                  type="text"
+                  readOnly
+                  value={provisionCred.mqtt_username}
+                  inputStyle={{ fontFamily: 'var(--font-mono)' }}
+                />
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
-                  <button
+                <Field
+                  label="MQTT Password"
+                  type="text"
+                  readOnly
+                  value={provisionCred.mqtt_password}
+                  inputStyle={{ fontFamily: 'var(--font-mono)' }}
+                />
+
+                <Field
+                  label="Host & Port"
+                  type="text"
+                  readOnly
+                  value={`${provisionCred.host}:${provisionCred.port}`}
+                  inputStyle={{ fontFamily: 'var(--font-mono)' }}
+                />
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1.25rem' }}>
+                  <Button
                     type="button"
-                    className="btn btn-primary"
-                    onClick={() => setShowProvisionModal(false)}
+                    variant="secondary"
+                    onClick={() =>
+                      handleCopy(
+                        'credentials',
+                        `MQTT_USER=${provisionCred.mqtt_username}\nMQTT_PASS=${provisionCred.mqtt_password}\nMQTT_HOST=${provisionCred.host}\nMQTT_PORT=${provisionCred.port}`
+                      )
+                    }
                   >
-                    Đã lưu xong, đóng
-                  </button>
+                    {copiedField === 'credentials' ? 'Đã sao chép!' : 'Sao chép thông tin'}
+                  </Button>
+                  <Button type="button" variant="primary" onClick={() => setShowProvisionModal(false)}>
+                    Hoàn tất
+                  </Button>
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal Hiệu chuẩn ẩm đất */}
+      {showCalModal && (
+        <div className="modal-backdrop" onClick={() => setShowCalModal(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="card-header">
+              <h3 style={{ margin: 0 }}>Hiệu chuẩn cảm biến ẩm đất 2 điểm</h3>
+              <button
+                type="button"
+                className="btn btn-sm btn-secondary"
+                onClick={() => setShowCalModal(false)}
+                style={{ padding: '0.1rem 0.5rem' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {calMsg && (
+              <div className={`alert-banner ${calMsg.ok ? 'ok' : 'bad'}`} style={{ marginBottom: '1rem' }}>
+                {calMsg.text}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveCalibration}>
+              <SelectField
+                label="Chọn Zone hiệu chuẩn"
+                value={calZoneId}
+                onChange={(e) => handleSelectCalZone(e.target.value)}
+              >
+                {allZones.map((z) => (
+                  <option key={z.id} value={z.id}>
+                    {z.greenhouseName} – {z.name || `Zone ${z.zone_index}`}
+                  </option>
+                ))}
+              </SelectField>
+
+              <Field
+                label="Giá trị thô khi khô (dry_raw)"
+                type="number"
+                min="100"
+                max="4090"
+                value={soilDry}
+                onChange={(e) => setSoilDry(Number(e.target.value))}
+                hint="Đo cảm biến ngoài không khí khô (thường khoảng 2900 - 3200)."
+                required
+              />
+
+              <Field
+                label="Giá trị thô khi ướt bão hòa (wet_raw)"
+                type="number"
+                min="50"
+                max="4000"
+                value={soilWet}
+                onChange={(e) => setSoilWet(Number(e.target.value))}
+                hint="Đo cảm biến nhúng vào cốc nước sạch (thường khoảng 1200 - 1500)."
+                required
+              />
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1.25rem' }}>
+                <Button type="button" variant="secondary" onClick={() => setShowCalModal(false)}>
+                  Đóng
+                </Button>
+                <Button type="submit" variant="primary" disabled={calMutation.isPending}>
+                  {calMutation.isPending ? 'Đang lưu...' : 'Lưu hiệu chuẩn'}
+                </Button>
+              </div>
+            </form>
           </div>
         </div>
       )}

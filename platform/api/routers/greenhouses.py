@@ -3,19 +3,21 @@
 import uuid
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from api.deps import CurrentOwner, CurrentViewer, DbSession
 from core.crop_templates import TEMPLATE_STRAWBERRY_DEMO_ID, TEMPLATE_TOMATO_DEMO_ID
-from core.models import Alert, DeviceState, Gateway, Greenhouse, Zone
+from core.models import Alert, CropProfile, DeviceState, Gateway, Greenhouse, Zone
+from core.pubsub import CHANNEL_WORKER, pg_notify
 from core.schemas import (
     ConfigSyncResponse,
     GreenhouseCreateRequest,
     GreenhouseResponse,
+    ZoneCreateRequest,
     ZoneCreateSpec,
     ZoneResponse,
 )
-from worker.shadow import ensure_device_state
+from worker.shadow import bump_cfg_version, ensure_device_state
 
 router = APIRouter(prefix="/greenhouses", tags=["greenhouses"])
 
@@ -150,4 +152,63 @@ async def get_config_sync(
         synced=state.cfg_version_reported >= state.cfg_version_desired,
         updated_at=state.updated_at,
     )
+
+
+@router.post("/{gh_id}/zones", response_model=ZoneResponse, status_code=status.HTTP_201_CREATED)
+async def create_zone(
+    gh_id: uuid.UUID,
+    body: ZoneCreateRequest,
+    user: CurrentOwner,
+    session: DbSession,
+) -> Zone:
+    gh = await get_owned_greenhouse(session, gh_id, user.farm_id)
+
+    existing_zones = (
+        await session.execute(
+            select(Zone).where(Zone.greenhouse_id == gh.id).order_by(Zone.zone_index)
+        )
+    ).scalars().all()
+
+    if len(existing_zones) >= 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Mỗi nhà kính tối đa 8 vùng trồng (giới hạn kênh Gateway)",
+        )
+
+    used_indices = {z.zone_index for z in existing_zones}
+    next_index = min(i for i in range(1, 9) if i not in used_indices)
+
+    if body.crop_profile_id is not None:
+        prof = (
+            await session.execute(
+                select(CropProfile).where(
+                    CropProfile.id == body.crop_profile_id,
+                    or_(CropProfile.farm_id.is_(None), CropProfile.farm_id == user.farm_id),
+                )
+            )
+        ).scalar_one_or_none()
+        if prof is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy crop profile"
+            )
+
+    zone = Zone(
+        greenhouse_id=gh.id,
+        zone_index=next_index,
+        name=body.name.strip() or f"Zone {next_index}",
+        crop_profile_id=body.crop_profile_id,
+        area_m2=body.area_m2,
+        pump_channel=body.pump_channel or next_index,
+        soil_dry_raw=body.soil_dry_raw,
+        soil_wet_raw=body.soil_wet_raw,
+    )
+    session.add(zone)
+    await bump_cfg_version(session, gh.id)
+    await pg_notify(
+        session, CHANNEL_WORKER, {"type": "cfg_updated", "greenhouse_id": str(gh.id)}
+    )
+    await session.commit()
+    await session.refresh(zone)
+    return zone
+
 

@@ -9,10 +9,10 @@ import {
 } from '../lib/types'
 
 const SOURCE_LABELS: Record<string, string> = {
-  synthetic: 'Synthetic (Mô hình sinh trưởng)',
-  sim: 'Simulator (Đa vùng khí hậu)',
-  real: 'Real (Vụ trồng thật)',
-  public: 'Public (WUR Greenhouse Challenge)',
+  synthetic: 'Synthetic',
+  sim: 'Simulator',
+  real: 'Real',
+  public: 'Public',
 }
 
 const SOURCE_COLORS: Record<string, string> = {
@@ -95,7 +95,7 @@ export default function ModelsPage() {
     <div>
       <div className="page-header">
         <div>
-          <h2>🧠 Mô hình AI Năng suất Toàn cục</h2>
+          <h2>Mô hình AI Năng suất Toàn cục</h2>
           <p className="muted" style={{ margin: 0 }}>
             Chỉ số đánh giá tổng hợp trên nhà kính chưa từng thấy (Test), so sánh Baseline B0/B1 và theo dõi lệch dữ liệu (Data Drift)
           </p>
@@ -136,7 +136,7 @@ export default function ModelsPage() {
             <div className="card-header">
               <div>
                 <h3>
-                  📦 Mô hình <code>yield</code> v{displayedModel.version}{' '}
+                  Mô hình <code>yield</code> v{displayedModel.version}{' '}
                   {displayedModel.is_active && <span className="badge ok">Active</span>}
                 </h3>
                 <span className="muted" style={{ fontSize: '0.8rem' }}>
@@ -244,7 +244,7 @@ export default function ModelsPage() {
           <div className="grid grid-cols-2">
             <div className="card">
               <div className="card-header">
-                <h3>📊 Chất lượng trên nhà kính chưa từng thấy (Test)</h3>
+                <h3>Chất lượng trên nhà kính chưa từng thấy</h3>
               </div>
               <div className="table-container">
                 <table>
@@ -260,7 +260,7 @@ export default function ModelsPage() {
                   <tbody>
                     <tr>
                       <td>
-                        <strong>LightGBM (GreenHub)</strong>
+                        <strong>LightGBM</strong>
                       </td>
                       <td>
                         <strong
@@ -301,14 +301,14 @@ export default function ModelsPage() {
                       <td>{typeof metrics?.mape === 'number' ? `${metrics.mape.toFixed(1)}%` : '—'}</td>
                     </tr>
                     <tr>
-                      <td>B0 (Trung vị theo cây)</td>
+                      <td>B0</td>
                       <td>{fmtNum(b0?.mae_kg_m2, 4)}</td>
                       <td>{fmtNum(b0?.rmse_kg_m2, 4)}</td>
                       <td>{fmtNum(b0?.r2, 4)}</td>
                       <td>{typeof b0?.mape === 'number' ? `${b0.mape.toFixed(1)}%` : '—'}</td>
                     </tr>
                     <tr>
-                      <td>B1 (Hồi quy Ridge)</td>
+                      <td>B1</td>
                       <td>{fmtNum(b1?.mae_kg_m2, 4)}</td>
                       <td>{fmtNum(b1?.rmse_kg_m2, 4)}</td>
                       <td>{fmtNum(b1?.r2, 4)}</td>
@@ -321,7 +321,7 @@ export default function ModelsPage() {
 
             <div className="card">
               <div className="card-header">
-                <h3>🏆 Chất lượng Gợi ý cây trồng</h3>
+                <h3>Chất lượng Gợi ý cây trồng</h3>
               </div>
               <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
                 Đối chiếu với xếp hạng lý tưởng (oracle) trên tập test — lưu ý chỉ tính trên dữ liệu{' '}
@@ -355,7 +355,7 @@ export default function ModelsPage() {
           <div className="grid grid-cols-2">
             <div className="card">
               <div className="card-header">
-                <h3>🌿 Sai số theo từng cây trồng (Test)</h3>
+                <h3>Sai số theo từng cây trồng</h3>
               </div>
               <div className="table-container">
                 <table>
@@ -390,7 +390,7 @@ export default function ModelsPage() {
 
             <div className="card">
               <div className="card-header">
-                <h3>🧪 Sai số tách theo nguồn dữ liệu (<code>by_source</code>)</h3>
+                <h3>Sai số tách theo nguồn dữ liệu</h3>
               </div>
               <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
                 Báo cáo trung thực từng nguồn dữ liệu, bao gồm mẫu <code>real</code> dù số lượng ít.
@@ -400,7 +400,7 @@ export default function ModelsPage() {
                   <thead>
                     <tr>
                       <th>Nguồn</th>
-                      <th>Số mẫu (n)</th>
+                      <th>Số mẫu</th>
                       <th>MAE (kg/m²)</th>
                       <th>RMSE (kg/m²)</th>
                     </tr>
@@ -426,7 +426,7 @@ export default function ModelsPage() {
           <div className="card">
             <div className="card-header">
               <div>
-                <h3>📉 Dấu hiệu lệch dữ liệu (Data Drift – {displayedModel.feature_drift?.window_days ?? 7} ngày gần nhất)</h3>
+                <h3>Dấu hiệu lệch dữ liệu</h3>
                 <span className="muted" style={{ fontSize: '0.8rem' }}>
                   So sánh phân phối đặc trưng khí hậu của {displayedModel.feature_drift?.n_predictions ?? 0} lượt dự đoán gần nhất của farm với tập huấn luyện (cảnh báo khi |z| ≥ 2.0 với ≥ 5 mẫu)
                 </span>
@@ -443,8 +443,8 @@ export default function ModelsPage() {
                   <thead>
                     <tr>
                       <th>Đặc trưng</th>
-                      <th>Train (Mean ± Std)</th>
-                      <th>7 ngày gần nhất (Mean ± Std)</th>
+                      <th>Train</th>
+                      <th>7 ngày gần nhất</th>
                       <th>Số mẫu gần đây</th>
                       <th>|Z-score|</th>
                       <th>Trạng thái</th>
@@ -470,7 +470,7 @@ export default function ModelsPage() {
                         <td>{stat.z_score !== null ? stat.z_score.toFixed(2) : '—'}</td>
                         <td>
                           {stat.drifted ? (
-                            <span className="badge warning">⚠ Lệch phân phối</span>
+                            <span className="badge warning">Lệch phân phối</span>
                           ) : stat.n_recent === 0 ? (
                             <span className="badge muted">Chưa có dự đoán</span>
                           ) : (
@@ -488,7 +488,7 @@ export default function ModelsPage() {
           {/* Lịch sử phiên bản */}
           <div className="card">
             <div className="card-header">
-              <h3>🗂️ Lịch sử các phiên bản mô hình</h3>
+              <h3>Lịch sử các phiên bản mô hình</h3>
             </div>
             <div className="table-container">
               <table>

@@ -1,16 +1,15 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate, useParams, Link } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, formatApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
+import { Button, Card, Field, SelectField, StatusDot } from '../components/ui'
 import {
   formatCropName,
-  formatDateTimeVi,
   type CropCycle,
   type CropProfile,
   type CropRecommendationDetails,
   type Greenhouse,
-  type MlModelItem,
   type PredictionItem,
   type ReadingPoint,
   type Zone,
@@ -23,64 +22,19 @@ function cycleDayNumber(startedAt: string): number {
   return Math.max(1, Math.floor(diffMs / 86_400_000) + 1)
 }
 
-function fmtTemp(v: number | null | undefined) {
-  return v != null ? `${v.toFixed(1)} °C` : '—'
+function fmtTemp(v: number | null | undefined): { val: string; unit: string } {
+  return v != null ? { val: v.toFixed(1), unit: '°C' } : { val: '—', unit: '°C' }
 }
-function fmtRh(v: number | null | undefined) {
-  return v != null ? `${v.toFixed(0)}%` : '—'
+function fmtRh(v: number | null | undefined): { val: string; unit: string } {
+  return v != null ? { val: v.toFixed(0), unit: '%' } : { val: '—', unit: '%' }
 }
-function fmtSoil(v: number | null | undefined) {
-  return v != null ? `${v.toFixed(0)}%` : '—'
+function fmtSoil(v: number | null | undefined): { val: string; unit: string } {
+  return v != null ? { val: v.toFixed(0), unit: '%' } : { val: '—', unit: '%' }
 }
-function fmtLux(v: number | null | undefined) {
-  if (v == null) return '—'
-  return v >= 1000 ? `${(v / 1000).toFixed(1)} klux` : `${Math.round(v)} lux`
-}
-
-function qualityBadgeClass(q: string | null | undefined): string {
-  if (!q || q === 'ok') return 'ok'
-  if (q === 'spike' || q === 'stuck') return 'warning'
-  return 'bad'
-}
-
-// ─── SensorRow ───────────────────────────────────────────────────────────────
-
-function SensorRow({
-  icon,
-  label,
-  value,
-  highlight,
-}: {
-  icon: string
-  label: string
-  value: string
-  highlight?: boolean
-}) {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '0.35rem 0',
-        borderBottom: '1px solid rgba(0,0,0,0.05)',
-      }}
-    >
-      <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
-        {icon} {label}
-      </span>
-      <span
-        style={{
-          fontSize: '0.92rem',
-          fontWeight: 700,
-          color: highlight ? 'var(--danger)' : 'inherit',
-          fontVariantNumeric: 'tabular-nums',
-        }}
-      >
-        {value}
-      </span>
-    </div>
-  )
+function fmtLux(v: number | null | undefined): { val: string; unit: string } {
+  if (v == null) return { val: '—', unit: 'klux' }
+  if (v >= 1000) return { val: (v / 1000).toFixed(1), unit: 'klux' }
+  return { val: String(Math.round(v)), unit: 'lux' }
 }
 
 // ─── ZoneCard ────────────────────────────────────────────────────────────────
@@ -93,152 +47,163 @@ interface ZoneCardProps {
 }
 
 function ZoneCard({ zone, activeCycle, profile, reading }: ZoneCardProps) {
-  const navigate = useNavigate()
-
   const cropLabel = activeCycle
     ? formatCropName(activeCycle.crop_code, activeCycle.crop_name)
     : profile
       ? formatCropName(profile.crop_code, profile.crop_name)
       : 'Chưa gắn cây'
 
-  const q = reading?.quality
+  const t = fmtTemp(reading?.air_temp)
+  const rh = fmtRh(reading?.air_rh)
+  const sm = fmtSoil(reading?.soil_moisture)
+  const lx = fmtLux(reading?.lux)
+
+  const isSensorFault = reading?.quality && reading.quality !== 'ok'
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      className="card"
-      onClick={() => navigate(`/zones/${zone.id}`)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') navigate(`/zones/${zone.id}`)
-      }}
+    <Card
       style={{
-        cursor: 'pointer',
-        transition: 'box-shadow 0.18s, transform 0.18s',
-        outline: 'none',
-        userSelect: 'none',
-        borderTop: `4px solid ${activeCycle ? 'var(--primary)' : 'var(--muted)'}`,
-        background: '#ffffff',
-      }}
-      onMouseEnter={(e) => {
-        ;(e.currentTarget as HTMLDivElement).style.boxShadow = '0 8px 24px rgba(22,163,74,0.18)'
-        ;(e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'
-      }}
-      onMouseLeave={(e) => {
-        ;(e.currentTarget as HTMLDivElement).style.boxShadow = ''
-        ;(e.currentTarget as HTMLDivElement).style.transform = ''
+        padding: '1.25rem',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'space-between',
       }}
     >
-      {/* Header zone */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-          marginBottom: '0.75rem',
-          gap: '0.4rem',
-        }}
-      >
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-            <span
-              style={{
-                background: 'var(--primary)',
-                color: '#fff',
-                borderRadius: '50%',
-                width: '1.65rem',
-                height: '1.65rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '0.8rem',
-                fontWeight: 700,
-                flexShrink: 0,
-              }}
-            >
-              {zone.zone_index}
-            </span>
-            <strong style={{ fontSize: '1.05rem' }}>{zone.name || `Zone ${zone.zone_index}`}</strong>
-          </div>
-          <div style={{ fontSize: '0.82rem', color: 'var(--muted)', marginTop: '0.25rem' }}>
-            🌱 Cây: <strong>{cropLabel}</strong>
-            {zone.area_m2 ? ` • ${zone.area_m2} m²` : ''}
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.25rem' }}>
-          {activeCycle && (
-            <span className="badge ok" style={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
-              Ngày {cycleDayNumber(activeCycle.started_at)}
-            </span>
-          )}
-          {reading && (
-            <span
-              className={`badge ${qualityBadgeClass(q)}`}
-              style={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}
-              title={`Chất lượng cảm biến: ${q ?? 'ok'}`}
-            >
-              {q && q !== 'ok' ? `⚠ ${q}` : '● Cảm biến OK'}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* 4 chỉ số sensor */}
-      {reading ? (
-        <div style={{ marginBottom: '0.6rem' }}>
-          <SensorRow
-            icon="🌡️"
-            label="Nhiệt độ không khí"
-            value={fmtTemp(reading.air_temp)}
-            highlight={reading.air_temp != null && reading.air_temp > 35}
-          />
-          <SensorRow
-            icon="💧"
-            label="Độ ẩm không khí"
-            value={fmtRh(reading.air_rh)}
-            highlight={reading.air_rh != null && reading.air_rh > 90}
-          />
-          <SensorRow
-            icon="🌱"
-            label="Độ ẩm đất"
-            value={fmtSoil(reading.soil_moisture)}
-            highlight={reading.soil_moisture != null && reading.soil_moisture < 20}
-          />
-          <SensorRow icon="☀️" label="Cường độ ánh sáng" value={fmtLux(reading.lux)} />
-        </div>
-      ) : (
+      <div>
+        {/* Header zone card: Tên zone, diện tích, ngày thứ & trạng thái cảm biến */}
         <div
           style={{
-            textAlign: 'center',
-            padding: '1.2rem 0',
-            color: 'var(--muted)',
-            fontSize: '0.84rem',
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            gap: '0.75rem',
+            paddingBottom: '1rem',
+            borderBottom: '1px solid var(--border-row, #EEECE5)',
           }}
         >
-          Chưa nhận được tín hiệu cảm biến
-        </div>
-      )}
+          <div>
+            <h4
+              style={{
+                margin: '0 0 0.25rem 0',
+                fontSize: '1rem',
+                fontWeight: 700,
+                color: 'var(--text-main, #1C211E)',
+              }}
+            >
+              {zone.name || `Khu ${zone.zone_index}`}
+            </h4>
+            <div style={{ fontSize: '0.82rem', color: 'var(--text-muted, #626861)' }}>
+              {cropLabel} · {zone.area_m2 ? `${zone.area_m2} m²` : '—'}
+            </div>
+          </div>
 
-      {/* Footer CTA */}
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main, #1C211E)', marginBottom: '0.2rem' }}>
+              {activeCycle ? `Ngày thứ ${cycleDayNumber(activeCycle.started_at)}` : 'Chưa có vụ'}
+            </div>
+            <StatusDot
+              status={isSensorFault ? 'warning' : reading ? 'ok' : 'unallocated'}
+              label={isSensorFault ? 'Lỗi cảm biến' : reading ? 'Cảm biến OK' : 'Chưa có dữ liệu'}
+            />
+          </div>
+        </div>
+
+        {/* Khối hiển thị 4 chỉ số cảm biến lớn chuẩn theo ảnh */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(2, 1fr)',
+            gap: '1.25rem 1rem',
+            padding: '1.25rem 0',
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {/* Nhiệt độ */}
+          <div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted, #626861)', marginBottom: '0.25rem' }}>
+              Nhiệt độ không khí
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.3rem' }}>
+              <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-main, #1C211E)', lineHeight: 1.1 }}>
+                {t.val}
+              </span>
+              <span style={{ fontSize: '0.88rem', color: 'var(--text-muted, #626861)' }}>
+                {t.unit}
+              </span>
+            </div>
+          </div>
+
+          {/* Độ ẩm không khí */}
+          <div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted, #626861)', marginBottom: '0.25rem' }}>
+              Độ ẩm không khí
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.3rem' }}>
+              <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-main, #1C211E)', lineHeight: 1.1 }}>
+                {rh.val}
+              </span>
+              <span style={{ fontSize: '0.88rem', color: 'var(--text-muted, #626861)' }}>
+                {rh.unit}
+              </span>
+            </div>
+          </div>
+
+          {/* Độ ẩm đất */}
+          <div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted, #626861)', marginBottom: '0.25rem' }}>
+              Độ ẩm đất
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.3rem' }}>
+              <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-main, #1C211E)', lineHeight: 1.1 }}>
+                {sm.val}
+              </span>
+              <span style={{ fontSize: '0.88rem', color: 'var(--text-muted, #626861)' }}>
+                {sm.unit}
+              </span>
+            </div>
+          </div>
+
+          {/* Cường độ ánh sáng */}
+          <div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted, #626861)', marginBottom: '0.25rem' }}>
+              Cường độ ánh sáng
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.3rem' }}>
+              <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-main, #1C211E)', lineHeight: 1.1 }}>
+                {lx.val}
+              </span>
+              <span style={{ fontSize: '0.88rem', color: 'var(--text-muted, #626861)' }}>
+                {lx.unit}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Link chân card: Điều khiển bơm, quạt & thu hoạch */}
       <div
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          borderTop: '1px solid var(--border)',
-          paddingTop: '0.55rem',
-          marginTop: '0.25rem',
+          borderTop: '1px solid var(--border-row, #EEECE5)',
+          paddingTop: '0.85rem',
         }}
       >
-        <span className="muted" style={{ fontSize: '0.75rem' }}>
-          Điều khiển bơm, quạt &amp; thu hoạch
-        </span>
-        <span style={{ fontSize: '0.82rem', color: 'var(--primary)', fontWeight: 600 }}>
-          Chi tiết zone →
-        </span>
+        <Link
+          to={`/zones/${zone.id}`}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            textDecoration: 'none',
+            color: 'var(--accent, #1E6B47)',
+            fontSize: '0.85rem',
+            fontWeight: 500,
+          }}
+        >
+          <span>Điều khiển bơm, quạt &amp; thu hoạch</span>
+          <span style={{ fontSize: '1rem' }}>→</span>
+        </Link>
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -252,13 +217,20 @@ export default function GreenhousePage() {
   const [refreshMsg, setRefreshMsg] = useState<string | null>(null)
 
   // Sửa Zone states
-  const [showZoneEdit, setShowZoneEdit] = useState(false)
+  const [showZoneModal, setShowZoneModal] = useState(false)
   const [editZoneId, setEditZoneId] = useState('')
   const [editZoneName, setEditZoneName] = useState('')
   const [editZoneProfileId, setEditZoneProfileId] = useState('')
   const [editZoneArea, setEditZoneArea] = useState('')
   const [zoneEditMsg, setZoneEditMsg] = useState<string | null>(null)
   const [zoneEditError, setZoneEditError] = useState<string | null>(null)
+
+  // Thêm Zone mới states
+  const [showAddZone, setShowAddZone] = useState(false)
+  const [newZoneName, setNewZoneName] = useState('')
+  const [newZoneProfileId, setNewZoneProfileId] = useState('')
+  const [newZoneArea, setNewZoneArea] = useState('')
+  const [addZoneError, setAddZoneError] = useState<string | null>(null)
 
   // Lấy thông tin nhà kính
   const ghQuery = useQuery({
@@ -307,11 +279,6 @@ export default function GreenhousePage() {
     enabled: Boolean(ghId),
   })
 
-  const activeModelQuery = useQuery({
-    queryKey: ['models', 'active'],
-    queryFn: () => api<MlModelItem | null>('/models/active'),
-  })
-
   const refreshMutation = useMutation({
     mutationFn: (id: string) =>
       api<{ status: string; greenhouse_id: string }>(`/greenhouses/${id}/recommendations/refresh`, {
@@ -335,14 +302,26 @@ export default function GreenhousePage() {
     },
   })
 
+  const handleOpenZoneModal = () => {
+    if (zones.length > 0) {
+      const firstZone = zones[0]
+      setEditZoneId(firstZone.id)
+      setEditZoneName(firstZone.name || '')
+      setEditZoneProfileId(firstZone.crop_profile_id || '')
+      setEditZoneArea(firstZone.area_m2 ? String(firstZone.area_m2) : '20.0')
+    }
+    setZoneEditMsg(null)
+    setZoneEditError(null)
+    setShowZoneModal(true)
+  }
+
   const handleSelectZoneToEdit = (targetZone: Greenhouse['zones'][number]) => {
     setEditZoneId(targetZone.id)
     setEditZoneName(targetZone.name || '')
     setEditZoneProfileId(targetZone.crop_profile_id || '')
-    setEditZoneArea(targetZone.area_m2 ? String(targetZone.area_m2) : '1.0')
+    setEditZoneArea(targetZone.area_m2 ? String(targetZone.area_m2) : '20.0')
     setZoneEditMsg(null)
     setZoneEditError(null)
-    setShowZoneEdit(true)
   }
 
   const updateZoneMutation = useMutation({
@@ -356,7 +335,6 @@ export default function GreenhousePage() {
         }),
       }),
     onSuccess: (_, variables) => {
-      setShowZoneEdit(false)
       setZoneEditMsg(`Đã cập nhật thành công ${variables.name}.`)
       setZoneEditError(null)
       void queryClient.invalidateQueries({ queryKey: ['greenhouses'] })
@@ -378,477 +356,468 @@ export default function GreenhousePage() {
     })
   }
 
-  const activeCycleByZone = new Map<string, CropCycle>()
-  zones.forEach((z, idx) => {
-    const list = cycleQueries[idx]?.data
-    if (list && list.length > 0) activeCycleByZone.set(z.id, list[0])
+  const addZoneMutation = useMutation({
+    mutationFn: (payload: { name: string; crop_profile_id: string | null; area_m2: number | null }) =>
+      api<Zone>(`/greenhouses/${ghId}/zones`, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: payload.name,
+          crop_profile_id: payload.crop_profile_id,
+          area_m2: payload.area_m2,
+        }),
+      }),
+    onSuccess: (newZone) => {
+      setShowAddZone(false)
+      setNewZoneName('')
+      setNewZoneProfileId('')
+      setNewZoneArea('')
+      setAddZoneError(null)
+      setZoneEditMsg(`Đã thêm thành công ${newZone.name || `Zone ${newZone.zone_index}`}.`)
+      void queryClient.invalidateQueries({ queryKey: ['greenhouses'] })
+    },
+    onError: (err) => {
+      setAddZoneError(formatApiError(err))
+    },
   })
 
-  const readingByZone = new Map<string, ReadingPoint | null>()
-  zones.forEach((z, idx) => {
-    readingByZone.set(z.id, readingQueries[idx]?.data ?? null)
+  const handleAddZoneSubmit = (e: FormEvent) => {
+    e.preventDefault()
+    if (!newZoneName.trim()) return
+    const parsedArea = Number(newZoneArea)
+    addZoneMutation.mutate({
+      name: newZoneName.trim(),
+      crop_profile_id: newZoneProfileId || null,
+      area_m2: parsedArea > 0 ? parsedArea : null,
+    })
+  }
+
+  const deleteZoneMutation = useMutation({
+    mutationFn: (zoneId: string) =>
+      api<{ ok: boolean; message: string }>(`/zones/${zoneId}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: (res) => {
+      setZoneEditMsg(res.message || 'Đã xóa vùng trồng thành công.')
+      setZoneEditError(null)
+      void queryClient.invalidateQueries({ queryKey: ['greenhouses'] })
+    },
+    onError: (err) => {
+      setZoneEditError(formatApiError(err))
+    },
   })
 
-  const rec = recQuery.data ?? null
-  const details = rec?.details
-  const climate = details?.climate_summary ?? {}
-  const ranking = details?.ranking ?? []
+  const handleDeleteZone = (zoneId: string, zoneName: string) => {
+    if (zones.length <= 1) {
+      alert('Nhà kính phải có ít nhất 1 vùng trồng. Không thể xóa vùng trồng cuối cùng.')
+      return
+    }
+    const confirmed = window.confirm(
+      `Bạn có chắc chắn muốn xóa "${zoneName}" không? Các thiết bị và dữ liệu cảm biến liên quan sẽ được gỡ bỏ.`
+    )
+    if (confirmed) {
+      deleteZoneMutation.mutate(zoneId)
+    }
+  }
 
-  // Loading / Error
   if (ghQuery.isLoading) {
     return (
-      <div className="card muted" style={{ textAlign: 'center', padding: '2.5rem' }}>
-        Đang tải thông tin nhà kính...
-      </div>
+      <Card>
+        <p className="muted" style={{ margin: 0 }}>Đang tải thông tin nhà kính...</p>
+      </Card>
     )
   }
 
-  if (ghQuery.isError || !gh) {
+  if (!gh) {
     return (
-      <div>
-        <div className="alert-banner bad">
-          {ghQuery.isError
-            ? `Không tải được nhà kính: ${formatApiError(ghQuery.error)}`
-            : 'Không tìm thấy nhà kính này.'}
-        </div>
-        <Link to="/" className="btn btn-secondary" style={{ marginTop: '1rem' }}>
+      <Card style={{ textAlign: 'center', padding: '3rem 1.5rem' }}>
+        <h3>Không tìm thấy nhà kính</h3>
+        <p className="muted">Nhà kính này có thể đã bị xóa hoặc không thuộc quyền quản lý của bạn.</p>
+        <Link to="/" className="btn btn-primary" style={{ marginTop: '1rem' }}>
           ← Quay lại Tổng quan
         </Link>
-      </div>
+      </Card>
     )
   }
+
+  const recData = recQuery.data
+  const ranking = recData?.details?.ranking ?? []
 
   return (
     <div>
-      {/* ── Header ── */}
-      <div className="page-header" style={{ marginBottom: '1.25rem' }}>
+      {/* Breadcrumb theo ảnh thiết kế */}
+      <div style={{ fontSize: '0.85rem', color: 'var(--text-muted, #626861)', marginBottom: '0.75rem' }}>
+        <Link to="/" style={{ color: 'var(--text-muted, #626861)', textDecoration: 'none' }}>
+          Tổng quan
+        </Link>
+        <span style={{ margin: '0 0.5rem' }}>/</span>
+        <span>{gh.name || 'Nhà kính'}</span>
+      </div>
+
+      {/* Header trang Chi tiết nhà kính chuẩn theo ảnh */}
+      <div style={{ marginBottom: '1.25rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.25rem' }}>
+          <h2 style={{ fontSize: '1.75rem', fontWeight: 700, margin: 0, color: 'var(--text-main, #1C211E)' }}>
+            {gh.name || 'Nhà kính'}
+          </h2>
+          <StatusDot
+            status={gh.online ? 'ok' : 'offline'}
+            label={gh.online ? 'Gateway online' : 'Gateway offline'}
+          />
+        </div>
+        <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-muted, #626861)' }}>
+          {gh.location || 'Chưa cập nhật vị trí'}
+        </p>
+      </div>
+
+      {/* Hàng thông số tổng hợp (Meta stats row chuẩn theo ảnh) */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '2.5rem',
+          padding: '1.1rem 0',
+          borderTop: '1px solid var(--border-row, #EEECE5)',
+          borderBottom: '1px solid var(--border-row, #EEECE5)',
+          marginBottom: '2rem',
+          flexWrap: 'wrap',
+        }}
+      >
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-            <Link
-              to="/"
-              style={{
-                color: 'var(--primary)',
-                fontWeight: 600,
-                textDecoration: 'none',
-                fontSize: '0.84rem',
-              }}
-            >
-              ← Tổng quan
-            </Link>
-            <h2 style={{ margin: 0 }}>🏡 {gh.name || 'Nhà kính chưa đặt tên'}</h2>
-            {gh.is_simulated && <span className="badge info">Mô phỏng</span>}
-            <span className={`badge ${gh.online ? 'ok' : 'bad'}`}>
-              {gh.online ? '● Gateway Online' : '○ Gateway Ngoại tuyến'}
-            </span>
-            {gh.open_alerts > 0 && (
-              <span className="badge bad" title="Số cảnh báo đang mở">
-                🔔 {gh.open_alerts} cảnh báo
-              </span>
-            )}
+          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted, #626861)', marginBottom: '0.2rem' }}>
+            Trạng thái gateway
           </div>
-          {gh.location && (
-            <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.84rem' }}>
-              📍 Vị trí: {gh.location}
-            </p>
-          )}
+          <div style={{ fontSize: '0.92rem', fontWeight: 600, color: 'var(--text-main, #1C211E)' }}>
+            {gh.online ? 'Đang hoạt động' : 'Mất kết nối'}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted, #626861)', marginBottom: '0.2rem' }}>
+            Vùng trồng
+          </div>
+          <div style={{ fontSize: '0.92rem', fontWeight: 600, color: 'var(--text-main, #1C211E)' }}>
+            {zones.length} zone
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted, #626861)', marginBottom: '0.2rem' }}>
+            Cảnh báo đang mở
+          </div>
+          <div style={{ fontSize: '0.92rem', fontWeight: 600, color: 'var(--text-main, #1C211E)' }}>
+            {gh.open_alerts}
+          </div>
         </div>
       </div>
 
-      {/* ── 1. SƠ ĐỒ NHÀ KÍNH & CÁC VÙNG TRỒNG (ZONES) ── */}
+      {/* Tiêu đề mục Vùng trồng & nút Sửa zone */}
       <div
         style={{
-          background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
-          border: '1.5px solid #bbf7d0',
-          borderRadius: 'var(--radius)',
-          padding: '1.1rem 1.25rem 1.25rem',
-          marginBottom: '1.5rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '1rem',
+          flexWrap: 'wrap',
+          gap: '0.75rem',
         }}
       >
+        <div>
+          <h3 style={{ margin: '0 0 0.2rem 0', fontSize: '1.15rem', fontWeight: 700, color: 'var(--text-main, #1C211E)' }}>
+            Vùng trồng
+          </h3>
+          <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted, #626861)' }}>
+            Chọn một zone để điều khiển thiết bị và xem chi tiết.
+          </p>
+        </div>
+
+        {isOwner && (
+          <Button variant="secondary" onClick={handleOpenZoneModal}>
+            Sửa zone
+          </Button>
+        )}
+      </div>
+
+      {zoneEditMsg && (
+        <div className="alert-banner ok" style={{ marginBottom: '1rem' }}>
+          {zoneEditMsg}
+        </div>
+      )}
+
+      {/* Grid danh sách các Zone */}
+      <div className="grid grid-cols-2" style={{ marginBottom: '2rem' }}>
+        {zones.map((zone, idx) => {
+          const activeCycle = cycleQueries[idx]?.data?.[0]
+          const profile = zone.crop_profile_id
+            ? profilesById.get(zone.crop_profile_id)
+            : undefined
+          const reading = readingQueries[idx]?.data ?? null
+
+          return (
+            <ZoneCard
+              key={zone.id}
+              zone={zone}
+              activeCycle={activeCycle}
+              profile={profile}
+              reading={reading}
+            />
+          )
+        })}
+      </div>
+
+      {/* Khối Gợi ý cây trồng theo vi khí hậu chuẩn theo ảnh */}
+      <Card style={{ padding: '1.25rem', marginBottom: '2rem' }}>
         <div
           style={{
             display: 'flex',
-            alignItems: 'center',
+            alignItems: 'flex-start',
             justifyContent: 'space-between',
-            marginBottom: '0.9rem',
+            gap: '1rem',
+            paddingBottom: '1rem',
+            borderBottom: '1px solid var(--border-row, #EEECE5)',
             flexWrap: 'wrap',
-            gap: '0.5rem',
           }}
         >
           <div>
-            <h3 style={{ margin: 0, fontSize: '1rem', color: '#15803d' }}>
-              🗺️ Sơ đồ Nhà kính &amp; Vi khí hậu các Zone
-            </h3>
-            <span className="muted" style={{ fontSize: '0.78rem' }}>
-              Bao gồm {zones.length} vùng trồng • Nhấp vào từng Zone để điều khiển thiết bị &amp; xem chi tiết
-            </span>
+            <h4 style={{ margin: '0 0 0.25rem 0', fontSize: '1rem', fontWeight: 700, color: 'var(--text-main, #1C211E)' }}>
+              Gợi ý cây trồng theo vi khí hậu
+            </h4>
+            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted, #626861)' }}>
+              Mô hình AI dự đoán loại cây cho năng suất cao nhất dựa trên lịch sử nhiệt độ, độ ẩm và ánh sáng của nhà kính này.
+            </p>
           </div>
 
-          {isOwner && zones.length > 0 && (
-            <button
-              type="button"
-              className={`btn btn-sm ${showZoneEdit ? 'btn-primary' : 'btn-secondary'}`}
-              style={
-                !showZoneEdit
-                  ? {
-                      background: '#ffffff',
-                      borderColor: '#86efac',
-                      color: '#166534',
-                      fontWeight: 600,
-                    }
-                  : undefined
-              }
-              onClick={() => {
-                if (!showZoneEdit) {
-                  const target = zones.find((z) => z.id === editZoneId) || zones[0]
-                  handleSelectZoneToEdit(target)
-                } else {
-                  setShowZoneEdit(false)
-                }
-              }}
-            >
-              {showZoneEdit ? '✕ Đóng form sửa' : '✏️ Sửa Zone'}
-            </button>
-          )}
+          <Button
+            variant="secondary"
+            disabled={refreshing || !isOwner}
+            onClick={() => ghId && refreshMutation.mutate(ghId)}
+          >
+            {refreshing ? 'Đang phân tích...' : 'Làm mới gợi ý'}
+          </Button>
         </div>
 
-        {zoneEditMsg && (
-          <div
-            className="alert-banner info"
-            style={{
-              marginBottom: '0.9rem',
-              background: '#ecfdf5',
-              borderColor: '#a7f3d0',
-              color: '#065f46',
-            }}
-          >
-            ✓ {zoneEditMsg}
-          </div>
-        )}
-        {zoneEditError && (
-          <div className="alert-banner bad" style={{ marginBottom: '0.9rem' }}>
-            {zoneEditError}
-          </div>
-        )}
+        <div style={{ paddingTop: '1rem' }}>
+          {refreshMsg && (
+            <div className="alert-banner ok" style={{ marginBottom: '1rem' }}>
+              {refreshMsg}
+            </div>
+          )}
 
-        {/* Form cập nhật thông tin Zone ngay trong hộp */}
-        {showZoneEdit && isOwner && (
-          <form
-            onSubmit={handleZoneEditSubmit}
-            style={{
-              background: '#ffffff',
-              border: '1.5px solid #86efac',
-              borderRadius: 'var(--radius)',
-              padding: '1rem 1.15rem',
-              marginBottom: '1rem',
-              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: '0.85rem',
-                borderBottom: '1px solid #f0fdf4',
-                paddingBottom: '0.5rem',
-                flexWrap: 'wrap',
-                gap: '0.5rem',
-              }}
-            >
-              <h4 style={{ margin: 0, fontSize: '0.95rem', color: '#166534' }}>
-                ✏️ Cập nhật thông tin vùng trồng
-              </h4>
+          {ranking.length === 0 ? (
+            <p className="muted" style={{ margin: 0, fontSize: '0.88rem' }}>
+              Chưa đủ dữ liệu vi khí hậu trong cửa sổ đánh giá để xếp hạng. Hãy để cảm biến hoạt động thêm thời gian.
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {ranking.map((cand, idx) => (
+                <div
+                  key={cand.crop_code}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '0.75rem 1rem',
+                    borderRadius: 'var(--radius-input, 6px)',
+                    border: '1px solid var(--border-row, #EEECE5)',
+                    background: idx === 0 ? 'var(--item-selected, #E8F0EA)' : '#FFFFFF',
+                  }}
+                >
+                  <div>
+                    <strong style={{ fontSize: '0.92rem', color: 'var(--text-main)' }}>
+                      #{idx + 1} {cand.crop_name || cand.crop_code}
+                    </strong>
+                    <div className="muted" style={{ fontSize: '0.78rem', marginTop: '2px' }}>
+                      Năng suất kỳ vọng: {cand.expected_kg_m2.toFixed(1)} kg/m²
+                    </div>
+                  </div>
 
-              {zones.length > 1 && (
-                <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Chọn zone:</span>
-                  {zones.map((z) => (
-                    <button
-                      key={z.id}
-                      type="button"
-                      className={`btn btn-sm ${z.id === editZoneId ? 'btn-primary' : 'btn-secondary'}`}
-                      style={{ fontSize: '0.78rem', padding: '0.2rem 0.5rem' }}
-                      onClick={() => handleSelectZoneToEdit(z)}
-                    >
-                      {z.name || `Zone ${z.zone_index}`}
-                    </button>
-                  ))}
+                  <span className="badge ok" style={{ fontSize: '0.8rem', fontWeight: 600 }}>
+                    {Math.round(cand.relative_yield * 100)}% tối ưu
+                  </span>
                 </div>
-              )}
+              ))}
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* Modal Quản lý & Sửa Zone */}
+      {showZoneModal && (
+        <div className="modal-backdrop" onClick={() => setShowZoneModal(false)}>
+          <div className="modal-card" style={{ maxWidth: '560px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="card-header">
+              <h3 style={{ margin: 0 }}>Quản lý vùng trồng (Zone)</h3>
+              <button
+                type="button"
+                className="btn btn-sm btn-secondary"
+                onClick={() => setShowZoneModal(false)}
+                style={{ padding: '0.1rem 0.5rem' }}
+              >
+                ✕
+              </button>
             </div>
 
-            <div className="grid grid-cols-3" style={{ gap: '0.85rem' }}>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label style={{ fontSize: '0.82rem', fontWeight: 600 }}>Tên Zone *</label>
-                <input
+            {zoneEditError && (
+              <div className="alert-banner bad" style={{ marginBottom: '1rem' }}>
+                {zoneEditError}
+              </div>
+            )}
+            {zoneEditMsg && (
+              <div className="alert-banner ok" style={{ marginBottom: '1rem' }}>
+                {zoneEditMsg}
+              </div>
+            )}
+
+            {/* Danh sách các zone để chọn sửa */}
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>
+                Chọn Zone cần cấu hình:
+              </label>
+              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                {zones.map((z) => (
+                  <button
+                    key={z.id}
+                    type="button"
+                    onClick={() => handleSelectZoneToEdit(z)}
+                    className={`btn btn-sm ${editZoneId === z.id ? 'btn-primary' : 'btn-secondary'}`}
+                  >
+                    {z.name || `Khu ${z.zone_index}`}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => setShowAddZone(true)}
+                  style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}
+                >
+                  + Thêm Zone
+                </button>
+              </div>
+            </div>
+
+            {/* Form chỉnh sửa zone đang chọn */}
+            {editZoneId && (
+              <form onSubmit={handleZoneEditSubmit}>
+                <Field
+                  label="Tên vùng trồng"
                   type="text"
                   value={editZoneName}
                   onChange={(e) => setEditZoneName(e.target.value)}
-                  placeholder="Ví dụ: Khu A - Dâu tây"
+                  placeholder="Ví dụ: Khu 1 - Cà chua bi"
                   required
                 />
-              </div>
 
-              <div className="form-group" style={{ margin: 0 }}>
-                <label style={{ fontSize: '0.82rem', fontWeight: 600 }}>Loại cây trồng (Crop Profile)</label>
-                <select
+                <SelectField
+                  label="Hồ sơ cây trồng mặc định"
                   value={editZoneProfileId}
                   onChange={(e) => setEditZoneProfileId(e.target.value)}
                 >
-                  <option value="">-- Chưa gán profile --</option>
+                  <option value="">Chưa gắn cây</option>
                   {(profilesQuery.data ?? []).map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.crop_name} ({p.variety || 'real'})
+                      {p.crop_name}
                     </option>
                   ))}
-                </select>
-              </div>
+                </SelectField>
 
-              <div className="form-group" style={{ margin: 0 }}>
-                <label style={{ fontSize: '0.82rem', fontWeight: 600 }}>Diện tích canh tác (m²)</label>
-                <input
+                <Field
+                  label="Diện tích canh tác"
                   type="number"
                   step="0.1"
-                  min="0.05"
+                  min="0.1"
                   value={editZoneArea}
                   onChange={(e) => setEditZoneArea(e.target.value)}
-                  placeholder="1.0"
+                  unit="m²"
+                  required
                 />
-              </div>
-            </div>
 
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'flex-end',
-                gap: '0.5rem',
-                marginTop: '1rem',
-              }}
-            >
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => setShowZoneEdit(false)}
-              >
-                Huỷ
-              </button>
-              <button
-                type="submit"
-                className="btn btn-primary"
-                disabled={updateZoneMutation.isPending}
-              >
-                {updateZoneMutation.isPending ? 'Đang lưu...' : 'Lưu thay đổi'}
-              </button>
-            </div>
-          </form>
-        )}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '1.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <Button
+                    type="button"
+                    variant="danger"
+                    size="sm"
+                    disabled={deleteZoneMutation.isPending || zones.length <= 1}
+                    onClick={() => handleDeleteZone(editZoneId, editZoneName)}
+                  >
+                    {deleteZoneMutation.isPending ? 'Đang xóa...' : 'Xóa Zone này'}
+                  </Button>
 
-        {zones.length === 0 ? (
-          <div
-            style={{
-              textAlign: 'center',
-              padding: '1.5rem',
-              color: 'var(--muted)',
-              fontSize: '0.88rem',
-            }}
-          >
-            Nhà kính này chưa có vùng trồng nào.
-          </div>
-        ) : (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: `repeat(${Math.min(zones.length, 2)}, 1fr)`,
-              gap: '1rem',
-            }}
-          >
-            {zones.map((z) => (
-              <ZoneCard
-                key={z.id}
-                zone={z}
-                activeCycle={activeCycleByZone.get(z.id)}
-                profile={z.crop_profile_id ? profilesById.get(z.crop_profile_id) : undefined}
-                reading={readingByZone.get(z.id) ?? null}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* ── 2. PHẦN GỢI Ý CÂY TRỒNG THEO KHÍ HẬU (TÍCH HỢP TRỰC TIẾP) ── */}
-      <div className="card" style={{ marginBottom: '1.5rem' }}>
-        <div className="card-header" style={{ alignItems: 'flex-start' }}>
-          <div>
-            <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              🌱 Gợi ý cây trồng tối ưu theo vi khí hậu
-            </h3>
-            <span className="muted" style={{ fontSize: '0.82rem' }}>
-              Mô hình AI dự đoán loại cây đem lại năng suất cao nhất dựa vào lịch sử nhiệt độ, ẩm độ &amp; ánh sáng thực tế của nhà kính này
-            </span>
-          </div>
-
-          <button
-            type="button"
-            className="btn btn-sm btn-primary"
-            disabled={refreshing || refreshMutation.isPending || !activeModelQuery.data}
-            onClick={() => ghId && refreshMutation.mutate(ghId)}
-          >
-            {refreshing ? '⏳ Đang tính...' : '🔄 Làm mới gợi ý'}
-          </button>
-        </div>
-
-        {refreshMsg && (
-          <div className="alert-banner ok" style={{ marginBottom: '1rem' }}>
-            {refreshMsg}
-          </div>
-        )}
-
-        {/* Tóm tắt điều kiện khí hậu trung bình */}
-        {details?.climate_summary && (
-          <div
-            style={{
-              background: '#f8fafc',
-              border: '1px solid #e2e8f0',
-              borderRadius: 'var(--radius)',
-              padding: '0.75rem 1rem',
-              marginBottom: '1rem',
-              fontSize: '0.84rem',
-            }}
-          >
-            <div style={{ fontWeight: 600, color: 'var(--muted)', marginBottom: '0.4rem', fontSize: '0.76rem', textTransform: 'uppercase' }}>
-              🌤️ Vi khí hậu trung bình đo được tại nhà kính:
-            </div>
-            <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
-              <div>
-                🌡️ Nhiệt độ TB:{' '}
-                <strong>{typeof climate.t_mean === 'number' ? `${climate.t_mean.toFixed(1)} °C` : '—'}</strong>
-                <span className="muted" style={{ fontSize: '0.78rem', marginLeft: '0.35rem' }}>
-                  (Ngày {climate.t_day_mean?.toFixed(1) ?? '—'}°C / Đêm {climate.t_night_mean?.toFixed(1) ?? '—'}°C)
-                </span>
-              </div>
-              <div>
-                💧 Độ ẩm TB:{' '}
-                <strong>{typeof climate.rh_mean === 'number' ? `${climate.rh_mean.toFixed(1)}%` : '—'}</strong>
-              </div>
-              <div>
-                📊 VPD TB:{' '}
-                <strong>{typeof climate.vpd_mean === 'number' ? `${climate.vpd_mean.toFixed(2)} kPa` : '—'}</strong>
-              </div>
-              {typeof climate.dli_mean === 'number' && (
-                <div>
-                  ☀️ Ánh sáng (DLI): <strong>{climate.dli_mean.toFixed(1)} mol/m²/ngày</strong>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <Button type="button" variant="secondary" onClick={() => setShowZoneModal(false)}>
+                      Đóng
+                    </Button>
+                    <Button type="submit" variant="primary" disabled={updateZoneMutation.isPending}>
+                      {updateZoneMutation.isPending ? 'Đang lưu...' : 'Lưu thay đổi'}
+                    </Button>
+                  </div>
                 </div>
-              )}
-            </div>
-          </div>
-        )}
+              </form>
+            )}
 
-        {/* Danh sách xếp hạng cây trồng */}
-        {recQuery.isLoading ? (
-          <div className="muted" style={{ padding: '1rem 0', textAlign: 'center' }}>
-            Đang phân tích khí hậu để gợi ý cây trồng...
-          </div>
-        ) : ranking.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '1.5rem 0', color: 'var(--muted)', fontSize: '0.86rem' }}>
-            Chưa đủ dữ liệu vi khí hậu trong cửa sổ đánh giá để đưa ra bảng xếp hạng. Hãy để cảm biến hoạt động thêm thời gian.
-          </div>
-        ) : (
-          <div className="table-container" style={{ margin: 0 }}>
-            <table>
-              <thead>
-                <tr>
-                  <th style={{ width: '4rem' }}>Hạng</th>
-                  <th>Loại cây</th>
-                  <th>Phù hợp ước tính</th>
-                  <th>Năng suất dự kiến</th>
-                  <th>Khoảng tin cậy</th>
-                  <th>Đánh giá khí hậu</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ranking.map((cand, idx) => (
-                  <tr key={cand.crop_code} style={{ background: idx === 0 ? '#f0fdf4' : undefined }}>
-                    <td>
-                      <span
-                        className={`badge ${idx === 0 ? 'ok' : 'muted'}`}
-                        style={{ fontWeight: 700 }}
-                      >
-                        #{idx + 1}
-                      </span>
-                    </td>
-                    <td>
-                      <strong>{formatCropName(cand.crop_code, cand.crop_name)}</strong>
-                      {idx === 0 && (
-                        <span className="badge ok" style={{ marginLeft: '0.4rem', fontSize: '0.7rem' }}>
-                          Khuyên trồng
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      <strong style={{ color: cand.relative_yield >= 0.8 ? 'var(--success)' : 'inherit' }}>
-                        {Math.round(cand.relative_yield * 100)}%
-                      </strong>
-                    </td>
-                    <td>
-                      <strong>{cand.expected_kg_m2.toFixed(1)} kg/m²</strong>
-                    </td>
-                    <td className="muted" style={{ fontSize: '0.8rem' }}>
-                      {cand.interval[0].toFixed(1)} – {cand.interval[1].toFixed(1)} kg/m²
-                    </td>
-                    <td>
-                      <ul style={{ margin: 0, paddingLeft: '1rem', fontSize: '0.78rem', color: 'var(--muted)' }}>
-                        {cand.reasons.slice(0, 2).map((r, i) => (
-                          <li key={i}>{r}</li>
-                        ))}
-                      </ul>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+            {/* Khối thêm Zone mới */}
+            {showAddZone && (
+              <div
+                style={{
+                  marginTop: '1.5rem',
+                  paddingTop: '1.25rem',
+                  borderTop: '1px solid var(--border-row, #EEECE5)',
+                }}
+              >
+                <h4 style={{ margin: '0 0 0.85rem 0', fontSize: '0.95rem', fontWeight: 600 }}>Thêm Zone mới</h4>
 
-        {rec && (
-          <div className="muted" style={{ fontSize: '0.76rem', marginTop: '0.75rem', textAlign: 'right' }}>
-            Cập nhật lần cuối: {formatDateTimeVi(rec.ts)}
-          </div>
-        )}
-      </div>
+                {addZoneError && (
+                  <div className="alert-banner bad" style={{ marginBottom: '1rem' }}>
+                    {addZoneError}
+                  </div>
+                )}
 
-      {/* ── 3. THÔNG TIN PHỤ TRỢ ── */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: '0.75rem',
-          fontSize: '0.84rem',
-        }}
-      >
-        <div className="card" style={{ padding: '0.75rem 1rem' }}>
-          <div className="muted" style={{ fontSize: '0.75rem', marginBottom: '0.3rem' }}>
-            Trạng thái Gateway
+                <form onSubmit={handleAddZoneSubmit}>
+                  <Field
+                    label="Tên vùng trồng mới *"
+                    type="text"
+                    value={newZoneName}
+                    onChange={(e) => setNewZoneName(e.target.value)}
+                    placeholder="Ví dụ: Khu 3 - Xà lách"
+                    required
+                  />
+
+                  <SelectField
+                    label="Hồ sơ cây trồng mặc định"
+                    value={newZoneProfileId}
+                    onChange={(e) => setNewZoneProfileId(e.target.value)}
+                  >
+                    <option value="">Chưa gắn cây</option>
+                    {(profilesQuery.data ?? []).map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.crop_name}
+                      </option>
+                    ))}
+                  </SelectField>
+
+                  <Field
+                    label="Diện tích"
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    value={newZoneArea}
+                    onChange={(e) => setNewZoneArea(e.target.value)}
+                    unit="m²"
+                    placeholder="20.0"
+                  />
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1rem' }}>
+                    <Button type="button" variant="secondary" size="sm" onClick={() => setShowAddZone(false)}>
+                      Hủy
+                    </Button>
+                    <Button type="submit" variant="primary" size="sm" disabled={addZoneMutation.isPending || !newZoneName.trim()}>
+                      {addZoneMutation.isPending ? 'Đang thêm...' : 'Xác nhận thêm'}
+                    </Button>
+                  </div>
+                </form>
+              </div>
+            )}
           </div>
-          <strong style={{ color: gh.online ? 'var(--success)' : 'var(--danger)' }}>
-            {gh.online ? '● Đang hoạt động' : '○ Ngoại tuyến'}
-          </strong>
         </div>
-        <div className="card" style={{ padding: '0.75rem 1rem' }}>
-          <div className="muted" style={{ fontSize: '0.75rem', marginBottom: '0.3rem' }}>
-            Số vùng trồng
-          </div>
-          <strong>{zones.length} zone</strong>
-        </div>
-        <div className="card" style={{ padding: '0.75rem 1rem' }}>
-          <div className="muted" style={{ fontSize: '0.75rem', marginBottom: '0.3rem' }}>
-            Cảnh báo đang mở
-          </div>
-          <strong style={{ color: gh.open_alerts > 0 ? 'var(--danger)' : 'var(--success)' }}>
-            {gh.open_alerts} cảnh báo
-          </strong>
-        </div>
-      </div>
+      )}
     </div>
   )
 }
-

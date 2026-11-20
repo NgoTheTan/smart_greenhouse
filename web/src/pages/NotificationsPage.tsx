@@ -113,9 +113,9 @@ export default function NotificationsPage() {
     <div>
       <div className="page-header">
         <div>
-          <h2>📲 Cài đặt Thông báo &amp; Web Push</h2>
+          <h2>Cài đặt Thông báo &amp; Web Push</h2>
           <p className="muted" style={{ margin: 0 }}>
-            Quản lý đăng ký Web Push (VAPID) trên thiết bị này và tuỳ chọn kênh nhận cảnh báo cá nhân
+            Quản lý đăng ký Web Push trên thiết bị này và tuỳ chọn kênh nhận cảnh báo cá nhân
           </p>
         </div>
       </div>
@@ -123,7 +123,7 @@ export default function NotificationsPage() {
       {/* Khối Web Push */}
       <div className="card">
         <div className="card-header">
-          <h3>🔔 Thông báo đẩy Web Push (Service Worker + VAPID)</h3>
+          <h3>Thông báo đẩy Web Push</h3>
           <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
             <span className={`badge ${permission === 'granted' ? 'ok' : 'warning'}`}>
               Quyền trình duyệt: {permLabel}
@@ -154,7 +154,7 @@ export default function NotificationsPage() {
             onClick={handleSubscribe}
             disabled={pushBusy}
           >
-            {pushBusy ? 'Đang xử lý...' : '🔔 Bật thông báo đẩy (Web Push)'}
+            {pushBusy ? 'Đang xử lý...' : 'Bật thông báo đẩy'}
           </button>
 
           {hasSubscription && (
@@ -179,7 +179,7 @@ export default function NotificationsPage() {
           }}
         >
           <h4 style={{ margin: '0 0 0.5rem' }}>
-            🍎 Hướng dẫn riêng cho iPhone / iPad (iOS 16.4 trở lên)
+            Hướng dẫn riêng cho iPhone / iPad
           </h4>
           <ol
             style={{
@@ -194,22 +194,22 @@ export default function NotificationsPage() {
           >
             <li>Mở GreenHub bằng trình duyệt Safari qua HTTPS.</li>
             <li>
-              Bấm biểu tượng <strong>Chia sẻ (Share)</strong> và chọn{' '}
-              <strong>&quot;Thêm vào Màn hình chính&quot; (Add to Home Screen)</strong>.
+              Bấm biểu tượng <strong>Chia sẻ</strong> và chọn{' '}
+              <strong>&quot;Thêm vào Màn hình chính&quot;</strong>.
             </li>
             <li>Mở ứng dụng GreenHub từ biểu tượng trên màn hình chính rồi bấm nút bật Web Push ở trên.</li>
           </ol>
         </div>
 
         <div className="muted" style={{ fontSize: '0.8rem' }}>
-          <strong>Lưu ý giới hạn:</strong> Web Push phụ thuộc dịch vụ đẩy của trình duyệt và có thể bị ẩn khi bật chế độ <em>Không làm phiền (DND)</em>. Vì vậy, với cảnh báo mức <code>critical</code> chưa được xác nhận, hệ thống luôn có lớp dự phòng qua <strong>Email leo thang</strong> và <strong>Buzzer trên Gateway</strong>.
+          <strong>Lưu ý giới hạn:</strong> Web Push phụ thuộc dịch vụ đẩy của trình duyệt và có thể bị ẩn khi bật chế độ <em>Không làm phiền</em>. Vì vậy, với cảnh báo mức <code>critical</code> chưa được xác nhận, hệ thống luôn có lớp dự phòng qua <strong>Email leo thang</strong> và <strong>Buzzer trên Gateway</strong>.
         </div>
       </div>
 
       {/* Khối Tuỳ chọn nhận thông báo */}
       <div className="card">
         <div className="card-header">
-          <h3>⚙️ Tuỳ chọn nhận thông báo tài khoản</h3>
+          <h3>Tuỳ chọn nhận thông báo tài khoản</h3>
         </div>
 
         {prefsQuery.isError && (
@@ -260,9 +260,9 @@ export default function NotificationsPage() {
               value={minSeverity}
               onChange={(e) => setMinSeverity(e.target.value as AlertSeverity)}
             >
-              <option value="info">Info (Tất cả cảnh báo)</option>
-              <option value="warning">Warning (Cảnh báo &amp; Nghiêm trọng)</option>
-              <option value="critical">Critical (Chỉ sự cố nghiêm trọng)</option>
+              <option value="info">Info</option>
+              <option value="warning">Warning</option>
+              <option value="critical">Critical</option>
             </select>
           </div>
         </div>
@@ -273,7 +273,7 @@ export default function NotificationsPage() {
           onClick={handleSavePrefs}
           disabled={updatePrefsMutation.isPending || prefsQuery.isLoading}
         >
-          {updatePrefsMutation.isPending ? 'Đang lưu...' : '💾 Lưu tuỳ chọn thông báo'}
+          {updatePrefsMutation.isPending ? 'Đang lưu...' : 'Lưu tuỳ chọn thông báo'}
         </button>
       </div>
     </div>

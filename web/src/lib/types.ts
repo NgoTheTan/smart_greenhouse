@@ -410,10 +410,10 @@ export const ACTUATOR_LABELS: Record<ActuatorName, string> = {
 
 export const QUALITY_LABELS: Record<string, string> = {
   ok: 'Hợp lệ',
-  stuck: 'Cảm biến bị kẹt (Stuck)',
-  spike: 'Nhiễu đột biến (Spike)',
-  dropout: 'Mất tín hiệu / Thiếu dữ liệu (Dropout)',
-  out_of_range: 'Ngoài dải vật lý (Out of range)',
+  stuck: 'Cảm biến bị kẹt',
+  spike: 'Nhiễu đột biến',
+  dropout: 'Mất tín hiệu / Thiếu dữ liệu',
+  out_of_range: 'Ngoài dải vật lý',
 }
 
 export function hasMinRole(role: string | undefined | null, _minRole?: UserRole | string): boolean {

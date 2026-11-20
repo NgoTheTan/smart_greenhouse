@@ -1,7 +1,8 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, formatApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
+import { Button, Card, Field } from '../components/ui'
 import type { CropParameters, CropProfile, Greenhouse, Zone } from '../lib/types'
 
 export default function CropProfilesPage() {
@@ -34,11 +35,19 @@ export default function CropProfilesPage() {
   const [assignZoneId, setAssignZoneId] = useState('')
   const [assignMsg, setAssignMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
-  useEffect(() => {
-    if (!selectedId && profiles.length > 0) {
-      setSelectedId(profiles[0].id)
+  const displayProfiles = useMemo(() => {
+    const hasNonDemo = profiles.some((p) => p.variety !== 'demo')
+    if (hasNonDemo) {
+      return profiles.filter((p) => p.variety !== 'demo')
     }
-  }, [profiles, selectedId])
+    return profiles
+  }, [profiles])
+
+  useEffect(() => {
+    if (!selectedId && displayProfiles.length > 0) {
+      setSelectedId(displayProfiles[0].id)
+    }
+  }, [displayProfiles, selectedId])
 
   useEffect(() => {
     if (!assignZoneId && allZones.length > 0) {
@@ -48,11 +57,21 @@ export default function CropProfilesPage() {
 
   const selectedProfile = profiles.find((p) => p.id === selectedId) ?? null
 
+  const handleResetForm = () => {
+    if (selectedProfile) {
+      setCropName(selectedProfile.crop_name)
+      setVariety(selectedProfile.variety || 'real')
+      setParams(structuredClone(selectedProfile.parameters_json))
+      setSaveMsg(null)
+    }
+  }
+
   useEffect(() => {
     if (selectedProfile) {
       setCropName(selectedProfile.crop_name)
       setVariety(selectedProfile.variety || 'real')
       setParams(structuredClone(selectedProfile.parameters_json))
+      setSaveMsg(null)
     }
   }, [selectedProfile])
 
@@ -74,7 +93,7 @@ export default function CropProfilesPage() {
       setSelectedId(updated.id)
       setSaveMsg({
         ok: true,
-        text: `Đã lưu Crop Profile "${updated.crop_name}"! Phiên bản cấu hình cfg đã được tăng và đồng bộ xuống Gateway.`,
+        text: `Đã lưu hồ sơ "${updated.crop_name}" thành công! Phiên bản cấu hình đã được đồng bộ xuống Gateway.`,
       })
       void queryClient.invalidateQueries({ queryKey: ['crop-profiles'] })
       void queryClient.invalidateQueries({ queryKey: ['greenhouses'] })
@@ -94,7 +113,7 @@ export default function CropProfilesPage() {
     onSuccess: (z) => {
       setAssignMsg({
         ok: true,
-        text: `Đã gán profile cho ${z.name || `Zone ${z.zone_index}`} và đồng bộ cấu hình xuống Gateway.`,
+        text: `Đã gán hồ sơ cho ${z.name || `Zone ${z.zone_index}`} và đồng bộ cấu hình xuống Gateway.`,
       })
       void queryClient.invalidateQueries({ queryKey: ['greenhouses'] })
       void queryClient.invalidateQueries({ queryKey: ['zone', z.id] })
@@ -121,12 +140,11 @@ export default function CropProfilesPage() {
 
   return (
     <div>
+      {/* Header trang Hồ sơ cây trồng chuẩn theo ảnh thiết kế */}
       <div className="page-header">
         <div>
-          <h2>🌿 Hồ sơ Cây trồng (Crop Profiles)</h2>
-          <p className="muted" style={{ margin: 0 }}>
-            Quản lý 10 bộ template hệ thống (5 cây × <code>real</code>/<code>demo</code>) và cấu hình ngưỡng sinh học cho từng Zone
-          </p>
+          <h2>Hồ sơ cây trồng</h2>
+          <p className="muted">Template hệ thống và ngưỡng sinh học cho từng zone.</p>
         </div>
       </div>
 
@@ -136,686 +154,516 @@ export default function CropProfilesPage() {
         </div>
       )}
 
-      {/* Danh sách Profile */}
-      <div className="card">
-        <div className="card-header">
-          <h3>📚 Danh sách Crop Profiles</h3>
-          <span className="badge info">{profiles.length} hồ sơ</span>
-        </div>
-
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem' }}>
-          {profiles.map((p) => {
-            const active = p.id === selectedId
-            return (
-              <button
-                key={p.id}
-                type="button"
-                className={`btn btn-sm ${active ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => {
-                  setSelectedId(p.id)
-                  setSaveMsg(null)
-                }}
-              >
-                <span>{p.crop_name}</span>
-                <span className="badge muted" style={{ fontSize: '0.68rem', padding: '0.05rem 0.35rem' }}>
-                  {p.variety || 'real'}
-                </span>
-                {p.farm_id && (
-                  <span className="badge info" style={{ fontSize: '0.68rem', padding: '0.05rem 0.35rem' }}>
-                    Riêng
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </div>
-
-        {/* Gán Profile cho Zone */}
-        {selectedProfile && allZones.length > 0 && (
+      {/* Bố cục 2 cột chuẩn theo ảnh thiết kế */}
+      <div className="crop-profile-layout">
+        {/* Cột trái: Danh sách hồ sơ */}
+        <Card style={{ padding: '1rem' }}>
           <div
             style={{
-              background: '#f8fafc',
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius)',
-              padding: '0.85rem',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              gap: '0.75rem',
-              flexWrap: 'wrap',
+              marginBottom: '0.75rem',
+              paddingBottom: '0.5rem',
+              borderBottom: '1px solid var(--border-row, #EEECE5)',
             }}
           >
-            <div style={{ fontSize: '0.84rem' }}>
-              <strong>Gán hồ sơ đang chọn cho Zone:</strong>{' '}
-              <span className="muted">
-                (Lưu ý: nếu Zone đang có vụ active, crop profile của Zone được cố định theo vụ.)
-              </span>
-            </div>
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <select
-                style={{ width: 'auto', minWidth: 220 }}
-                value={assignZoneId}
-                onChange={(e) => setAssignZoneId(e.target.value)}
-              >
-                {allZones.map((z) => (
-                  <option key={z.id} value={z.id}>
-                    {z.greenhouseName} – {z.name || `Zone ${z.zone_index}`}
-                  </option>
-                ))}
-              </select>
-              {isOwner && (
-                <button
-                  type="button"
-                  className="btn btn-sm btn-primary"
-                  disabled={assignMutation.isPending}
-                  onClick={() =>
-                    assignMutation.mutate({ zoneId: assignZoneId, profileId: selectedProfile.id })
-                  }
+            <h3 style={{ margin: 0, fontSize: '0.92rem', fontWeight: 600, color: 'var(--text-main, #1C211E)' }}>
+              Danh sách hồ sơ
+            </h3>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted, #626861)' }}>
+              {displayProfiles.length} hồ sơ
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+            {displayProfiles.map((p) => {
+              const active = p.id === selectedId
+              return (
+                <div
+                  key={p.id}
+                  onClick={() => {
+                    setSelectedId(p.id)
+                    setSaveMsg(null)
+                  }}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: 'var(--radius-input, 6px)',
+                    cursor: 'pointer',
+                    fontSize: '0.88rem',
+                    fontWeight: active ? 600 : 400,
+                    backgroundColor: active ? 'var(--item-selected, #E8F0EA)' : 'transparent',
+                    color: active ? 'var(--accent, #1E6B47)' : 'var(--text-main, #1C211E)',
+                    transition: 'background-color 0.15s ease',
+                  }}
                 >
-                  Gán cho Zone này
-                </button>
+                  {p.crop_name}
+                </div>
+              )
+            })}
+          </div>
+        </Card>
+
+        {/* Cột phải: Chi tiết hồ sơ và các thông số sinh học */}
+        {selectedProfile && params && (
+          <Card style={{ padding: '1.5rem' }}>
+            {/* Header chi tiết cây & Gán cho Zone */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                justifyContent: 'space-between',
+                gap: '1.5rem',
+                paddingBottom: '1.25rem',
+                borderBottom: '1px solid var(--border-row, #EEECE5)',
+                flexWrap: 'wrap',
+              }}
+            >
+              <div>
+                <h3
+                  style={{
+                    margin: '0 0 0.25rem 0',
+                    fontSize: '1.4rem',
+                    fontWeight: 700,
+                    color: 'var(--text-main, #1C211E)',
+                  }}
+                >
+                  {selectedProfile.crop_name}
+                </h3>
+                <div style={{ fontSize: '0.84rem', color: 'var(--text-muted, #626861)' }}>
+                  <span className="font-mono">{selectedProfile.crop_code}</span> · Template hệ thống
+                </div>
+              </div>
+
+              {allZones.length > 0 && (
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted, #626861)', marginBottom: '0.35rem' }}>
+                    Gán hồ sơ cho zone
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <select
+                      value={assignZoneId}
+                      onChange={(e) => setAssignZoneId(e.target.value)}
+                      style={{ minHeight: '36px', height: '36px', minWidth: '240px', fontSize: '0.82rem' }}
+                    >
+                      {allZones.map((z) => (
+                        <option key={z.id} value={z.id}>
+                          {z.greenhouseName} – {z.name || `Zone ${z.zone_index}`}
+                        </option>
+                      ))}
+                    </select>
+                    {isOwner && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={assignMutation.isPending}
+                        onClick={() =>
+                          assignMutation.mutate({ zoneId: assignZoneId, profileId: selectedProfile.id })
+                        }
+                      >
+                        Gán cho zone này
+                      </Button>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '0.76rem', color: 'var(--text-muted, #626861)', marginTop: '0.35rem' }}>
+                    Nếu zone đang có vụ active, hồ sơ của zone được cố định theo vụ.
+                  </div>
+                </div>
               )}
             </div>
-          </div>
-        )}
 
-        {assignMsg && (
-          <div
-            className={`alert-banner ${assignMsg.ok ? 'ok' : 'bad'}`}
-            style={{ marginTop: '0.75rem' }}
-          >
-            {assignMsg.text}
-          </div>
-        )}
-      </div>
-
-      {/* Form chỉnh sửa schema_version = 2 */}
-      {selectedProfile && params && (
-        <div className="card">
-          <div className="card-header">
-            <div>
-              <h3>
-                ⚙️ Tham số chi tiết (<code>schema_version = 2</code>)
-              </h3>
-              <span className="muted" style={{ fontSize: '0.8rem' }}>
-                Mã cây (chỉ đọc): <code>{selectedProfile.crop_code}</code> • Phân loại:{' '}
-                <code>{selectedProfile.variety || 'real'}</code>
-                {selectedProfile.farm_id === null &&
-                  ' • Đang xem Template hệ thống (khi sửa sẽ tự tạo bản sao riêng cho Farm)'}
-              </span>
-            </div>
-          </div>
-
-          {saveMsg && (
-            <div
-              className={`alert-banner ${saveMsg.ok ? 'ok' : 'bad'}`}
-              style={{ marginBottom: '1rem' }}
-            >
-              {saveMsg.text}
-            </div>
-          )}
-
-          <form onSubmit={handleSave}>
-            <div className="grid grid-cols-3" style={{ marginBottom: '1rem' }}>
-              <div className="form-group">
-                <label>Tên hiển thị tiếng Việt</label>
-                <input
-                  type="text"
-                  value={cropName}
-                  onChange={(e) => setCropName(e.target.value)}
-                  disabled={!isOwner}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>Mã cây (<code>crop_code</code>)</label>
-                <input type="text" value={selectedProfile.crop_code} disabled />
-              </div>
-              <div className="form-group">
-                <label>Biến thể / Chế độ (<code>variety</code>)</label>
-                <input
-                  type="text"
-                  value={variety}
-                  onChange={(e) => setVariety(e.target.value)}
-                  disabled={!isOwner}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2" style={{ gap: '1.25rem' }}>
-              {/* 1. VPD & Nhiệt độ & DLI */}
-              <div className="subpanel">
-                <h4>1. Vi khí hậu (VPD, Nhiệt độ, DLI)</h4>
-                <div className="grid grid-cols-2">
-                  <div className="form-group">
-                    <label>VPD tối ưu Min (kPa)</label>
-                    <input
-                      type="number"
-                      step="0.05"
-                      value={params.vpd.optimal[0]}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          vpd: {
-                            ...params.vpd,
-                            optimal: [Number(e.target.value), params.vpd.optimal[1]],
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>VPD tối ưu Max (kPa)</label>
-                    <input
-                      type="number"
-                      step="0.05"
-                      value={params.vpd.optimal[1]}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          vpd: {
-                            ...params.vpd,
-                            optimal: [params.vpd.optimal[0], Number(e.target.value)],
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>VPD Low Crit (kPa)</label>
-                    <input
-                      type="number"
-                      step="0.05"
-                      value={params.vpd.low_crit}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({ ...params, vpd: { ...params.vpd, low_crit: Number(e.target.value) } })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>VPD Low Off (kPa)</label>
-                    <input
-                      type="number"
-                      step="0.05"
-                      value={params.vpd.low_off}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({ ...params, vpd: { ...params.vpd, low_off: Number(e.target.value) } })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>VPD High Crit (kPa)</label>
-                    <input
-                      type="number"
-                      step="0.05"
-                      value={params.vpd.high_crit}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({ ...params, vpd: { ...params.vpd, high_crit: Number(e.target.value) } })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Leaf Offset (°C)</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={params.vpd.leaf_offset_c}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          vpd: { ...params.vpd, leaf_offset_c: Number(e.target.value) },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Nhiệt độ tối ưu Min (°C)</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={params.temp_c.optimal[0]}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          temp_c: {
-                            optimal: [Number(e.target.value), params.temp_c.optimal[1]],
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Nhiệt độ tối ưu Max (°C)</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={params.temp_c.optimal[1]}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          temp_c: {
-                            optimal: [params.temp_c.optimal[0], Number(e.target.value)],
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>DLI tối ưu Min (mol/m²/ngày)</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={params.light.dli_optimal[0]}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          light: {
-                            dli_optimal: [Number(e.target.value), params.light.dli_optimal[1]],
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>DLI tối ưu Max (mol/m²/ngày)</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={params.light.dli_optimal[1]}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          light: {
-                            dli_optimal: [params.light.dli_optimal[0], Number(e.target.value)],
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* 2. Ẩm đất, Tưới, Quạt, Tạo ẩm */}
-              <div className="subpanel">
-                <h4>2. Ẩm đất, Tưới &amp; Điều khiển Hysteresis</h4>
-                <div className="grid grid-cols-2">
-                  <div className="form-group">
-                    <label>Ẩm đất Min – Bật bơm (%)</label>
-                    <input
-                      type="number"
-                      step="1"
-                      value={params.soil_moisture_pct.min}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          soil_moisture_pct: {
-                            ...params.soil_moisture_pct,
-                            min: Number(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Ẩm đất Max – Ngắt bơm (%)</label>
-                    <input
-                      type="number"
-                      step="1"
-                      value={params.soil_moisture_pct.max}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          soil_moisture_pct: {
-                            ...params.soil_moisture_pct,
-                            max: Number(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Tưới tối đa 1 lần (s)</label>
-                    <input
-                      type="number"
-                      value={params.irrigation.max_run_s}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          irrigation: { ...params.irrigation, max_run_s: Number(e.target.value) },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Khoảng nghỉ tối thiểu (s)</label>
-                    <input
-                      type="number"
-                      value={params.irrigation.min_gap_s}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          irrigation: { ...params.irrigation, min_gap_s: Number(e.target.value) },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Tổng tưới tối đa / giờ (s)</label>
-                    <input
-                      type="number"
-                      value={params.irrigation.max_total_s_per_hour}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          irrigation: {
-                            ...params.irrigation,
-                            max_total_s_per_hour: Number(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Chờ đất thấm (<code>soil_settle_s</code>)</label>
-                    <input
-                      type="number"
-                      value={params.irrigation.soil_settle_s}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          irrigation: {
-                            ...params.irrigation,
-                            soil_settle_s: Number(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Quạt Min On (s)</label>
-                    <input
-                      type="number"
-                      value={params.fan.min_on_s}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          fan: { ...params.fan, min_on_s: Number(e.target.value) },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Quạt Max On (s)</label>
-                    <input
-                      type="number"
-                      value={params.fan.max_on_s}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          fan: { ...params.fan, max_on_s: Number(e.target.value) },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Tạo ẩm Max On (s)</label>
-                    <input
-                      type="number"
-                      value={params.mist.max_on_s}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          mist: { ...params.mist, max_on_s: Number(e.target.value) },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Khoá tạo ẩm sau quạt (<code>lockout_s</code>)</label>
-                    <input
-                      type="number"
-                      value={params.mist.lockout_s}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          mist: { ...params.mist, lockout_s: Number(e.target.value) },
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* 3. Bệnh cây, Rủi ro, Lấy mẫu & Failsafe */}
-              <div className="subpanel">
-                <h4>3. Rủi ro nấm bệnh, Chu kỳ đo &amp; Failsafe</h4>
-                <div className="grid grid-cols-2">
-                  <div className="form-group">
-                    <label>Ngưỡng RH nấm bệnh (&gt; %)</label>
-                    <input
-                      type="number"
-                      value={params.disease.rh_gt}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          disease: { ...params.disease, rh_gt: Number(e.target.value) },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Thời gian nấm cảnh báo (phút)</label>
-                    <input
-                      type="number"
-                      value={params.disease.fungal_minutes_alert}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          disease: {
-                            ...params.disease,
-                            fungal_minutes_alert: Number(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>VPD thấp kéo dài (phút)</label>
-                    <input
-                      type="number"
-                      value={params.risk.vpd_low_duration_min}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          risk: { vpd_low_duration_min: Number(e.target.value) },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Chu kỳ gửi mẫu Node (<code>sample_interval_s</code>)</label>
-                    <input
-                      type="number"
-                      value={params.sample_interval_s}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({ ...params, sample_interval_s: Number(e.target.value) })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Failsafe Nhiệt cao nguy hiểm (°C)</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={params.failsafe.temp_critical_high_c}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          failsafe: {
-                            ...params.failsafe,
-                            temp_critical_high_c: Number(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Failsafe Ẩm đất cạn nguy hiểm (%)</label>
-                    <input
-                      type="number"
-                      step="1"
-                      value={params.failsafe.soil_moisture_critical_low_pct}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          failsafe: {
-                            ...params.failsafe,
-                            soil_moisture_critical_low_pct: Number(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* 4. Vụ trồng, Năng suất tham chiếu & AI */}
-              <div className="subpanel">
-                <h4>4. Vụ trồng, Năng suất tham chiếu &amp; Tham số AI</h4>
-                <div className="grid grid-cols-2">
-                  <div className="form-group">
-                    <label>Độ dài vụ dự kiến (<code>cycle.days</code>)</label>
-                    <input
-                      type="number"
-                      value={params.cycle.days}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({ ...params, cycle: { days: Number(e.target.value) } })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Năng suất tham chiếu (<code>yield.reference_kg_m2</code>)</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={params.yield.reference_kg_m2}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          yield: { reference_kg_m2: Number(e.target.value) },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Cửa sổ gợi ý cây (giờ)</label>
-                    <input
-                      type="number"
-                      value={params.ai.recommend_window_h}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          ai: { ...params.ai, recommend_window_h: Number(e.target.value) },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Giờ tối thiểu để dự báo vụ (<code>min_cycle_hours</code>)</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={params.ai.min_cycle_hours}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          ai: { ...params.ai, min_cycle_hours: Number(e.target.value) },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Chu kỳ suy luận AI (s)</label>
-                    <input
-                      type="number"
-                      value={params.ai.inference_interval_s}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          ai: { ...params.ai, inference_interval_s: Number(e.target.value) },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Độ phủ tối thiểu (<code>min_coverage</code>)</label>
-                    <input
-                      type="number"
-                      step="0.05"
-                      min="0.1"
-                      max="1"
-                      value={params.ai.min_coverage}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setParams({
-                          ...params,
-                          ai: { ...params.ai, min_coverage: Number(e.target.value) },
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-                <p className="muted" style={{ fontSize: '0.78rem', margin: '0.25rem 0 0' }}>
-                  <strong>Ghi chú năng suất tham chiếu:</strong> Giá trị này dùng để quy đổi năng suất tương đối (<code>relative_yield</code>) của mô hình AI ra kg/m² (mô hình toàn cục sử dụng giá trị tham chiếu đã lưu trong mô hình lúc huấn luyện).
-                </p>
-              </div>
-            </div>
-
-            {isOwner && (
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.25rem' }}>
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={saveMutation.isPending}
-                >
-                  {saveMutation.isPending ? 'Đang lưu & đồng bộ...' : '💾 Lưu hồ sơ & Đồng bộ CFG'}
-                </button>
+            {assignMsg && (
+              <div
+                className={`alert-banner ${assignMsg.ok ? 'ok' : 'bad'}`}
+                style={{ marginTop: '1rem', marginBottom: '1rem' }}
+              >
+                {assignMsg.text}
               </div>
             )}
-          </form>
-        </div>
-      )}
+            {saveMsg && (
+              <div
+                className={`alert-banner ${saveMsg.ok ? 'ok' : 'bad'}`}
+                style={{ marginTop: '1rem', marginBottom: '1rem' }}
+              >
+                {saveMsg.text}
+              </div>
+            )}
+
+            <form onSubmit={handleSave} style={{ marginTop: '1.25rem' }}>
+              {/* Mục 1: Thông tin chung */}
+              <div style={{ marginBottom: '1.75rem' }}>
+                <h4 style={{ margin: '0 0 0.85rem 0', fontSize: '0.96rem', fontWeight: 600 }}>
+                  Thông tin chung
+                </h4>
+                <div className="field-grid-3">
+                  <Field
+                    label="Tên hiển thị tiếng Việt"
+                    type="text"
+                    value={cropName}
+                    onChange={(e) => setCropName(e.target.value)}
+                    required
+                  />
+
+                  <Field
+                    label="Mã cây (crop_code)"
+                    type="text"
+                    value={selectedProfile.crop_code}
+                    disabled
+                    inputStyle={{ fontFamily: 'var(--font-mono)' }}
+                  />
+
+                  <Field
+                    label="Biến thể / chế độ (variety)"
+                    type="text"
+                    value={variety}
+                    onChange={(e) => setVariety(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Mục 2: Vi khí hậu (VPD) */}
+              <div
+                style={{
+                  borderTop: '1px solid var(--border-row, #EEECE5)',
+                  paddingTop: '1.5rem',
+                  marginBottom: '1.75rem',
+                }}
+              >
+                <h4 style={{ margin: '0 0 0.2rem 0', fontSize: '0.96rem', fontWeight: 600 }}>
+                  Vi khí hậu (VPD)
+                </h4>
+                <p style={{ margin: '0 0 1rem 0', fontSize: '0.82rem', color: 'var(--text-muted, #626861)' }}>
+                  Dải VPD theo các ngưỡng đang cấu hình.
+                </p>
+
+                {/* Thanh phân dải màu VPD trực quan chuẩn theo ảnh */}
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <div
+                    style={{
+                      height: '8px',
+                      borderRadius: '4px',
+                      display: 'flex',
+                      overflow: 'hidden',
+                      marginBottom: '6px',
+                    }}
+                  >
+                    <div style={{ flex: '1.2', backgroundColor: '#C87A64' }} />
+                    <div style={{ flex: '1', backgroundColor: '#E0CF98' }} />
+                    <div style={{ flex: '1.6', backgroundColor: '#1E6B47' }} />
+                    <div style={{ flex: '1', backgroundColor: '#E0CF98' }} />
+                    <div style={{ flex: '1.2', backgroundColor: '#C87A64' }} />
+                  </div>
+                  <div
+                    style={{
+                      position: 'relative',
+                      height: '16px',
+                      fontSize: '0.74rem',
+                      color: 'var(--text-muted, #626861)',
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    <span style={{ position: 'absolute', left: '20%', transform: 'translateX(-50%)' }}>0.4</span>
+                    <span style={{ position: 'absolute', left: '36.5%', transform: 'translateX(-50%)' }}>0.8</span>
+                    <span style={{ position: 'absolute', left: '63.5%', transform: 'translateX(-50%)' }}>1.2</span>
+                    <span style={{ position: 'absolute', left: '80%', transform: 'translateX(-50%)' }}>1.6 kPa</span>
+                  </div>
+
+                  {/* Legend chú thích chuẩn theo ảnh */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: '1.25rem',
+                      fontSize: '0.78rem',
+                      color: 'var(--text-muted, #626861)',
+                      marginTop: '0.5rem',
+                    }}
+                  >
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                      <span style={{ width: 8, height: 8, backgroundColor: '#1E6B47', borderRadius: 1 }} />
+                      <span>Tối ưu</span>
+                    </div>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                      <span style={{ width: 8, height: 8, backgroundColor: '#E0CF98', borderRadius: 1 }} />
+                      <span>Lệch ngưỡng</span>
+                    </div>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                      <span style={{ width: 8, height: 8, backgroundColor: '#C87A64', borderRadius: 1 }} />
+                      <span>Nguy hiểm</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="field-grid-4" style={{ marginBottom: '0.75rem' }}>
+                  <Field
+                    label="VPD tối ưu – Min"
+                    type="number"
+                    step="0.05"
+                    value={params.vpd.optimal[0]}
+                    onChange={(e) => {
+                      const v = Number(e.target.value)
+                      setParams((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              vpd: { ...prev.vpd, optimal: [v, prev.vpd.optimal[1]] },
+                            }
+                          : null,
+                      )
+                    }}
+                    unit="kPa"
+                    required
+                  />
+
+                  <Field
+                    label="VPD tối ưu – Max"
+                    type="number"
+                    step="0.05"
+                    value={params.vpd.optimal[1]}
+                    onChange={(e) => {
+                      const v = Number(e.target.value)
+                      setParams((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              vpd: { ...prev.vpd, optimal: [prev.vpd.optimal[0], v] },
+                            }
+                          : null,
+                      )
+                    }}
+                    unit="kPa"
+                    required
+                  />
+
+                  <Field
+                    label="Leaf offset"
+                    type="number"
+                    step="0.1"
+                    value={params.vpd.leaf_offset_c}
+                    onChange={(e) => {
+                      const v = Number(e.target.value)
+                      setParams((prev) =>
+                        prev ? { ...prev, vpd: { ...prev.vpd, leaf_offset_c: v } } : null,
+                      )
+                    }}
+                    unit="°C"
+                    required
+                  />
+
+                  <Field
+                    label="VPD Low Crit"
+                    type="number"
+                    step="0.05"
+                    value={params.vpd.low_crit}
+                    onChange={(e) => {
+                      const v = Number(e.target.value)
+                      setParams((prev) =>
+                        prev ? { ...prev, vpd: { ...prev.vpd, low_crit: v } } : null,
+                      )
+                    }}
+                    unit="kPa"
+                    required
+                  />
+                </div>
+
+                <div className="field-grid-4">
+                  <Field
+                    label="VPD Low Off"
+                    type="number"
+                    step="0.05"
+                    value={params.vpd.low_off}
+                    onChange={(e) => {
+                      const v = Number(e.target.value)
+                      setParams((prev) =>
+                        prev ? { ...prev, vpd: { ...prev.vpd, low_off: v } } : null,
+                      )
+                    }}
+                    unit="kPa"
+                    required
+                  />
+
+                  <Field
+                    label="VPD High Crit"
+                    type="number"
+                    step="0.05"
+                    value={params.vpd.high_crit}
+                    onChange={(e) => {
+                      const v = Number(e.target.value)
+                      setParams((prev) =>
+                        prev ? { ...prev, vpd: { ...prev.vpd, high_crit: v } } : null,
+                      )
+                    }}
+                    unit="kPa"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Mục 3: Ẩm đất, tưới & hysteresis */}
+              <div
+                style={{
+                  borderTop: '1px solid var(--border-row, #EEECE5)',
+                  paddingTop: '1.5rem',
+                  marginBottom: '1.75rem',
+                }}
+              >
+                <h4 style={{ margin: '0 0 0.2rem 0', fontSize: '0.96rem', fontWeight: 600 }}>
+                  Ẩm đất, tưới &amp; hysteresis
+                </h4>
+                <p style={{ margin: '0 0 1rem 0', fontSize: '0.82rem', color: 'var(--text-muted, #626861)' }}>
+                  Bơm bật khi ẩm đất xuống dưới ngưỡng Min và ngắt khi đạt ngưỡng Max.
+                </p>
+
+                <div className="field-grid-4" style={{ marginBottom: '0.75rem' }}>
+                  <Field
+                    label="Ẩm đất Min – bật bơm"
+                    type="number"
+                    value={params.soil_moisture_pct.min}
+                    onChange={(e) => {
+                      const v = Number(e.target.value)
+                      setParams((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              soil_moisture_pct: { ...prev.soil_moisture_pct, min: v },
+                            }
+                          : null,
+                      )
+                    }}
+                    unit="%"
+                    required
+                  />
+
+                  <Field
+                    label="Ẩm đất Max – ngắt bơm"
+                    type="number"
+                    value={params.soil_moisture_pct.max}
+                    onChange={(e) => {
+                      const v = Number(e.target.value)
+                      setParams((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              soil_moisture_pct: { ...prev.soil_moisture_pct, max: v },
+                            }
+                          : null,
+                      )
+                    }}
+                    unit="%"
+                    required
+                  />
+
+                  <Field
+                    label="Chờ đất thấm (soil_settle_s)"
+                    type="number"
+                    value={params.irrigation.soil_settle_s}
+                    onChange={(e) => {
+                      const v = Number(e.target.value)
+                      setParams((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              irrigation: { ...prev.irrigation, soil_settle_s: v },
+                            }
+                          : null,
+                      )
+                    }}
+                    unit="giây"
+                    required
+                  />
+
+                  <Field
+                    label="Tưới tối đa 1 lần"
+                    type="number"
+                    value={params.irrigation.max_run_s}
+                    onChange={(e) => {
+                      const v = Number(e.target.value)
+                      setParams((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              irrigation: { ...prev.irrigation, max_run_s: v },
+                            }
+                          : null,
+                      )
+                    }}
+                    unit="giây"
+                    required
+                  />
+                </div>
+
+                <div className="field-grid-4">
+                  <Field
+                    label="Khoảng nghỉ tối thiểu"
+                    type="number"
+                    value={params.irrigation.min_gap_s}
+                    onChange={(e) => {
+                      const v = Number(e.target.value)
+                      setParams((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              irrigation: { ...prev.irrigation, min_gap_s: v },
+                            }
+                          : null,
+                      )
+                    }}
+                    unit="giây"
+                    required
+                  />
+
+                  <Field
+                    label="Tổng tưới tối đa / giờ"
+                    type="number"
+                    value={params.irrigation.max_total_s_per_hour}
+                    onChange={(e) => {
+                      const v = Number(e.target.value)
+                      setParams((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              irrigation: { ...prev.irrigation, max_total_s_per_hour: v },
+                            }
+                          : null,
+                      )
+                    }}
+                    unit="giây"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Hàng nút bấm cuối form: Hoàn tác & Lưu thay đổi chuẩn theo ảnh */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  gap: '0.75rem',
+                  borderTop: '1px solid var(--border-row, #EEECE5)',
+                  paddingTop: '1.25rem',
+                }}
+              >
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handleResetForm}
+                >
+                  Hoàn tác
+                </Button>
+                {isOwner && (
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    disabled={saveMutation.isPending}
+                  >
+                    {saveMutation.isPending ? 'Đang lưu...' : 'Lưu thay đổi'}
+                  </Button>
+                )}
+              </div>
+            </form>
+          </Card>
+        )}
+      </div>
     </div>
   )
 }

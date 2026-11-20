@@ -185,6 +185,15 @@ class ZoneCreateSpec(BaseModel):
     soil_wet_raw: int = 1300
 
 
+class ZoneCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    crop_profile_id: uuid.UUID | None = None
+    area_m2: float | None = Field(default=None, gt=0)
+    pump_channel: int | None = None
+    soil_dry_raw: int = 2900
+    soil_wet_raw: int = 1300
+
+
 class GreenhouseCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     location: str | None = Field(default=None, max_length=255)

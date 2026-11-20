@@ -102,3 +102,39 @@ async def acknowledge_alert(
         await session.commit()
 
     return alert
+
+
+@router.post("/ack-all", response_model=dict[str, int])
+async def acknowledge_all_alerts(
+    user: CurrentOperator,
+    session: DbSession,
+) -> dict[str, int]:
+    """Xác nhận tất cả cảnh báo đang mở của farm."""
+    stmt = (
+        select(Alert)
+        .join(Greenhouse, Alert.greenhouse_id == Greenhouse.id)
+        .where(
+            Greenhouse.farm_id == user.farm_id,
+            Alert.state.in_(("raised", "notified")),
+        )
+    )
+    alerts = list((await session.execute(stmt)).scalars().all())
+    now = datetime.now(UTC)
+    for alert in alerts:
+        alert.state = "acknowledged"
+        alert.acknowledged_at = now
+        alert.acked_by = user.id
+
+    if alerts:
+        await session.commit()
+        await pg_notify(
+            session,
+            CHANNEL_WS,
+            {
+                "farm_id": str(user.farm_id),
+                "type": "alert",
+                "data": {"action": "ack_all", "count": len(alerts)},
+            },
+        )
+    return {"acknowledged_count": len(alerts)}
+

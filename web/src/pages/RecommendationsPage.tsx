@@ -98,14 +98,14 @@ export default function RecommendationsPage() {
     windowH === undefined
       ? '—'
       : windowH >= 24
-        ? `${Math.round(windowH / 24)} ngày gần nhất (${windowH} giờ)`
-        : `${windowH} giờ gần nhất – chế độ demo`
+        ? `${Math.round(windowH / 24)} ngày gần nhất`
+        : `${windowH} giờ gần nhất`
 
   return (
     <div>
       <div className="page-header">
         <div>
-          <h2>🌱 Gợi ý cây trồng theo khí hậu nhà kính</h2>
+          <h2>Gợi ý cây trồng theo khí hậu nhà kính</h2>
           <p className="muted" style={{ margin: 0 }}>
             Xếp hạng 5 loại cây trồng theo năng suất dự kiến dựa trên điều kiện vi khí hậu thực tế của nhà kính
           </p>
@@ -136,14 +136,14 @@ export default function RecommendationsPage() {
               disabled={refreshing || refreshMutation.isPending || !activeModelQuery.data}
               onClick={() => refreshMutation.mutate(selectedGhId)}
             >
-              {refreshing ? '⏳ Đang tính lại...' : '🔄 Làm mới gợi ý'}
+              {refreshing ? 'Đang tính lại...' : 'Làm mới gợi ý'}
             </button>
           )}
         </div>
       </div>
 
       <div className="alert-banner info" style={{ marginBottom: '1rem' }}>
-        <strong>Lưu ý quan trọng:</strong> Kết quả gợi ý là <strong>ước tính</strong> từ mô hình LightGBM toàn cục, chỉ dựa trên lịch sử khí hậu nhà kính và <strong>giả định tưới đủ</strong> (đặt ẩm đất ở trung điểm khoảng tối ưu của từng loại cây). Tính năng này <strong>không</strong> gửi bất kỳ lệnh điều khiển nào xuống thiết bị.
+        <strong>Lưu ý quan trọng:</strong> Kết quả gợi ý là <strong>ước tính</strong> từ mô hình LightGBM toàn cục, chỉ dựa trên lịch sử khí hậu nhà kính và <strong>giả định tưới đủ</strong>. Tính năng này <strong>không</strong> gửi bất kỳ lệnh điều khiển nào xuống thiết bị.
       </div>
 
       {refreshMsg && (
@@ -163,7 +163,7 @@ export default function RecommendationsPage() {
               className="badge warning"
               title="Cửa sổ ngắn (< 24h), độ phủ dữ liệu chưa cao hoặc khí hậu ngoài vùng dữ liệu huấn luyện"
             >
-              ⚠ Độ tin cậy thấp
+              Độ tin cậy thấp
             </span>
           )}
           <Link to="/models" className="btn btn-sm btn-secondary">
@@ -197,7 +197,7 @@ export default function RecommendationsPage() {
           <div className="card">
             <div className="card-header">
               <div>
-                <h3>🌤️ Tóm tắt khí hậu cửa sổ gần nhất</h3>
+                <h3>Tóm tắt khí hậu cửa sổ gần nhất</h3>
                 <span className="muted" style={{ fontSize: '0.8rem' }}>
                   Cửa sổ: <strong>{windowLabel}</strong> • Độ phủ dữ liệu:{' '}
                   <strong>
@@ -264,7 +264,7 @@ export default function RecommendationsPage() {
           </div>
 
           {/* 3 thẻ Top cây */}
-          <h3 style={{ marginBottom: '0.75rem' }}>🏆 Top 3 cây trồng phù hợp nhất (ước tính)</h3>
+          <h3 style={{ marginBottom: '0.75rem' }}>Top 3 cây trồng phù hợp nhất</h3>
           <div className="grid grid-cols-3" style={{ marginBottom: '1.25rem' }}>
             {top3.map((cand, index) => (
               <div
@@ -303,7 +303,7 @@ export default function RecommendationsPage() {
           {/* Bảng tất cả ứng viên */}
           <div className="card">
             <div className="card-header">
-              <h3>📋 Xếp hạng toàn bộ cây ứng viên</h3>
+              <h3>Xếp hạng toàn bộ cây ứng viên</h3>
             </div>
             <div className="table-container">
               <table>
@@ -313,7 +313,7 @@ export default function RecommendationsPage() {
                     <th>Loại cây</th>
                     <th>Năng suất tương đối</th>
                     <th>Năng suất ước tính</th>
-                    <th>Khoảng tin cậy (p10–p90)</th>
+                    <th>Khoảng tin cậy</th>
                     <th>Lý do đánh giá</th>
                   </tr>
                 </thead>

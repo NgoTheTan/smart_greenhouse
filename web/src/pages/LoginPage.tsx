@@ -5,8 +5,8 @@ import { useAuth } from '../lib/auth'
 import type { TokenResponse } from '../lib/types'
 
 const DEV_ACCOUNTS = [
-  { label: 'Chủ farm 1 (owner@greenhub.vn)', email: 'owner@greenhub.vn' },
-  { label: 'Chủ farm 2 (owner2@greenhub.vn)', email: 'owner2@greenhub.vn' },
+  { label: 'Chủ farm 1: owner@greenhub.vn', email: 'owner@greenhub.vn' },
+  { label: 'Chủ farm 2: owner2@greenhub.vn', email: 'owner2@greenhub.vn' },
 ]
 
 export default function LoginPage() {
@@ -77,7 +77,7 @@ export default function LoginPage() {
     <div style={{ maxWidth: 440, margin: '2.5rem auto' }}>
       <div className="card" style={{ padding: '2rem' }}>
         <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-          <h2 style={{ fontSize: '1.75rem', marginBottom: '0.25rem' }}>🌱 GreenHub</h2>
+          <h2 style={{ fontSize: '1.75rem', marginBottom: '0.25rem' }}>GreenHub</h2>
           <p className="muted" style={{ fontSize: '0.875rem', margin: '0 0 0.75rem' }}>
             Nền tảng Giám sát &amp; Điều khiển Vi khí hậu Nhà kính
           </p>
@@ -92,7 +92,7 @@ export default function LoginPage() {
               color: 'var(--primary-dark, #15803d)',
             }}
           >
-            {mode === 'login' ? '🔐 Đăng nhập hệ thống' : '📝 Đăng ký tài khoản mới'}
+            {mode === 'login' ? 'Đăng nhập hệ thống' : 'Đăng ký tài khoản mới'}
           </div>
         </div>
 
@@ -132,7 +132,7 @@ export default function LoginPage() {
 
           <div className="form-group">
             <label htmlFor="login-password">
-              Mật khẩu * {mode === 'register' && <span className="muted">(tối thiểu 6 ký tự)</span>}
+              Mật khẩu * {mode === 'register' && <span className="muted"></span>}
             </label>
             <input
               id="login-password"
