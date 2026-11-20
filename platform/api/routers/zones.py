@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import ValidationError
 from sqlalchemy import delete, func, or_, select, text, update
 
-from api.deps import CurrentOwner, CurrentViewer, DbSession
+from api.deps import CurrentUser, DbSession
 from core.crop_templates import CropParameters
 from core.models import (
     Alert,
@@ -51,14 +51,14 @@ async def _get_owned_zone(
 
 
 @router.get("/zones/{zone_id}", response_model=ZoneResponse)
-async def get_zone(zone_id: uuid.UUID, user: CurrentViewer, session: DbSession) -> Zone:
+async def get_zone(zone_id: uuid.UUID, user: CurrentUser, session: DbSession) -> Zone:
     zone, _gh = await _get_owned_zone(session, zone_id, user.farm_id)
     return zone
 
 
 @router.put("/zones/{zone_id}", response_model=ZoneResponse)
 async def update_zone(
-    zone_id: uuid.UUID, body: ZoneUpdateRequest, user: CurrentOwner, session: DbSession
+    zone_id: uuid.UUID, body: ZoneUpdateRequest, user: CurrentUser, session: DbSession
 ) -> Zone:
     zone, gh = await _get_owned_zone(session, zone_id, user.farm_id)
     cfg_changed = False
@@ -99,7 +99,7 @@ async def update_zone(
 @router.delete("/zones/{zone_id}", status_code=status.HTTP_200_OK)
 async def delete_zone(
     zone_id: uuid.UUID,
-    user: CurrentOwner,
+    user: CurrentUser,
     session: DbSession,
 ) -> dict[str, Any]:
     zone, gh = await _get_owned_zone(session, zone_id, user.farm_id)
@@ -129,10 +129,16 @@ async def delete_zone(
     await session.execute(delete(Reading).where(Reading.zone_id == zone.id))
 
     # Xóa bảng tổng hợp nếu ở chế độ sqlite
-    bind = getattr(session, "bind", None) or (session.get_bind() if hasattr(session, "get_bind") else None)
+    bind = getattr(session, "bind", None) or (
+        session.get_bind() if hasattr(session, "get_bind") else None
+    )
     if bind and getattr(bind.dialect, "name", "") == "sqlite":
-        await session.execute(text("DELETE FROM readings_1m WHERE zone_id = :zid"), {"zid": str(zone.id)})
-        await session.execute(text("DELETE FROM readings_1h WHERE zone_id = :zid"), {"zid": str(zone.id)})
+        await session.execute(
+            text("DELETE FROM readings_1m WHERE zone_id = :zid"), {"zid": str(zone.id)}
+        )
+        await session.execute(
+            text("DELETE FROM readings_1h WHERE zone_id = :zid"), {"zid": str(zone.id)}
+        )
 
     # Xóa CropCycles & Predictions
     await session.execute(delete(CropCycle).where(CropCycle.zone_id == zone.id))
@@ -154,7 +160,7 @@ async def delete_zone(
 @router.get("/zones/{zone_id}/readings", response_model=list[ReadingPoint])
 async def get_zone_readings(
     zone_id: uuid.UUID,
-    user: CurrentViewer,
+    user: CurrentUser,
     session: DbSession,
     dt_from: Annotated[datetime | None, Query(alias="from")] = None,
     dt_to: Annotated[datetime | None, Query(alias="to")] = None,
@@ -164,7 +170,6 @@ async def get_zone_readings(
     await _get_owned_zone(session, zone_id, user.farm_id)
     now = datetime.now(UTC)
     end_ts = dt_to or now
-    start_ts = dt_from or (end_ts - timedelta(hours=6))
 
     if agg == "raw":
         stmt = select(Reading).where(Reading.zone_id == zone_id)
@@ -243,7 +248,7 @@ async def get_zone_readings(
 @router.get("/zones/{zone_id}/dli", response_model=DliResponse)
 async def get_zone_dli(
     zone_id: uuid.UUID,
-    user: CurrentViewer,
+    user: CurrentUser,
     session: DbSession,
     target_date: Annotated[date | None, Query(alias="date")] = None,
 ) -> DliResponse:
@@ -280,7 +285,7 @@ async def get_zone_dli(
 
 
 @router.get("/crop-profiles", response_model=list[CropProfileResponse])
-async def list_crop_profiles(user: CurrentViewer, session: DbSession) -> list[CropProfile]:
+async def list_crop_profiles(user: CurrentUser, session: DbSession) -> list[CropProfile]:
     rows = (
         await session.execute(
             select(CropProfile)
@@ -293,7 +298,7 @@ async def list_crop_profiles(user: CurrentViewer, session: DbSession) -> list[Cr
 
 @router.get("/crop-profiles/{profile_id}", response_model=CropProfileResponse)
 async def get_crop_profile(
-    profile_id: uuid.UUID, user: CurrentViewer, session: DbSession
+    profile_id: uuid.UUID, user: CurrentUser, session: DbSession
 ) -> CropProfile:
     profile = (
         await session.execute(
@@ -314,7 +319,7 @@ async def get_crop_profile(
 async def update_crop_profile(
     profile_id: uuid.UUID,
     body: CropProfileUpdateRequest,
-    user: CurrentOwner,
+    user: CurrentUser,
     session: DbSession,
 ) -> CropProfile:
     try:

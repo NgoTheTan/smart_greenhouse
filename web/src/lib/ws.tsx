@@ -85,19 +85,29 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
           const state = String(d.state || 'raised')
           if (state !== 'resolved' && state !== 'acknowledged') {
             const title =
-              typeof payload.title === 'string' && payload.title
-                ? payload.title
-                : ALERT_TYPE_LABELS[alertType] ?? alertType
+              typeof d.title === 'string' && d.title
+                ? d.title
+                : typeof payload.title === 'string' && payload.title
+                  ? payload.title
+                  : ALERT_TYPE_LABELS[alertType] ?? alertType
             const body =
-              typeof payload.body === 'string' && payload.body
-                ? payload.body
-                : 'Có cảnh báo mới từ hệ thống giám sát nhà kính.'
+              typeof d.body === 'string' && d.body
+                ? d.body
+                : typeof payload.body === 'string' && payload.body
+                  ? payload.body
+                  : 'Có cảnh báo mới từ hệ thống giám sát nhà kính.'
             const zoneId = typeof d.zone_id === 'string' ? d.zone_id : null
+            const url =
+              typeof d.url === 'string' && d.url
+                ? d.url
+                : zoneId
+                  ? `/zones/${zoneId}`
+                  : '/alerts'
             pushToast({
               severity,
               title,
               body,
-              url: zoneId ? `/zones/${zoneId}` : '/alerts',
+              url,
             })
           }
           void queryClient.invalidateQueries({ queryKey: ['alerts'] })

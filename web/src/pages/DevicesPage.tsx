@@ -1,7 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, formatApiError } from '../lib/api'
-import { useAuth } from '../lib/auth'
 import {
   Button,
   Card,
@@ -22,7 +21,6 @@ import {
 } from '../lib/types'
 
 export default function DevicesPage() {
-  const { isOwner } = useAuth()
   const queryClient = useQueryClient()
 
   const greenhousesQuery = useQuery({
@@ -228,29 +226,25 @@ export default function DevicesPage() {
         </div>
 
         <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap' }}>
-          {isOwner && (
-            <Button
-              variant="secondary"
-              onClick={() => setShowCalModal(true)}
-            >
-              Hiệu chuẩn ẩm đất
-            </Button>
-          )}
+          <Button
+            variant="secondary"
+            onClick={() => setShowCalModal(true)}
+          >
+            Hiệu chuẩn ẩm đất
+          </Button>
 
-          {isOwner && (
-            <Button
-              variant="primary"
-              onClick={() => {
-                const unprov = greenhouses.find((g) => !g.gateway_id)
-                setProvisionGhId(unprov?.id || greenhouses[0]?.id || '')
-                setProvisionCred(null)
-                setProvisionError(null)
-                setShowProvisionModal(true)
-              }}
-            >
-              + Cấp phát gateway mới
-            </Button>
-          )}
+          <Button
+            variant="primary"
+            onClick={() => {
+              const unprov = greenhouses.find((g) => !g.gateway_id)
+              setProvisionGhId(unprov?.id || greenhouses[0]?.id || '')
+              setProvisionCred(null)
+              setProvisionError(null)
+              setShowProvisionModal(true)
+            }}
+          >
+            + Cấp phát gateway mới
+          </Button>
         </div>
       </div>
 
@@ -366,20 +360,18 @@ export default function DevicesPage() {
                         Đã cấp phát
                       </span>
                     ) : (
-                      isOwner && (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => {
-                            setProvisionGhId(gh.id)
-                            setProvisionCred(null)
-                            setProvisionError(null)
-                            setShowProvisionModal(true)
-                          }}
-                        >
-                          Cấp phát
-                        </Button>
-                      )
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          setProvisionGhId(gh.id)
+                          setProvisionCred(null)
+                          setProvisionError(null)
+                          setShowProvisionModal(true)
+                        }}
+                      >
+                        Cấp phát
+                      </Button>
                     )}
                   </TableCell>
                 </tr>

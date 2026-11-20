@@ -69,11 +69,6 @@ class FanParams(BaseModel):
     max_on_s: int = Field(gt=0)
 
 
-class MistParams(BaseModel):
-    max_on_s: int = Field(gt=0)
-    lockout_s: int = Field(ge=0)
-
-
 class RiskParams(BaseModel):
     vpd_low_duration_min: int = Field(gt=0)
 
@@ -109,7 +104,6 @@ class CropParameters(BaseModel):
     disease: DiseaseParams
     irrigation: IrrigationParams
     fan: FanParams
-    mist: MistParams
     risk: RiskParams
     cycle: CycleParams
     yield_info: YieldParams = Field(alias="yield")
@@ -128,7 +122,6 @@ _TIMING_REAL: dict[str, Any] = {
         "soil_settle_s": 300,
     },
     "fan": {"min_on_s": 300, "max_on_s": 1800},
-    "mist": {"max_on_s": 900, "lockout_s": 900},
     "risk": {"vpd_low_duration_min": 60},
     "fungal_minutes_alert": 360,
     "ai": {
@@ -148,7 +141,6 @@ _TIMING_DEMO: dict[str, Any] = {
         "soil_settle_s": 30,
     },
     "fan": {"min_on_s": 60, "max_on_s": 300},
-    "mist": {"max_on_s": 300, "lockout_s": 120},
     "risk": {"vpd_low_duration_min": 3},
     "fungal_minutes_alert": 5,
     "ai": {
@@ -192,7 +184,6 @@ def _build_params(
         },
         "irrigation": copy.deepcopy(timing["irrigation"]),
         "fan": copy.deepcopy(timing["fan"]),
-        "mist": copy.deepcopy(timing["mist"]),
         "risk": copy.deepcopy(timing["risk"]),
         "cycle": {"days": cycle_days},
         "yield": {"reference_kg_m2": reference_kg_m2},

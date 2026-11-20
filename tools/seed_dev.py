@@ -5,7 +5,7 @@ Chạy từ gốc repo (sau khi stack Docker dev đang chạy):
 
 Tạo:
 - Farm: "Nông trại Demo GreenHub"
-- Users: owner / operator / viewer @greenhub.vn (mật khẩu: greenhub123)
+- User: owner@greenhub.vn (role: owner, mật khẩu: greenhub123)
 - Greenhouse: "Nhà kính Fomex 01" với Zone 1 (Cà chua bi demo) và Zone 2 (Dâu tây demo)
 - Gateway + cấp phát tài khoản MQTT Dynamic Security + 2 Node mẫu ghép sẵn (lưu `.dev-gateway.json`)
 """
@@ -54,7 +54,6 @@ async def seed() -> dict:
         Farm,
         Gateway,
         Greenhouse,
-        NotificationPref,
         User,
         Zone,
     )
@@ -81,19 +80,14 @@ async def seed() -> dict:
                 await session.flush()
 
                 pw_hash = hash_password("greenhub123")
-                for email, role in (
-                    ("owner@greenhub.vn", "owner"),
-                    ("operator@greenhub.vn", "operator"),
-                    ("viewer@greenhub.vn", "viewer"),
-                ):
-                    u = User(
-                        farm_id=farm.id, email=email, password_hash=pw_hash, role=role
-                    )
-                    session.add(u)
-                    await session.flush()
-                    session.add(NotificationPref(user_id=u.id))
-                    if role == "owner":
-                        owner = u
+                owner = User(
+                    farm_id=farm.id,
+                    email="owner@greenhub.vn",
+                    password_hash=pw_hash,
+                    role="owner",
+                )
+                session.add(owner)
+                await session.flush()
             else:
                 farm = await session.get(Farm, owner.farm_id)
                 assert farm is not None

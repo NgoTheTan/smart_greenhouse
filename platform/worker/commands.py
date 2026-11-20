@@ -18,7 +18,7 @@ log = logging.getLogger("worker.commands")
 
 
 def _parse_side_effect(effect: str) -> tuple[str, str] | None:
-    """Giải mã chuỗi side_effect như 'mist_off' -> ('mist', 'off')."""
+    """Giải mã chuỗi side_effect như 'fan_off' -> ('fan', 'off')."""
     for act in ACTUATOR_NAMES:
         prefix = f"{act}_"
         if effect.startswith(prefix):

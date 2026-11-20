@@ -8,7 +8,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import desc, select
 
-from api.deps import CurrentViewer, DbSession
+from api.deps import CurrentUser, DbSession
 from core.climate_features import CLIMATE_FEATURE_NAMES
 from core.models import Greenhouse, MlModel, Prediction, Zone
 from core.schemas import MlModelResponse, PredictionResponse
@@ -135,7 +135,7 @@ def _model_to_response(
 @router.get("/zones/{zone_id}/predictions", response_model=list[PredictionResponse])
 async def list_zone_predictions(
     zone_id: uuid.UUID,
-    user: CurrentViewer,
+    user: CurrentUser,
     session: DbSession,
     task: Annotated[str, Query(description="yield_forecast")] = "yield_forecast",
     dt_from: Annotated[datetime | None, Query(alias="from")] = None,
@@ -172,7 +172,7 @@ async def list_zone_predictions(
 
 @router.get("/models", response_model=list[MlModelResponse])
 async def list_models(
-    _user: CurrentViewer,
+    _user: CurrentUser,
     session: DbSession,
 ) -> list[MlModelResponse]:
     """Lấy danh sách các phiên bản mô hình AI toàn cục (chỉ số liệu tổng hợp)."""
@@ -183,7 +183,7 @@ async def list_models(
 
 @router.get("/models/active", response_model=MlModelResponse | None)
 async def get_active_model(
-    user: CurrentViewer,
+    user: CurrentUser,
     session: DbSession,
 ) -> MlModelResponse | None:
     """Lấy mô hình toàn cục đang active kèm feature_drift 7 ngày gần nhất cho farm."""
@@ -203,7 +203,7 @@ async def get_active_model(
 @router.get("/models/{model_id}", response_model=MlModelResponse)
 async def get_model(
     model_id: uuid.UUID,
-    user: CurrentViewer,
+    user: CurrentUser,
     session: DbSession,
 ) -> MlModelResponse:
     """Xem chi tiết thông số, metrics và feature_drift của một mô hình AI."""

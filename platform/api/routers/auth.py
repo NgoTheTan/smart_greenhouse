@@ -3,8 +3,8 @@
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
-from api.deps import CurrentViewer, DbSession
-from core.models import Farm, NotificationPref, User
+from api.deps import CurrentUser, DbSession
+from core.models import Farm, User
 from core.schemas import LoginRequest, RegisterRequest, TokenResponse, UserResponse
 from core.security import create_access_token, hash_password, verify_password
 
@@ -41,10 +41,6 @@ async def register(body: RegisterRequest, session: DbSession) -> TokenResponse:
     session.add(user)
     await session.flush()
 
-    # Tạo tuỳ chọn nhận thông báo mặc định
-    pref = NotificationPref(user_id=user.id)
-    session.add(pref)
-
     await session.commit()
     await session.refresh(user)
 
@@ -67,7 +63,7 @@ async def login(body: LoginRequest, session: DbSession) -> TokenResponse:
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(user: CurrentViewer, session: DbSession) -> UserResponse:
+async def get_me(user: CurrentUser, session: DbSession) -> UserResponse:
     farm = (
         await session.execute(select(Farm).where(Farm.id == user.farm_id))
     ).scalar_one_or_none()

@@ -277,13 +277,13 @@ async def test_m2_end_to_end_pipeline() -> None:
                     assert pts[0]["quality"] == "ok" and pts[0]["vpd"] is not None
                     assert pts[1]["quality"] == "out_of_range"
 
-                    # 4. Lệnh điều khiển + Interlock ACK cập nhật reported
+                    # 4. Lệnh điều khiển cập nhật reported (từ chối mist)
                     m_res = await http.post(
                         f"/greenhouses/{gh_id}/commands",
                         headers=headers,
                         json={"actuator": "mist", "action": "on", "duration_s": 60},
                     )
-                    assert m_res.status_code == 201
+                    assert m_res.status_code == 422
                     f_res = await http.post(
                         f"/greenhouses/{gh_id}/commands",
                         headers=headers,
@@ -302,7 +302,7 @@ async def test_m2_end_to_end_pipeline() -> None:
                         f"/gateways/{cred['gateway_id']}/status", headers=headers
                     )
                     rep_act = st_res.json()["reported"]["actuators"]
-                    assert rep_act["fan"] == "on" and rep_act["mist"] == "off"
+                    assert rep_act["fan"] == "on" and "mist" not in rep_act
 
                     # 5. Kiểm tra endpoint DLI
                     dli_res = await http.get(f"/zones/{zone1_id}/dli", headers=headers)

@@ -9,8 +9,7 @@ Hệ thống chỉ có **một chiến lược điều khiển duy nhất: hyste
 
 1. Tưới nước theo từng zone (hysteresis `soil_moisture_pct.min`/`max`, `duration_s = irrigation.max_run_s`).
 2. Điều khiển quạt thông gió chung cho cả nhà kính dựa trên zone nguy hiểm nhất (`duration_s = fan.min_on_s`, lặp lại khi điều kiện còn).
-3. Điều khiển máy tạo ẩm (auto khi quá khô VPD > `high_crit`, và ép tắt ngay cả khi đang `manual` + lockout khi quạt tự bật vì rủi ro).
-4. Tính tích luỹ `fungal_minutes` và kích hoạt/resolve các cảnh báo theo luật (`DISEASE_RISK`, `HEAT_STRESS`, `SOIL_DRY`, `SENSOR_FAULT`).
+3. Tính tích luỹ `fungal_minutes` và kích hoạt/resolve các cảnh báo theo luật (`DISEASE_RISK`, `HEAT_STRESS`, `SOIL_DRY`, `SENSOR_FAULT`).
 
 - **Ngoài phạm vi:** AI (dự báo năng suất `yield_forecast`, gợi ý cây trồng `crop_recommendation` – xem `platform/worker/FEATURE_AI_RUNTIME_INFERENCE.md`, `ml/FEATURE_AI_YIELD_AND_RECOMMENDATION.md`) **không** nằm trong vòng điều khiển và **không** gửi lệnh tới thiết bị. Rule Engine không đọc `ml_models`/`predictions`.
 
@@ -28,14 +27,14 @@ Hệ thống chỉ có **một chiến lược điều khiển duy nhất: hyste
 
 - **Thời điểm kích hoạt (MUST):**
   1. Ngay khi `IngestService.handle_telemetry()` lưu xong một bản tin telemetry mới của một zone.
-  2. Trong **tick 5 s** của `worker/scheduler.py` để kiểm tra hết hạn timer, settle cooldown, đánh giá lại quạt/ẩm khi hết `min_on_s`, hoặc phát hiện mất telemetry kéo dài.
+  2. Trong **tick 5 s** của `worker/scheduler.py` để kiểm tra hết hạn timer, settle cooldown, đánh giá lại quạt khi hết `min_on_s`, hoặc phát hiện mất telemetry kéo dài.
 - **Trạng thái ngắn hạn giữ trong RAM (`ZoneRuleState`, `GreenhouseRuleState`):**
   - Theo spec 3.2: giữ trong bộ nhớ và **dựng lại (`warm_up`) từ N phút `readings` & `actuator_logs` gần nhất khi `worker` khởi động lại**:
     - `fungal_minutes` (số phút tích luỹ điều kiện nấm của từng zone).
     - `vpd_low_streak_s` (thời gian liên tục có `vpd < vpd.low_crit` của từng zone).
     - `soil_low_streak_s` (thời gian liên tục `soil < soil_moisture_critical_low_pct` để phát `SOIL_DRY`).
     - `last_pump_end_at` / `pump_hourly_runs` / `soil_settle_until` theo từng zone/bơm.
-    - `fan_on_since`, `fan_auto_reason` (bật vì rủi ro hay nhiệt), `mist_lockout_until`, `last_mist_end_at`.
+    - `fan_on_since`, `fan_auto_reason` (bật vì rủi ro hay nhiệt).
     - `last_valid_reading` (dùng làm dự phòng cảm biến khí giữa các zone cùng nhà kính).
 
 ## 4. Xử lý dữ liệu lỗi (kiểm tra chất lượng dữ liệu – luật) & Mất cảm biến (MUST)
@@ -47,15 +46,15 @@ Hệ thống chỉ có **một chiến lược điều khiển duy nhất: hyste
     - Mở (hoặc duy trì) alert `SENSOR_FAULT` (severity `warning` hoặc `critical`, `dedupe_key = "SENSOR_FAULT:{zone_id}"`).
   - **Cảm biến khí lỗi** (`FLAG_AHT_ERR`, `air_temp`/`air_rh` `out_of_range` / `stuck` / `dropout`):
     - Mở alert `SENSOR_FAULT` cho zone đó.
-    - Nếu trong cùng nhà kính có zone lân cận có bản tin khí `quality == 'ok'` còn mới (trong vòng `3 * sample_interval_s`) và **không** bị gắn `neighbor_suspect` sai lệch bất thường → dùng tạm giá trị khí (`air_temp`, `air_rh`, `vpd`) của zone lân cận cho quyết định quạt/máy tạo ẩm; nếu không có zone lân cận hợp lệ → **bỏ qua** quyết định khí hậu cho zone đó (không bật quạt/tạo ẩm mù).
+    - Nếu trong cùng nhà kính có zone lân cận có bản tin khí `quality == 'ok'` còn mới (trong vòng `3 * sample_interval_s`) và **không** bị gắn `neighbor_suspect` sai lệch bất thường → dùng tạm giá trị khí (`air_temp`, `air_rh`, `vpd`) của zone lân cận cho quyết định quạt; nếu không có zone lân cận hợp lệ → **bỏ qua** quyết định khí hậu cho zone đó (không bật quạt mù).
 - Khi cảm biến gửi lại liên tục dữ liệu `quality == 'ok'` ổn định (ví dụ 2–3 mẫu liên tiếp) → tự động `resolve` alert `SENSOR_FAULT`.
 
 ## 5. Logic Điều khiển từng Thiết bị (MUST)
 
-Trước khi phát lệnh cho một actuator bất kỳ (`pump_1`, `pump_2`, `fan`, `mist`), phải kiểm tra:
+Trước khi phát lệnh cho một actuator bất kỳ (`pump_1`, `pump_2`, `fan`), phải kiểm tra:
 1. Gateway đang `online == True`.
 2. Actuator không bị kẹt bởi lệnh `pending`/`sent` đang chờ ACK cùng loại để tránh tạo lệnh trùng lặp.
-3. Chế độ tại `device_state.desired["modes"][actuator]` là `"auto"` (ngoại trừ trường hợp ép tắt `mist` vì an toàn bên dưới!).
+3. Chế độ tại `device_state.desired["modes"][actuator]` là `"auto"`.
 
 ### 5.1 Tưới nước theo Zone (`pump_1` / `pump_2` theo `zone.pump_channel`)
 
@@ -82,10 +81,6 @@ Một nhà kính chỉ có **1 quạt** dùng chung cho toàn bộ các zone. Do
   3. `air_temp > temp_c.optimal[1]` ở zone nào đó.
 - **Kiểm tra tác dụng phụ (Side-effect Guard, MUST):**
   - Không bật quạt nếu bất kỳ zone kích hoạt điều kiện hoặc zone nhạy cảm đang có `vpd > vpd.high_crit` (quạt thổi làm giảm ẩm và tăng VPD thêm, gây héo cây), *trừ trường hợp quá nhiệt cực đoan vượt `temp_c.optimal[1]` cần cân nhắc ưu tiên nhiệt, nhưng theo spec 6.4: "không bật quạt nếu VPD của zone đó đang > `vpd.high_crit` (quạt làm tăng VPD)"* → kiểm tra chặt trên zone đó!
-- **Ép tắt máy tạo ẩm (An toàn thắng thủ công, MUST):**
-  - Khi quạt tự động bật vì rủi ro (`fan` sẽ bật từ auto rule) và `mist` hiện đang `"on"` (bất kể `mist` đang ở mode `auto` hay `manual`!):
-    1. Gateway sẽ thực thi interlock `mist_off` ngay khi nhận lệnh `fan on`, **đồng thời** Rule Engine đặt `mist_lockout_until = now + mist.lockout_s` (có thể chủ động phát `mist off` nếu cần chắc chắn hoặc dựa vào interlock `fan on` + lockout không cho bật lại `mist` trong `lockout_s`).
-    2. Đặt `mist` lockout trong `mist.lockout_s` để rule `auto` (và cảnh báo nếu manual cố bật lại) không bật `mist` ngay sau đó.
 - **Tính `duration_s` khi BẬT quạt** (dựa trên thông số của zone nguy hiểm nhất):
   - `duration_s = fan.min_on_s`; nếu điều kiện vẫn còn khi sắp hết/vừa tắt sau `min_on_s`, rule engine phát lệnh mới để duy trì (tổng thời gian chạy liên tục SHOULD không vượt `fan.max_on_s` mà không đánh giá lại).
   - Không dùng công thức dựa trên mô hình học (không dùng `fan_vpd_rate`).
@@ -95,17 +90,6 @@ Một nhà kính chỉ có **1 quạt** dùng chung cho toàn bộ các zone. Do
     2. Với mọi zone có dữ liệu khí hợp lệ: `vpd >= vpd.low_off` **VÀ** `air_temp <= temp_c.optimal[1]` (nhiệt độ ổn định, có thể thêm hysteresis nhẹ ví dụ `optimal[1] - 0.5`).
     3. Không còn alert `DISEASE_RISK` cần thông gió cưỡng bức (lưu ý `DISEASE_RISK` cũng tự resolve theo hysteresis khi `vpd >= vpd.low_off` và `fungal_minutes` giảm về 0).
 
-### 5.3 Máy tạo ẩm (`mist`)
-
-- **Auto BẬT:** Chỉ khi:
-  - `modes["mist"] == "auto"`
-  - Có ít nhất 1 zone `vpd > vpd.high_crit`
-  - Quạt (`fan`) hiện đang `"off"` (tôn trọng interlock)
-  - Đã hết thời gian khóa `now >= mist_lockout_until` (do quạt bật trước đó) và đã qua `min_gap` (ví dụ `mist.lockout_s` hoặc `min_gap` cấu hình sau lần phun trước)
-  - Thời lượng: `duration_s = mist.max_on_s`.
-- **Auto TẮT:** Khi `mist` đang `"on"` (auto) và mọi zone đều có `vpd <= vpd.high_crit` (hoặc `<= vpd.optimal[1]`) → gửi `off`.
-- **Điều khiển tay (Demo kịch bản A):** Khi user đặt `mist` ở `manual` và bật `mist` qua API để tạo hơi ẩm nâng RH > 90% làm VPD tụt xuống `< 0.4 kPa`, Rule Engine không được tự ý tắt `mist` **cho tới khi** điều kiện rủi ro nấm xảy ra khiến quạt tự bật — lúc đó quạt tự bật và **ép tắt** `mist` + khóa `mist.lockout_s`.
-
 ## 6. Đánh giá Rủi ro nấm & Sinh Alert theo Luật (MUST)
 
 ### 6.1 Tích luỹ `fungal_minutes` (theo từng zone)
@@ -114,7 +98,7 @@ Một nhà kính chỉ có **1 quạt** dùng chung cho toàn bộ các zone. Do
     - `fungal_minutes += dt_min`
   - Ngược lại (hết điều kiện thuận lợi cho bào tử nấm):
     - Giảm dần hoặc đưa về 0 theo hysteresis (ví dụ giảm tốc độ `2 * dt_min` hoặc reset về 0 khi `vpd >= vpd.low_off` và `air_rh < disease.rh_gt - 5` để tránh bật/tắt chập chờn).
-- **Alert `DISEASE_RISK`** (`dedupe_key = "DISEASE_RISK:{zone_id}"`, severity `critical` hoặc `warning` — khuyến nghị `critical` khi kết hợp VPD < `low_crit` kéo dài để kích hoạt leo thang & push yêu cầu tương tác theo Kịch bản A):
+- **Alert `DISEASE_RISK`** (`dedupe_key = "DISEASE_RISK:{zone_id}"`, severity `critical` khi kết hợp VPD < `low_crit` kéo dài để hiển thị nổi bật trên Web Console theo Kịch bản A):
   - **Mở khi:** `fungal_minutes >= disease.fungal_minutes_alert` **HOẶC** `vpd_low_streak_s >= risk.vpd_low_duration_min * 60`.
   - **Tự Resolve khi:** `vpd >= vpd.low_off` **VÀ** `fungal_minutes < disease.fungal_minutes_alert * 0.5` (hoặc `== 0`).
 
@@ -136,5 +120,5 @@ Một nhà kính chỉ có **1 quạt** dùng chung cho toàn bộ các zone. Do
   - Lệnh tưới luôn có `duration_s = irrigation.max_run_s`; lệnh quạt luôn có `duration_s = fan.min_on_s` và được phát lại khi điều kiện còn.
   - Rule Engine không truy vấn `ml_models`/`predictions` (AI không điều khiển thiết bị).
   - Quạt ưu tiên zone nguy hiểm nhất; không bật quạt khi VPD > `high_crit`; tắt sau `min_on_s` khi `vpd >= low_off`.
-  - **Kịch bản A (quan trọng):** `mist` đang bật ở chế độ `manual` → `vpd < low_crit` kéo dài `vpd_low_duration_min` → phát `DISEASE_RISK` → quạt tự bật + ép tắt `mist` + khóa `mist.lockout_s`.
+  - **Kịch bản A (quan trọng):** `vpd < low_crit` kéo dài `vpd_low_duration_min` → phát `DISEASE_RISK` → quạt tự bật (`duration_s = fan.min_on_s`); khi `vpd > high_crit` thì side-effect guard chặn bật quạt.
   - **Kịch bản C:** cảm biến đất `out_of_range` (`soil_raw=0`) → **không** phát lệnh tưới, phát `SENSOR_FAULT`.

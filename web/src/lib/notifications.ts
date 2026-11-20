@@ -68,7 +68,7 @@ export interface FormattedNotification {
 }
 
 export function useNotifications() {
-  const { isAuthenticated, user, canOperate } = useAuth()
+  const { isAuthenticated, user } = useAuth()
   const queryClient = useQueryClient()
 
   const userKey = user?.id || 'guest'
@@ -148,13 +148,13 @@ export function useNotifications() {
         return next
       })
 
-      // Nếu có quyền thao tác thì gửi ACK lên server để tắt còi và dừng leo thang
+      // Gửi ACK lên server để tắt còi và đánh dấu đã xử lý
       const targetAlert = alertsQuery.data?.find((a) => a.id === alertId)
-      if (canOperate && targetAlert && (targetAlert.state === 'raised' || targetAlert.state === 'notified')) {
+      if (targetAlert && (targetAlert.state === 'raised' || targetAlert.state === 'notified')) {
         ackSingleMutation.mutate(alertId)
       }
     },
-    [readStorageKey, unreadStorageKey, alertsQuery.data, canOperate, ackSingleMutation],
+    [readStorageKey, unreadStorageKey, alertsQuery.data, ackSingleMutation],
   )
 
   const markAsUnread = useCallback(
@@ -189,10 +189,10 @@ export function useNotifications() {
     setUnreadOverrides(nextUnread)
     saveIdSet(unreadStorageKey, nextUnread)
 
-    if (canOperate) {
+    if (isAuthenticated) {
       ackAllMutation.mutate()
     }
-  }, [alertsQuery.data, readIds, readStorageKey, unreadStorageKey, canOperate, ackAllMutation])
+  }, [alertsQuery.data, readIds, readStorageKey, unreadStorageKey, isAuthenticated, ackAllMutation])
 
   // Định dạng danh sách thông báo hoàn chỉnh
   const formattedNotifications: FormattedNotification[] = useMemo(() => {

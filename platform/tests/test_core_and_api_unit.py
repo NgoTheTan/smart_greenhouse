@@ -52,6 +52,7 @@ def test_system_crop_templates_valid() -> None:
         ("bell_pepper", "demo"),
     }
     for tpl in SYSTEM_CROP_TEMPLATES:
+        assert "mist" not in tpl["parameters_json"]
         parsed = CropParameters.model_validate(tpl["parameters_json"])
         assert parsed.schema_version == 2
         assert len(parsed.light.dli_optimal) == 2
@@ -67,6 +68,9 @@ def test_mac_normalization_and_command_validation() -> None:
 
     with pytest.raises(ValidationError):
         CommandCreateRequest(actuator="fan", action="on", duration_s=None)
+
+    with pytest.raises(ValidationError):
+        CommandCreateRequest(actuator="mist", action="on", duration_s=30)
 
     ok_off = CommandCreateRequest(actuator="fan", action="off")
     assert ok_off.duration_s is None
@@ -84,7 +88,8 @@ def test_dynsec_acl_topic_isolation_and_topic_parser() -> None:
     parsed = parse_gh_topic(f"gh/{farm_id}/{gh_id}/telemetry/2")
     assert parsed == (farm_id, gh_id, ["telemetry", "2"])
     assert parse_gh_topic("other/topic") is None
-    assert _parse_side_effect("mist_off") == ("mist", "off")
+    assert _parse_side_effect("fan_off") == ("fan", "off")
+    assert _parse_side_effect("mist_off") is None
     assert _parse_side_effect("pump_1_off") == ("pump_1", "off")
 
 

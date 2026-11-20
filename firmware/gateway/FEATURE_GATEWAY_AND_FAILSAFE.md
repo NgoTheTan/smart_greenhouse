@@ -8,7 +8,7 @@ Gateway ESP32 là nút trung tâm của mỗi nhà kính (`1 gateway = 1 nhà k�
 1. Nhận cấu hình mạng & MQTT qua Captive Portal (`WiFiManager`) lần đầu và lưu vào NVS.
 2. Thu gói tin nhị phân ESP-NOW từ các Sensor Node (và xử lý `HELLO` tìm kênh / `discovery` node lạ).
 3. Đồng bộ thời gian NTP, kết nối **MQTT over TLS (:8883)** tới Mosquitto (có LWT, reconnect exponential backoff, hàng đợi RAM khi mất mạng).
-4. Thực thi lệnh điều khiển `cmd/{actuator}` trên 4 kênh relay kèm toàn bộ quy tắc an toàn biên (auto-off, clamping, interlock quạt–ẩm, `min_gap`/`max_total` bơm, idempotency, kiểm tra `expires_at`) và gửi `ack/{cmd_id}`.
+4. Thực thi lệnh điều khiển `cmd/{actuator}` trên 3 kênh relay (`pump_1`, `pump_2`, `fan`) kèm toàn bộ quy tắc an toàn biên (auto-off, clamping, `min_gap`/`max_total` bơm, idempotency, kiểm tra `expires_at`) và gửi `ack/{cmd_id}`.
 5. Nhận `cfg` retained, lưu NVS khi `cfg_version` đổi, đẩy `CfgPkt` xuống từng node tương ứng.
 6. Tự động kích hoạt **Failsafe cục bộ** và còi báo (`buzzer`) khi mất MQTT kéo dài vượt `offline_failsafe_after_s`.
 
@@ -17,8 +17,8 @@ Gateway ESP32 là nút trung tâm của mỗi nhà kính (`1 gateway = 1 nhà k�
 ## 2. Trạng thái hiện thực trong repo
 
 - **Đã có:**
-  - `firmware/gateway/platformio.ini`: cấu hình `board_build.partitions = min_spiffs.csv`, thư viện `gh_common`, `PubSubClient@^2.8`, `ArduinoJson@^7.2.1`, `WiFiManager@^2.0.17`, build flags `-DMQTT_MAX_PACKET_SIZE=2048`, `-DMQTT_QUEUE_SIZE=150`, định nghĩa đầy đủ 6 chân GPIO.
-  - `firmware/gateway/src/main.cpp`: mới có hàm `initRelaysOff()` ghi `HIGH` trước `pinMode(OUTPUT)` cho 4 relay, tắt buzzer, `WiFi.mode(WIFI_STA)` và `TODO(M1)`.
+  - `firmware/gateway/platformio.ini`: cấu hình `board_build.partitions = min_spiffs.csv`, thư viện `gh_common`, `PubSubClient@^2.8`, `ArduinoJson@^7.2.1`, `WiFiManager@^2.0.17`, build flags `-DMQTT_MAX_PACKET_SIZE=2048`, `-DMQTT_QUEUE_SIZE=150`, định nghĩa đầy đủ 5 chân GPIO điều khiển (`PUMP1`, `PUMP2`, `FAN`, `BUZZER`, `LED`).
+  - `firmware/gateway/src/main.cpp`: mới có hàm `initRelaysOff()` ghi `HIGH` trước `pinMode(OUTPUT)` cho 3 relay, tắt buzzer, `WiFi.mode(WIFI_STA)` và `TODO(M1)`.
   - Tham chiếu chuẩn hành vi an toàn biên bằng Python nằm ở `tools/simulator/gateway_client.py` (`GatewaySafetyEngine`) và bộ test `platform/tests/test_gateway_sim_safety.py`. Firmware C++ trên Gateway **MUST** thực thi đúng logic tương đương.
 - **Cần hiện thực đầy đủ (M1):**
   - Captive Portal (`WiFiManager`) với custom parameters (`mqtt_host`, `mqtt_port`, `mqtt_user`, `mqtt_password`, `farm_id`, `greenhouse_id`) + lưu NVS + nút/cơ chế reset cấu hình nếu cần.
@@ -35,13 +35,11 @@ Gateway ESP32 là nút trung tâm của mỗi nhà kính (`1 gateway = 1 nhà k�
 | Relay IN1 – Bơm Zone 1 (`pump_1`) | `GPIO25` | `PIN_RELAY_PUMP1` | Kích mức **THẤP** (`LOW` = đóng relay, `HIGH` = ngắt). +5V -> COM, NO -> +bơm, -bơm -> GND. Diode `1N4007` song song cuộn bơm (cathode về +). |
 | Relay IN2 – Bơm Zone 2 (`pump_2`) | `GPIO26` | `PIN_RELAY_PUMP2` | Kích mức **THẤP**. Diode `1N4007` song song tải. |
 | Relay IN3 – Quạt (`fan`) | `GPIO27` | `PIN_RELAY_FAN` | Kích mức **THẤP**. Diode `1N4007` song song tải. |
-| Relay IN4 – Máy tạo ẩm (`mist`) | `GPIO33` | `PIN_RELAY_MIST` | Kích mức **THẤP**. Nguồn 5V 3A có tụ `1000 µF` lọc rail 5V. |
 | Buzzer báo động tại chỗ | `GPIO23` | `PIN_BUZZER` | Tắt (`LOW`) lúc boot. Kêu ngắt quãng/cảnh báo khi failsafe kích hoạt hoặc mất kết nối cloud kéo dài. |
 | LED trạng thái | `GPIO2` | `PIN_LED` | Hiển thị trạng thái Wi-Fi / MQTT / failsafe. |
 
 - **Cấm dùng GPIO `0, 2, 12, 15` cho relay** (chân strapping khi boot gây nháy bơm).
 - Khi khởi tạo: gọi `digitalWrite(pin, HIGH)` **trước** `pinMode(pin, OUTPUT)` để mọi relay tắt tuyệt đối ngay khi cấp nguồn.
-- Máy tạo ẩm USB 5V: phải dùng loại tự chạy ngay khi cấp điện (không cần bấm nút cơ).
 
 ## 4. Provisioning cục bộ & Kết nối Cloud (MUST)
 
@@ -154,34 +152,30 @@ Thực hiện tuần tự các kiểm tra sau (tham chiếu chuẩn: `tools/simu
 2. **Kiểm tra hết hạn (`expires_at`):** Nếu NTP hợp lệ và `now_utc >= expires_at` -> không thực thi, gửi ACK:
    - `status = "expired"`, `reason = null`, `applied_at = null`.
 3. **Kiểm tra hợp lệ đầu vào:**
-   - `actuator ∈ {"pump_1", "pump_2", "fan", "mist"}`, `action ∈ {"on", "off"}`.
+   - `actuator ∈ {"pump_1", "pump_2", "fan"}`, `action ∈ {"on", "off"}`.
    - Nếu `action == "on"` mà thiếu `duration_s` hoặc `duration_s <= 0` -> ACK `status = "rejected"`, `reason = "invalid"`.
 4. **Xử lý `action == "off"`:**
    - Tắt relay (`digitalWrite(pin, HIGH)`), xóa hẹn giờ tự tắt; nếu là bơm đang chạy thì ghi nhận `last_pump_end_ms[actuator] = millis()`.
    - ACK `status = "applied"`, `side_effects = []`.
-5. **Xử lý `action == "on"` — Interlock Quạt & Máy tạo ẩm:**
-   - Nếu `actuator == "mist"` và `fan` đang `"on"` -> **từ chối**, ACK `status = "rejected"`, `reason = "interlock"`.
-   - Nếu `actuator == "fan"` và `mist` đang `"on"` -> **tắt `mist` trước** (`digitalWrite(PIN_RELAY_MIST, HIGH)`), xóa deadline của `mist`, thêm `"mist_off"` vào `side_effects`.
-6. **Chặn trên `duration_s` & Giới hạn Bơm (`pump_1`, `pump_2`):**
+5. **Chặn trên `duration_s` & Giới hạn Bơm (`pump_1`, `pump_2`):**
    - Lấy giới hạn từ `cfg.zones[]` khớp với tên bơm (`pump_1` / `pump_2`):
      - `eff_duration = min(req_duration, irrigation_max_run_s)`.
      - **Khoảng nghỉ tối thiểu (`min_gap_s`):** Nếu bơm đang tắt và `now_s - last_pump_end < irrigation_min_gap_s` -> **từ chối**, ACK `status = "rejected"`, `reason = "min_gap"`.
      - **Tổng thời gian trong 1 giờ (`max_total_s_per_hour`):** Duy trì lịch sử các lần bơm trong cửa sổ trượt 3600 s; nếu `used_last_hour + eff_duration > irrigation_max_total_s_per_hour` -> **từ chối**, ACK `status = "rejected"`, `reason = "max_total"`.
    - Với `fan`: `eff_duration = min(req_duration, fan_max_on_s)`.
-   - Với `mist`: `eff_duration = min(req_duration, mist_max_on_s)`.
-   - *(Lưu ý chuẩn `reason` ACK)*: theo spec mục 5, `reason ∈ null | interlock | min_gap | max_total | max_run | invalid`. (Khi `req_duration > max_run`, chuẩn `GatewaySafetyEngine` thực hiện clamp xuống `max_run` và `applied` — đảm bảo luôn tắt sau `eff_duration`).
-7. **Kích relay & Hẹn giờ tự tắt (MUST):**
+   - *(Lưu ý chuẩn `reason` ACK)*: `reason ∈ null | min_gap | max_total | max_run | invalid`. (Khi `req_duration > max_run`, chuẩn `GatewaySafetyEngine` thực hiện clamp xuống `max_run` và `applied` — đảm bảo luôn tắt sau `eff_duration`).
+6. **Kích relay & Hẹn giờ tự tắt (MUST):**
    - Bật relay (`digitalWrite(pin, LOW)`), đặt `off_deadline_ms[actuator] = millis() + eff_duration * 1000UL`.
    - Trong mỗi vòng `loop()`, **tự động tắt ngay** mọi actuator khi `millis() >= off_deadline_ms` (dùng phép trừ tràn `millis()` an toàn `(long)(now - deadline) >= 0`), kể cả khi đang mất kết nối MQTT!
-8. **Publish `ack/{cmd_id}` (QoS 1, không retain):**
+7. **Publish `ack/{cmd_id}` (QoS 1, không retain):**
    ```json
    {
      "cmd_id": "6f1c...uuid",
      "status": "applied",
      "reason": null,
      "applied_at": "2026-10-14T08:00:02Z",
-     "side_effects": ["mist_off"],
-     "state": {"pump_1": "off", "pump_2": "off", "fan": "on", "mist": "off"}
+     "side_effects": [],
+     "state": {"pump_1": "off", "pump_2": "off", "fan": "on"}
    }
    ```
 
@@ -198,7 +192,7 @@ Publish định kỳ mỗi `30 s` (và ngay khi đổi trạng thái actuator ho
   "heap": 182000,
   "queue_len": 0,
   "cfg_version": 3,
-  "actuators": {"pump_1": "off", "pump_2": "off", "fan": "on", "mist": "off"},
+  "actuators": {"pump_1": "off", "pump_2": "off", "fan": "on"},
   "nodes": [
     {"mac": "AA:BB:CC:DD:EE:01", "zone": 1, "last_seen_s": 8},
     {"mac": "AA:BB:CC:DD:EE:02", "zone": 2, "last_seen_s": 9}
@@ -216,7 +210,7 @@ Publish định kỳ mỗi `30 s` (và ngay khi đổi trạng thái actuator ho
      - Không bị kẹt (`stuck`) — phát hiện giá trị thô lặp nguyên si qua ngưỡng chu kỳ.
 - **Hành động failsafe:**
   - **Đất quá khô:** `soil_pct < soil_moisture_critical_low_pct` → bật bơm của zone đó trong `irrigation_max_run_s` (vẫn bắt buộc tuân thủ `min_gap_s` và `max_total_s_per_hour`).
-  - **Nhiệt quá cao:** `air_t > temp_critical_high_c` → ép tắt `mist` (nếu đang bật) và bật `fan` (tuân thủ `fan_max_on_s`) cho tới khi `air_t < temp_critical_high_c - 2.0` (hysteresis 2 °C).
+  - **Nhiệt quá cao:** `air_t > temp_critical_high_c` → bật `fan` (tuân thủ `fan_max_on_s`) cho tới khi `air_t < temp_critical_high_c - 2.0` (hysteresis 2 °C).
 - **Cảnh báo & Event:**
   - Bật **Buzzer (`GPIO23`)** theo mẫu kêu ngắt quãng khi failsafe kích hoạt hoặc mất kết nối cloud kéo dài.
   - Ghi các sự kiện vào RAM ring buffer để gửi lên `gh/{farm_id}/{gh_id}/event` khi có mạng lại:
@@ -230,7 +224,6 @@ Publish định kỳ mỗi `30 s` (và ngay khi đổi trạng thái actuator ho
 - `pio run -d firmware/gateway -e gateway` biên dịch thành công (partition `min_spiffs.csv`, không tràn flash/RAM).
 - Test bằng `mosquitto_pub`/`mosquitto_sub` (hoặc API):
   - Relay không nháy lúc cấp nguồn/reset.
-  - Gửi `cmd/mist` `on` rồi `cmd/fan` `on` → relay `mist` ngắt ngay, `ack` trả `side_effects: ["mist_off"]`.
-  - Gửi `cmd/mist` `on` khi `fan` đang `on` → `ack` trả `rejected` (`reason: "interlock"`).
+  - Gửi `cmd/fan` `on` → relay `fan` đóng và tự tắt đúng `duration_s`; gửi `cmd/mist` `on` → `ack` trả `rejected` (`reason: "invalid"`).
   - Bơm tự tắt đúng `duration_s` và chặn `min_gap_s`, `max_total_s_per_hour`.
   - Ngắt Wi-Fi/router > 60 s: buzzer kêu, failsafe chạy đúng ngưỡng, telemetry + event giữ trong RAM queue và xả bù đầy đủ khi có mạng lại, đồng bộ lại `cfg` retained.

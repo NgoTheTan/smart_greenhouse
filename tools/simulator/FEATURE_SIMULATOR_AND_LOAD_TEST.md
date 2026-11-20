@@ -6,7 +6,7 @@
 
 Xây dựng bộ giả lập thiết bị hoạt động như một hoặc hàng trăm Gateway + Sensor Node thật, bộ sinh dữ liệu huấn luyện tổng hợp cho bài toán năng suất/gợi ý cây trồng, và các tiện ích khởi tạo môi trường phát triển:
 1. **Đi qua đúng luồng thiết bị thật (spec §1, §11):** Đăng nhập JWT → tạo greenhouse → `POST /api/gateways (is_simulated=true)` → nhận credential MQTT riêng (Dynamic Security) → kết nối **MQTT over TLS (:8883)**, gửi `status` + LWT, nhận `cfg`, publish `telemetry/{zone}`, thực thi `cmd/{actuator}` và phản hồi `ack/{cmd_id}`. Hỗ trợ mô phỏng theo vùng khí hậu (`--region`), mức trang bị (`equipment_level`), tạo vụ trồng và báo thu hoạch qua REST API để sinh dữ liệu `source='sim'`.
-2. **Làm chuẩn tham chiếu an toàn biên (`GatewaySafetyEngine`):** Mô phỏng chính xác các ràng buộc an toàn ở gateway (interlock quạt–ẩm, auto-off, giới hạn `max_run_s`/`min_gap_s`/`max_total_s_per_hour`, idempotency `cmd_id`, `expires_at`) để test unit trước khi nạp C++ lên ESP32.
+2. **Làm chuẩn tham chiếu an toàn biên (`GatewaySafetyEngine`):** Mô phỏng chính xác các ràng buộc an toàn ở gateway (auto-off, giới hạn `max_run_s`/`min_gap_s`/`max_total_s_per_hour`, idempotency `cmd_id`, `expires_at`) để test unit trước khi nạp C++ lên ESP32.
 3. **Sinh kịch bản kiểm thử & demo (`normal`, `humid_spike`, `dry_down`, `sensor_fault`)** và **thử tải 50–100 gateway** lên Docker local hoặc **VPS Linux** (≥ 2 vCPU, 2 GB RAM).
 4. **Sinh dữ liệu huấn luyện offline (`synth-yield`):** Tạo tập dữ liệu tổng hợp `source='synthetic'` (hàng trăm nhà kính × nhiều vụ) bằng mô hình sinh trưởng ẩn (`tools/simulator/growth.py` + `tools/simulator/crops_growth.json`) kết hợp hàm trích đặc trưng dùng chung `platform/core/climate_features.py` (`feature_version = 1`).
 5. **Tách bạch nguồn dữ liệu:** Dữ liệu từ gateway giả lập được backend gắn `readings.source = 'sim'` (và `yield_samples.source = 'sim'` khi thu hoạch vụ trên farm giả lập), phân biệt rạch ròi với `real` và `synthetic` khi huấn luyện và báo cáo metrics AI theo từng `source`.
@@ -19,9 +19,9 @@ Xây dựng bộ giả lập thiết bị hoạt động như một hoặc hàng
   - `tools/simulator/requirements.txt`: gọn nhẹ chỉ `aiomqtt==2.5.1` và `httpx==0.28.1` (chạy độc lập trên laptop không cần `platform`).
   - `tools/simulator/__main__.py`: CLI hiện tại hỗ trợ `--api`, `--email`, `--password`, `--farms`, `--gateways`, `--nodes-per-gw`, `--interval`, `--scenario`, `--insecure`, `--dry-run`; tái sử dụng `.dev-gateway.json` khi `--farms 1 --gateways 1`, hoặc tự gọi HTTP provisioning API.
   - `tools/simulator/gateway_client.py`:
-    - `ZoneSafetyLimits` & `GatewaySafetyEngine`: hoàn chỉnh logic `apply_cfg`, `tick`, `apply_command` (dedupe 50 ID, `expires_at`, interlock, `min_gap_s`, sliding window `max_total_s_per_hour`, clamping `duration_s`).
+    - `ZoneSafetyLimits` & `GatewaySafetyEngine`: hoàn chỉnh logic `apply_cfg`, `tick`, `apply_command` (dedupe 50 ID, `expires_at`, `min_gap_s`, sliding window `max_total_s_per_hour`, clamping `duration_s`).
     - `SimulatedGateway`: kết nối `aiomqtt.Client` với TLS + LWT retained `{"online":false}`, subscribe `cfg` & `cmd/#`, heartbeat `status` mỗi 30 s, mô hình vật lý `_step_physics` cho 4 kịch bản.
-  - `tools/seed_dev.py`, `tools/gen_vapid.py`, `tools/gen_dev_certs.py`: hoàn chỉnh và chạy tốt ngoài Docker (Windows `SelectorEventLoop` + patch host DB/MQTT).
+  - `tools/seed_dev.py`, `tools/gen_dev_certs.py`: hoàn chỉnh và chạy tốt ngoài Docker (Windows `SelectorEventLoop` + patch host DB/MQTT).
   - `platform/tests/test_gateway_sim_safety.py`: unit test cho `GatewaySafetyEngine` (T3–T6, T10).
 - **Cần mở rộng / hiện thực ở M4–M5:**
   - **Vùng khí hậu & mức trang bị cho simulator trực tuyến (M4):** Bổ sung `--region` (`dalat`, `hanoi_winter`, `hanoi_summer`, `hcm`, `mekong`, `central_coast`) và `--equipment-level` vào `__main__.py` và `SimulatedGateway` để mô phỏng nền nhiệt/RH/DLI và biến thiên ngày/đêm đặc trưng từng vùng (phục vụ Kịch bản E: gợi ý cây trồng khác nhau hợp lý theo vùng khí hậu).
@@ -47,7 +47,7 @@ Xây dựng bộ giả lập thiết bị hoạt động như một hoặc hàng
 | `--interval` | `10.0` | Chu kỳ phát telemetry mỗi zone (giây). |
 | `--scenario` | `normal` | Kịch bản vật lý: `normal` \| `humid_spike` \| `dry_down` \| `sensor_fault`. |
 | `--region` | `None` *(M4)* | Vùng khí hậu cho simulator trực tuyến: `dalat` \| `hanoi_winter` \| `hanoi_summer` \| `hcm` \| `mekong` \| `central_coast`. Khi đặt, `_step_physics` áp dụng nền nhiệt/RH/ánh sáng và biên độ ngày/đêm theo vùng. |
-| `--equipment-level` | `standard` *(M4)* | Mức trang bị mô phỏng (`basic` \| `standard` \| `full`: có/không quạt, máy tạo ẩm, lưới che nắng làm thay đổi dải khí hậu thực tế của nhà kính giả lập). |
+| `--equipment-level` | `standard` *(M4)* | Mức trang bị mô phỏng (`basic` \| `standard` \| `full`: có/không quạt, thông gió thụ động, lưới che nắng làm thay đổi dải khí hậu thực tế của nhà kính giả lập). |
 | `--create-cycle` / `--harvest-after-s` | Tuỳ chọn *(M4–M5)* | Hỗ trợ gọi REST API tạo vụ trồng (`POST /api/zones/{id}/cycles`) cho các zone giả lập khi bắt đầu và báo thu hoạch (`POST /api/cycles/{id}/harvest`) để sinh mẫu `yield_samples(source='sim')`. |
 | `--insecure` | `False` | Bỏ kiểm tra chứng chỉ SSL/TLS cho cả HTTPS API (Caddy self-signed) và MQTTS `:8883` (`CERT_NONE`, tắt `check_hostname`). Chỉ dùng ở `dev`! |
 | `--dry-run` | `False` | Chỉ kiểm tra phân tích tham số CLI và thoát ngay, không mở kết nối mạng. |
@@ -78,10 +78,10 @@ Class `GatewaySafetyEngine` mô phỏng chính xác máy trạng thái an toàn 
 
 - **Mặc định (`ZoneSafetyLimits` theo bộ `demo`):**
   - `irrigation_max_run_s = 15`, `irrigation_min_gap_s = 90`, `irrigation_max_total_s_per_hour = 120`
-  - `fan_max_on_s = 300`, `mist_max_on_s = 300`
-- **Cấu hình cập nhật (`apply_cfg`):** Nhận JSON `cfg` từ topic `.../cfg`, kiểm tra `cfg_version != self.cfg_version`, cập nhật `limits` cho từng bơm (`pump_1`, `pump_2`), `fan_max_on_s`, `mist_max_on_s`, `sample_interval_s`.
+  - `fan_max_on_s = 300`
+- **Cấu hình cập nhật (`apply_cfg`):** Nhận JSON `cfg` từ topic `.../cfg`, kiểm tra `cfg_version != self.cfg_version`, cập nhật `limits` cho từng bơm (`pump_1`, `pump_2`), `fan_max_on_s`, `sample_interval_s`.
 - **Trạng thái theo dõi:**
-  - `actuators`: `{"pump_1": "off", "pump_2": "off", "fan": "off", "mist": "off"}`.
+  - `actuators`: `{"pump_1": "off", "pump_2": "off", "fan": "off"}`.
   - `_off_deadlines`: thời điểm monotonic cần tự tắt từng actuator.
   - `_last_pump_end`: thời điểm monotonic bơm tắt gần nhất (dùng kiểm tra `min_gap_s`).
   - `_pump_history`: `deque[tuple[float, int]]` (bộ nhớ cửa sổ trượt `3600.0` s cho `irrigation_max_total_s_per_hour`).
@@ -92,19 +92,16 @@ Class `GatewaySafetyEngine` mô phỏng chính xác máy trạng thái an toàn 
 1. Gọi `self.tick(now_mono)` trước để tắt các actuator đã hết hạn và cập nhật `_last_pump_end`.
 2. Kiểm tra `cmd_id`: nếu rỗng hoặc đã có trong `_seen_cmd_ids` → trả `None` (bỏ qua, không gửi ACK trùng). Nếu mới → thêm vào `_seen_cmd_ids`.
 3. Kiểm tra `expires_at`: parse ISO 8601; nếu `exp_dt <= now_utc` → trả `status="expired"`, giữ nguyên relay.
-4. Validate `actuator in ("pump_1", "pump_2", "fan", "mist")` và `action in ("on", "off")`; sai → `_reject(cmd_id, "invalid")`.
+4. Validate `actuator in ("pump_1", "pump_2", "fan")` và `action in ("on", "off")`; sai → `_reject(cmd_id, "invalid")`.
 5. Nếu `action == "off"`: tắt actuator, xóa deadline, nếu là bơm đang chạy thì ghi `_last_pump_end[actuator] = now_mono`, trả `status="applied"`.
 6. Nếu `action == "on"`:
    - Kiểm tra `duration_s` phải tồn tại và `> 0`; ngược lại → `_reject(cmd_id, "invalid")`.
-   - **Interlock Quạt – Máy tạo ẩm:**
-     - Nếu `actuator == "mist"` và `actuators["fan"] == "on"` → `_reject(cmd_id, "interlock")`.
-     - Nếu `actuator == "fan"` và `actuators["mist"] == "on"` → ép tắt `mist`, xóa deadline của `mist`, ghi `side_effects.append("mist_off")`.
    - **Giới hạn thời gian & Bơm:**
      - Bơm (`pump_1`, `pump_2`): `eff_duration = min(req_duration, lim.irrigation_max_run_s)`.
      - Nếu bơm đang tắt và `now_mono - last_end < lim.irrigation_min_gap_s` → `_reject(cmd_id, "min_gap")`.
      - Nếu `_pump_used_last_hour(actuator, now_mono) + eff_duration > lim.irrigation_max_total_s_per_hour` → `_reject(cmd_id, "max_total")`.
      - Đạt → ghi `(now_mono, eff_duration)` vào `_pump_history[actuator]`.
-     - Quạt / Tạo ẩm: `eff_duration = min(req_duration, fan_max_on_s / mist_max_on_s)`.
+     - Quạt (`fan`): `eff_duration = min(req_duration, fan_max_on_s)`.
    - Bật `actuators[actuator] = "on"`, đặt `_off_deadlines[actuator] = now_mono + eff_duration`, trả `status="applied"` kèm `side_effects` và snapshot `state`.
 
 ## 5. Mô hình Vật lý & Client MQTT TLS (`SimulatedGateway`)
@@ -126,7 +123,7 @@ Khởi tạo ban đầu mỗi zone `z` (mặc định khi không đặt `--regio
 | Đại lượng / Kịch bản | Quy luật biến thiên mỗi bước `dt_s` | Mục đích kiểm thử |
 |---|---|---|
 | `air_t` | Nhiễu `uniform(-0.15, +0.15)` (+ thành phần ngày/đêm theo `--region` nếu bật); nếu `fan` bật giảm thêm `-0.04 * dt_s`. | Phản ứng hạ nhiệt khi quạt chạy & phân hoá khí hậu theo vùng. |
-| `air_rh` | `humid_spike` hoặc `mist` bật: `+0.35 * dt_s` (tối đa `98.5%`); `fan` bật: `-0.25 * dt_s` (tối thiểu `50.0%`); thường: nhiễu `±0.4` kẹp trong dải vùng khí hậu (hoặc `[45.0, 95.0]`). | Kích hoạt VPD tụt < `low_crit` → `DISEASE_RISK` & ép tắt `mist`. |
+| `air_rh` | `humid_spike`: `+0.35 * dt_s` (tối đa `98.5%`); `fan` bật: `-0.25 * dt_s` (tối thiểu `50.0%`); thường: nhiễu `±0.4` kẹp trong dải vùng khí hậu (hoặc `[45.0, 95.0]`). | Kích hoạt VPD tụt < `low_crit` → `DISEASE_RISK` & bật `fan`. |
 | `soil_m` | `pump_{z}` bật: `+0.9 * dt_s` (tối đa `92.0%`); `dry_down`: `-0.25 * dt_s` (tối thiểu `22.0%`); thường: `-0.02 * dt_s` (tối thiểu `30.0%`). | Kích hoạt `soil < soil_min` → bơm hysteresis cố định và kiểm tra giới hạn thời gian bơm. |
 | `lux` | `max(0.0, lux + uniform(-300, +300))` (theo giờ ngày/đêm & mức che nắng của `equipment_level` nếu bật `--region`) cho **`zone == 1`**; các zone khác gửi `lux = None` (mô phỏng node 2 không có BH1750). | Kiểm tra DLI trên Node 1 và handling `lux=null` ở Node 2+. |
 | `soil_raw` | Quy đổi tuyến tính ngược từ `soil_m` theo khoảng mẫu `[2900, 1300]`: `int(2900 - (soil_m / 100.0) * 1600)`. | Khớp hiệu chuẩn 2 điểm mặc định. |
@@ -220,18 +217,14 @@ Mỗi dòng tương ứng một bản ghi chuẩn bị nạp vào `yield_samples
 
 - Tạo idempotent bộ dữ liệu phát triển hoàn chỉnh trên stack Docker dev đang chạy:
   - **Farm:** `"Nông trại Demo GreenHub"`.
-  - **3 Users + `NotificationPref`:** `owner@greenhub.vn` (`owner`), `operator@greenhub.vn` (`operator`), `viewer@greenhub.vn` (`viewer`) — mật khẩu chung `greenhub123` (băm Argon2).
+  - **User (`owner`):** `owner@greenhub.vn` (`owner`) — mật khẩu `greenhub123` (băm Argon2).
   - **Greenhouse:** `"Nhà kính Fomex 01"` (`"Phòng thí nghiệm IoT"`).
   - **2 Zones:** Zone 1 `"Zone 1 – Cà chua bi"` (`TEMPLATE_TOMATO_DEMO_ID`, `pump_channel=1`), Zone 2 `"Zone 2 – Dâu tây"` (`TEMPLATE_STRAWBERRY_DEMO_ID`, `pump_channel=2`), hiệu chuẩn `2900 / 1300`. *(Cập nhật M4: dùng template `schema_version = 2` trong bộ 10 template 5 cây × `real`/`demo` và gán `area_m2` mặc định ví dụ `1.0` m² để thử được ngay luồng vụ trồng & dự báo năng suất.)*
   - **2 Paired Nodes:** `AA:BB:CC:DD:EE:01` (Zone 1) và `AA:BB:CC:DD:EE:02` (Zone 2).
   - **DeviceState:** `cfg_version_desired=1`, `cfg_version_reported=0`.
   - **Gateway + MQTT DynSec:** gọi `provision_gateway_mqtt` cấp user `gw_{gh.id.hex[:12]}`, tạo bản ghi `Gateway(is_simulated=True)`, phát `pg_notify` `"cfg_updated"`, và lưu thông tin ra `.dev-gateway.json`.
 
-### 8.2 `tools/gen_vapid.py` (`python -m tools.gen_vapid`)
-
-- Sinh cặp khóa EC đường cong `SECP256R1` bằng thư viện `cryptography`, encode dạng `urlsafe_b64` không có padding `=`, in ra hai biến `VAPID_PUBLIC_KEY` và `VAPID_PRIVATE_KEY` để chép vào `.env`.
-
-### 8.3 `tools/gen_dev_certs.py` (`python -m tools.gen_dev_certs [LAN_IP]`)
+### 8.2 `tools/gen_dev_certs.py` (`python -m tools.gen_dev_certs [LAN_IP]`)
 
 - Giải pháp Python thuần đa nền tảng (chạy tốt trên Windows không cần Git Bash/OpenSSL) tương đương `deploy/scripts/gen-dev-certs.sh`.
 - Sinh (hoặc tái sử dụng) CA `"GreenHub Dev CA"` (RSA 2048, hạn 3650 ngày) tại `deploy/certs/ca.{key,crt}` và ký `server.{key,crt}` (hạn 825 ngày, `ExtendedKeyUsage: SERVER_AUTH`, SAN gồm `DNS:localhost`, `DNS:mosquitto`, `IP:127.0.0.1`, và `IP:<LAN_IP>` nếu truyền đối số).
@@ -239,7 +232,7 @@ Mỗi dòng tương ứng một bản ghi chuẩn bị nạp vào `yield_samples
 ## 9. Kiểm thử & Xác nhận
 
 ```powershell
-# 1. Unit test quy tắc an toàn Gateway (interlock, min_gap, max_total, expired, idempotency)
+# 1. Unit test quy tắc an toàn Gateway (từ chối mist, giới hạn quạt/bơm, min_gap, max_total, expired, idempotency)
 .venv\Scripts\pytest.exe platform/tests/test_gateway_sim_safety.py
 
 # 2. Kiểm tra CLI dry-run (không cần stack Docker)

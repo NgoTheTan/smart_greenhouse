@@ -1,5 +1,5 @@
 export type UserRole = 'owner'
-export type ActuatorName = 'pump_1' | 'pump_2' | 'fan' | 'mist'
+export type ActuatorName = 'pump_1' | 'pump_2' | 'fan'
 export type ActuatorMode = 'auto' | 'manual'
 export type AlertSeverity = 'info' | 'warning' | 'critical'
 export type AlertState = 'raised' | 'notified' | 'acknowledged' | 'resolved'
@@ -137,10 +137,6 @@ export interface CropParameters {
     min_on_s: number
     max_on_s: number
   }
-  mist: {
-    max_on_s: number
-    lockout_s: number
-  }
   risk: {
     vpd_low_duration_min: number
   }
@@ -220,17 +216,9 @@ export interface AlertItem {
   payload: Record<string, unknown> | null
   created_at: string
   notified_at: string | null
-  escalated_at: string | null
   acknowledged_at: string | null
   acked_by: string | null
   resolved_at: string | null
-}
-
-export interface NotificationPref {
-  user_id: string
-  push_enabled: boolean
-  email_enabled: boolean
-  min_severity: AlertSeverity
 }
 
 export interface CropCycleFeedback {
@@ -396,6 +384,7 @@ export const ALERT_TYPE_LABELS: Record<string, string> = {
   HEAT_STRESS: 'Sốc nhiệt',
   SOIL_DRY: 'Đất quá khô',
   SENSOR_FAULT: 'Lỗi cảm biến',
+  DEVICE_OFFLINE: 'Mất kết nối Gateway',
   GATEWAY_OFFLINE: 'Mất kết nối Gateway',
   FAILSAFE_ACTIVE: 'Gateway đang chạy Failsafe',
   YIELD_FORECAST_LOW: 'Năng suất dự kiến thấp',
@@ -405,7 +394,6 @@ export const ACTUATOR_LABELS: Record<ActuatorName, string> = {
   pump_1: 'Bơm tưới Zone 1',
   pump_2: 'Bơm tưới Zone 2',
   fan: 'Quạt đối lưu',
-  mist: 'Máy tạo ẩm / Phun sương',
 }
 
 export const QUALITY_LABELS: Record<string, string> = {
@@ -414,11 +402,6 @@ export const QUALITY_LABELS: Record<string, string> = {
   spike: 'Nhiễu đột biến',
   dropout: 'Mất tín hiệu / Thiếu dữ liệu',
   out_of_range: 'Ngoài dải vật lý',
-}
-
-export function hasMinRole(role: string | undefined | null, _minRole?: UserRole | string): boolean {
-  if (!role) return false
-  return true
 }
 
 export function formatCropName(code: string | null | undefined, fallbackName?: string | null): string {

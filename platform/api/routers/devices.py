@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import or_, select
 
-from api.deps import CurrentOwner, CurrentViewer, DbSession
+from api.deps import CurrentUser, DbSession
 from api.provisioning import provision_gateway_mqtt
 from api.routers.greenhouses import get_owned_greenhouse
 from core.config import get_settings
@@ -34,7 +34,7 @@ router = APIRouter(tags=["devices"])
     status_code=status.HTTP_201_CREATED,
 )
 async def create_gateway(
-    body: GatewayCreateRequest, user: CurrentOwner, session: DbSession
+    body: GatewayCreateRequest, user: CurrentUser, session: DbSession
 ) -> GatewayProvisionResponse:
     gh = await get_owned_greenhouse(session, body.greenhouse_id, user.farm_id)
     existing = (
@@ -78,7 +78,7 @@ async def create_gateway(
 
 @router.get("/gateways/{gateway_id}/status", response_model=GatewayStatusResponse)
 async def get_gateway_status(
-    gateway_id: uuid.UUID, user: CurrentViewer, session: DbSession
+    gateway_id: uuid.UUID, user: CurrentUser, session: DbSession
 ) -> GatewayStatusResponse:
     row = (
         await session.execute(
@@ -114,7 +114,7 @@ async def get_gateway_status(
 
 @router.get("/nodes", response_model=list[DeviceNodeResponse])
 async def list_nodes(
-    user: CurrentViewer,
+    user: CurrentUser,
     session: DbSession,
     node_status: Annotated[str | None, Query(alias="status")] = None,
 ) -> list[DeviceNode]:
@@ -131,7 +131,7 @@ async def list_nodes(
 
 @router.post("/nodes/{mac}/pair", response_model=DeviceNodeResponse)
 async def pair_node(
-    mac: str, body: NodePairRequest, user: CurrentOwner, session: DbSession
+    mac: str, body: NodePairRequest, user: CurrentUser, session: DbSession
 ) -> DeviceNode:
     """Ghép node vào zone: hỗ trợ cả node đã `discovered` lẫn nhập MAC thủ công mới."""
     try:
@@ -204,7 +204,7 @@ async def pair_node(
 async def update_zone_calibration(
     zone_id: uuid.UUID,
     body: CalibrationUpdateRequest,
-    user: CurrentOwner,
+    user: CurrentUser,
     session: DbSession,
 ) -> dict:
     row = (

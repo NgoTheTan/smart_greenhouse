@@ -19,7 +19,7 @@ Vận hành lớp AI runtime trong tiến trình `worker` cho **bài toán duy n
 - **Hạ tầng đã sẵn sàng:**
   - `platform/requirements.txt`: đã ghim `numpy==2.5.4`, `pandas==3.1.1`, `scikit-learn==1.9.1`, `lightgbm==4.7.0`, `joblib==1.6.0`.
   - `platform/Dockerfile`: đã cài `libgomp1`, `COPY ml/ /app/ml/` và `ENV MODELS_DIR=/models`.
-  - `platform/worker/scheduler.py`: đã có job `_tick_5s` (timeout lệnh, expire manual modes, `rule_engine.tick_5s`, `escalate_alerts`, dispatch pending commands, sync unsynced cfg).
+  - `platform/worker/scheduler.py`: đã có job `_tick_5s` (timeout lệnh, expire manual modes, `rule_engine.tick_5s`, dispatch pending commands, sync unsynced cfg).
 - **Cần viết lại / bổ sung ở M5:**
   - `platform/worker/inference.py` và `scheduler.py`: hiện đang mang khung M2 cũ; cần viết lại hoàn toàn cho `yield` toàn cục, `cycle_harvested`, `yield_forecast`, `crop_recommendation`, `recommend`, và kiểm tra bù model 10 phút.
   - `platform/worker/main.py`: hiện `on_worker_event` return sớm nếu `self._mqtt_client is None` — cần sửa để các sự kiện AI (`model_activated`, `cycle_harvested`, `recommend`) luôn được xử lý kể cả khi MQTT đang tạm mất kết nối.
@@ -63,7 +63,7 @@ Vận hành lớp AI runtime trong tiến trình `worker` cho **bài toán duy n
 ## 4. Tạo mẫu huấn luyện khi Thu hoạch (`cycle_harvested` → `yield_samples`)
 
 ### 4.1 Kích hoạt
-- Khi operator gọi `POST /api/cycles/{id}/harvest`, API cập nhật `crop_cycles.status = 'harvested'`, `harvested_at`, `yield_kg` và phát `NOTIFY worker_events {"type": "cycle_harvested", "cycle_id": "<uuid>"}`.
+- Khi người dùng gọi `POST /api/cycles/{id}/harvest`, API cập nhật `crop_cycles.status = 'harvested'`, `harvested_at`, `yield_kg` và phát `NOTIFY worker_events {"type": "cycle_harvested", "cycle_id": "<uuid>"}`.
 - `WorkerRuntime.on_worker_event` gọi `InferenceService.handle_cycle_harvested(session, cycle_id)` (bổ sung quét bù trong job 10 phút nếu có vụ `harvested` chưa có bản ghi tương ứng trong `yield_samples` và chưa có ghi chú lỗi coverage).
 
 ### 4.2 Quy trình xử lý chi tiết (MUST)
@@ -152,4 +152,4 @@ Với một `Greenhouse`:
 - **Kịch bản E (AI):**
   - Zone có vụ đang trồng hiển thị năng suất dự kiến + khoảng tin cậy.
   - Các nhà kính giả lập ở vùng khí hậu khác nhau (`dalat` vs `hcm`) cho gợi ý khác nhau hợp lý.
-  - Thay đổi khí hậu nhà kính thật (bật máy tạo ẩm/quạt/đèn) rồi bấm Làm mới (`POST /api/greenhouses/{id}/recommendations/refresh`) → nhận phản hồi `202`, `worker` chạy ngay và WebSocket cập nhật tóm tắt khí hậu cùng thứ hạng mới.
+  - Thay đổi khí hậu nhà kính thật (bật quạt/đèn hoặc tăng ẩm không khí) rồi bấm Làm mới (`POST /api/greenhouses/{id}/recommendations/refresh`) → nhận phản hồi `202`, `worker` chạy ngay và WebSocket cập nhật tóm tắt khí hậu cùng thứ hạng mới.

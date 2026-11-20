@@ -7,7 +7,6 @@ import aiomqtt
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from core.db import SessionLocal
-from worker.alerts import escalate_alerts
 from worker.commands import (
     dispatch_pending_commands,
     expire_manual_modes,
@@ -36,7 +35,6 @@ def create_worker_scheduler(
                 await expire_manual_modes(session)
                 if rule_engine is not None:
                     await rule_engine.tick_5s(session, client)
-                await escalate_alerts(session)
                 if client is not None:
                     await dispatch_pending_commands(client, session)
                     await shadow_pub.sync_unsynced(client, session)

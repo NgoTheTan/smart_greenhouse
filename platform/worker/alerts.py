@@ -1,4 +1,4 @@
-"""Alert Service: vòng đời raised->notified->acknowledged->resolved, dedupe, leo thang."""
+"""Alert Service: vòng đời raised->notified->acknowledged->resolved, dedupe, tự đóng."""
 
 import logging
 import uuid
@@ -51,7 +51,7 @@ async def raise_alert(
         await session.flush()
 
         try:
-            await send_alert_notifications(session, alert, is_escalation=False, now=now)
+            await send_alert_notifications(session, alert, now=now)
             alert.state = "notified"
             alert.notified_at = now
         except Exception:  # noqa: BLE001
@@ -85,7 +85,7 @@ async def raise_alert(
             s.alert_cooldown_min,
         )
         try:
-            await send_alert_notifications(session, alert, is_escalation=False, now=now)
+            await send_alert_notifications(session, alert, now=now)
             alert.notified_at = now
             alert.state = "notified"
         except Exception:  # noqa: BLE001
@@ -114,44 +114,8 @@ async def resolve_alert(
 
     try:
         # Phát WS sự kiện để cập nhật UI/đóng badge ngay
-        await send_alert_notifications(session, alert, is_escalation=False, now=now)
+        await send_alert_notifications(session, alert, now=now)
     except Exception:  # noqa: BLE001
         log.exception("Lỗi phát thông báo resolved cho alert %s", alert.id)
 
     return alert
-
-
-async def escalate_alerts(
-    session: AsyncSession,
-    now: datetime | None = None,
-) -> list[Alert]:
-    """Quét các alert critical chưa ack sau escalate_after_min để gửi push và email."""
-    now = now or datetime.now(UTC)
-    s = get_settings()
-
-    threshold = now - timedelta(minutes=s.escalate_after_min)
-    stmt = select(Alert).where(
-        Alert.severity == "critical",
-        Alert.state.in_(["raised", "notified"]),
-        Alert.escalated_at.is_(None),
-        Alert.created_at <= threshold,
-    )
-    alerts = (await session.execute(stmt)).scalars().all()
-
-    escalated: list[Alert] = []
-    for a in alerts:
-        a.escalated_at = now
-        log.warning(
-            "Leo thang cảnh báo nghiêm trọng %s (type=%s, key=%s) sau %s phút",
-            a.id,
-            a.alert_type,
-            a.dedupe_key,
-            s.escalate_after_min,
-        )
-        try:
-            await send_alert_notifications(session, a, is_escalation=True, now=now)
-            escalated.append(a)
-        except Exception:  # noqa: BLE001
-            log.exception("Lỗi khi leo thang alert %s", a.id)
-
-    return escalated

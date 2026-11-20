@@ -16,7 +16,6 @@ import {
   YAxis,
 } from 'recharts'
 import { api, formatApiError } from '../lib/api'
-import { useAuth } from '../lib/auth'
 import {
   ACTUATOR_LABELS,
   ALERT_TYPE_LABELS,
@@ -54,7 +53,7 @@ const RANGE_OPTIONS: Array<{
     { key: '7d', label: '7 ngày', hours: 168, agg: '1h' },
   ]
 
-const ACTUATORS: ActuatorName[] = ['pump_1', 'pump_2', 'fan', 'mist']
+const ACTUATORS: ActuatorName[] = ['pump_1', 'pump_2', 'fan']
 
 const CMD_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   pending: { label: 'Chờ gửi', cls: 'muted' },
@@ -96,7 +95,6 @@ export default function ZoneDetailPage() {
     )
   }
 
-  const { canOperate } = useAuth()
   const queryClient = useQueryClient()
 
   const [rangeKey, setRangeKey] = useState<RangeKey>('1h')
@@ -387,13 +385,6 @@ export default function ZoneDetailPage() {
   const handleTriggerActuator = (act: ActuatorName, currentState: string) => {
     const turningOn = currentState !== 'on'
     if (turningOn) {
-      if (act === 'mist' && reportedActuators.fan === 'on') {
-        setCmdFeedback({
-          ok: false,
-          text: 'Vi phạm Interlock: Quạt đối lưu đang BẬT, không thể bật máy tạo ẩm cùng lúc.',
-        })
-        return
-      }
       if (durationInput < 1 || durationInput > 3600) {
         setCmdFeedback({ ok: false, text: 'Thời lượng bật phải từ 1 đến 3600 giây.' })
         return
@@ -748,7 +739,7 @@ export default function ZoneDetailPage() {
       {/* ── MỤC 2: ĐIỀU KHIỂN CHẤP HÀNH ── */}
       {activeSection === 'control' && (
         <section id="zone-section-2" style={{ marginBottom: '1.5rem' }}>
-          {/* Khối Điều khiển thiết bị chấp hành & Interlock */}
+          {/* Khối Điều khiển thiết bị chấp hành */}
           <div id="control-section" className="card">
             <div className="card-header">
               <div>
@@ -785,10 +776,6 @@ export default function ZoneDetailPage() {
               </div>
             </div>
 
-            <div className="alert-banner warning" style={{ marginBottom: '1rem' }}>
-              <strong>Quy tắc Interlock:</strong> Quạt đối lưu và Máy tạo ẩm <strong>không</strong> chạy đồng thời. Khi quạt bật do rủi ro nấm/nhiệt hoặc thủ công, máy tạo ẩm bị ép tắt và khoá tạm thời.
-            </div>
-
             {cmdFeedback && (
               <div
                 className={`alert-banner ${cmdFeedback.ok ? 'ok' : 'bad'}`}
@@ -798,13 +785,12 @@ export default function ZoneDetailPage() {
               </div>
             )}
 
-            <div className="grid grid-cols-4" style={{ marginBottom: '1.25rem' }}>
+            <div className="grid grid-cols-3" style={{ marginBottom: '1.25rem' }}>
               {ACTUATORS.map((act) => {
                 const state = reportedActuators[act] ?? 'off'
                 const modeObj = desiredModes[act]
                 const mode = modeObj?.mode ?? 'auto'
                 const isOn = state === 'on'
-                const interlockLocked = act === 'mist' && reportedActuators.fan === 'on'
 
                 return (
                   <div key={act} className={`actuator-card ${isOn ? 'on' : ''}`}>
@@ -825,27 +811,25 @@ export default function ZoneDetailPage() {
                         Hết hạn: {formatTimeShortVi(modeObj.until)}
                       </div>
                     )}
-                    {canOperate && (
-                      <div style={{ display: 'flex', gap: '0.4rem' }}>
-                        <button
-                          type="button"
-                          className={`btn btn-sm ${isOn ? 'btn-danger' : 'btn-primary'}`}
-                          style={{ flex: 1 }}
-                          disabled={sendCommandMutation.isPending || (!isOn && interlockLocked)}
-                          onClick={() => handleTriggerActuator(act, state)}
-                        >
-                          {isOn ? 'TẮT' : `BẬT (${durationInput}s)`}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-secondary"
-                          disabled={setModeMutation.isPending}
-                          onClick={() => handleToggleMode(act, mode)}
-                        >
-                          {mode === 'manual' ? 'Về Auto' : 'Manual'}
-                        </button>
-                      </div>
-                    )}
+                    <div style={{ display: 'flex', gap: '0.4rem' }}>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${isOn ? 'btn-danger' : 'btn-primary'}`}
+                        style={{ flex: 1 }}
+                        disabled={sendCommandMutation.isPending}
+                        onClick={() => handleTriggerActuator(act, state)}
+                      >
+                        {isOn ? 'TẮT' : `BẬT (${durationInput}s)`}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-secondary"
+                        disabled={setModeMutation.isPending}
+                        onClick={() => handleToggleMode(act, mode)}
+                      >
+                        {mode === 'manual' ? 'Về Auto' : 'Manual'}
+                      </button>
+                    </div>
                   </div>
                 )
               })}
@@ -1012,7 +996,7 @@ export default function ZoneDetailPage() {
                 </span>
               </div>
 
-              {canOperate && zone && (
+              {zone && (
                 <div style={{ display: 'flex', gap: '0.45rem', flexWrap: 'wrap' }}>
                   {!activeCycle ? (
                     <button

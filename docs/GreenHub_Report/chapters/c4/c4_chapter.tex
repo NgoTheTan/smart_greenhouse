@@ -1,0 +1,371 @@
+\chapter{Cài đặt, kiểm thử và triển khai hệ thống}
+\label{chap:implementation-testing-deployment}
+
+Sau khi hoàn tất bước phân tích và thiết kế chi tiết ở Chương 3, nhóm chúng em tiến hành hiện thực trọn bộ bốn tầng của GreenHub trong một kho mã nguồn duy nhất, đồng thời xây dựng bộ kiểm thử tự động, chạy thực nghiệm huấn luyện mô hình học máy và đóng gói hạ tầng triển khai cho cả laptop phát triển lẫn máy chủ VPS Linux. Chương này báo cáo trung thực kết quả cài đặt, các số liệu đo đạc kiểm thử, hiệu năng mô hình AI/ML và quy trình vận hành bảo mật của hệ thống.
+
+\section{Tổ chức mã nguồn và kết quả cài đặt thực tế}
+\label{sec:c4-implementation}
+
+Toàn bộ dự án được tổ chức theo cấu trúc monorepo rõ ràng gồm sáu phân hệ chính với tổng cộng \textbf{27.049 dòng mã nguồn} tự viết (không tính các tệp khóa thư viện, dữ liệu CSV và tài liệu đặc tả). Phân bổ quy mô và các hạng mục đã hoàn thiện được tổng hợp trong Bảng~\ref{tab:codebase-summary}.
+
+\begingroup
+\scriptsize
+\sloppy
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{longtable}{|>{\raggedright\arraybackslash}p{0.15\textwidth}|>{\raggedright\arraybackslash}p{0.17\textwidth}|>{\raggedright\arraybackslash}p{0.15\textwidth}|>{\raggedleft\arraybackslash}p{0.09\textwidth}|>{\raggedright\arraybackslash}p{0.37\textwidth}|}
+\caption{Thống kê quy mô mã nguồn và kết quả cài đặt theo từng phân hệ của GreenHub}\label{tab:codebase-summary}\\
+\hline
+\textbf{Phân hệ} & \textbf{Thư mục} & \textbf{Ngôn ngữ / Công cụ} & \textbf{Số dòng} & \textbf{Thành phần đã hoàn thiện} \\
+\hline
+\endfirsthead
+\hline
+\textbf{Phân hệ} & \textbf{Thư mục} & \textbf{Ngôn ngữ / Công cụ} & \textbf{Số dòng} & \textbf{Thành phần đã hoàn thiện} \\
+\hline
+\endhead
+Firmware & \texttt{firmware/ \{common,node, gateway\}/} & C/C++ (PlatformIO) & 2.820 & \texttt{gh\_packets.h}, \texttt{gh\_config.h}; \texttt{node/src/main.cpp} (5 cấu hình biên dịch); \texttt{gateway/src/main.cpp} (WiFiManager, TLS bundle, lọc Median+EMA, RAM queue 150, lớp an toàn và failsafe). \\ \hline
+Platform Backend & \texttt{platform/ \{core,api,worker, migrations,tests\}/} & Python 3.12 & 12.337 & 16 model SQLAlchemy + 8 migration Alembic; 9 router REST + WS \texttt{/ws}; \texttt{climate\_features.py}, \texttt{vpd.py}, \texttt{quality.py}; 8 module worker (\texttt{ingest}, \texttt{rules}, \texttt{commands}, \texttt{shadow}, \texttt{alerts}, \texttt{notify}, \texttt{inference}, \texttt{scheduler}); 14 tệp kiểm thử. \\ \hline
+AI / ML Pipeline & \texttt{ml/} & Python 3.12 & 1.883 & \texttt{dataset.py}, \texttt{features.py}, \texttt{train.py}, \texttt{evaluate.py}, \texttt{wur\_adapter.py}; đã huấn luyện và đóng gói artifact \texttt{models/yield/v1.joblib} và \texttt{v2.joblib}. \\ \hline
+Web Console PWA & \texttt{web/} & TypeScript / React 18 / CSS & 8.273 & 9 trang chức năng kết nối API thật (không dùng \texttt{mockData}), \texttt{api.ts}, \texttt{auth.tsx}, \texttt{ws.tsx}, \texttt{manifest.json}. \\ \hline
+Tools \& Simulator & \texttt{tools/} & Python 3.12 & 1.445 & \texttt{tools/simulator} (giả lập MQTT TLS, \texttt{growth.py}, \texttt{crops\_growth.json}, \texttt{synth-yield}), \texttt{gen\_dev\_certs.py}, \texttt{seed\_dev.py}. \\ \hline
+Deployment & \texttt{deploy/} & Docker / Shell / Caddy / Mosquitto & 291 & \texttt{docker-compose.yml}, \texttt{dev.yml}, \texttt{prod.yml}, \texttt{Caddyfile}, \texttt{mosquitto.conf}, \texttt{docker-entrypoint.sh}, \texttt{backup.sh}, \texttt{gen-dev-certs.sh}. \\ \hline
+\textbf{Tổng cộng} & --- & --- & \textbf{27.049} & \textbf{Hoàn thiện đồng bộ toàn bộ 4 tầng hệ thống} \\ \hline
+\end{longtable}
+\endgroup
+
+Trong quá trình lắp ráp và chạy thử thực tế, nhóm cũng chủ động bổ sung năm cải tiến thiết thực so với bản đặc tả khung ban đầu:
+\begin{enumerate}[leftmargin=*]
+    \item Mở rộng firmware Sensor Node hỗ trợ thêm cảm biến DHT11 (\texttt{node\_dht11}) và bo mạch ESP8266 chỉ gắn đầu dò ẩm đất (\texttt{node\_esp8266}), đồng thời lập trình Gateway tự chia sẻ số đo nhiệt -- ẩm hợp lệ từ zone có cảm biến sang zone dùng chung không khí.
+    \item Bổ sung bộ tiền xử lý loại gai nhiễu, lọc trung vị 3 mẫu và EMA (\(\alpha = 0{,}5\)) ngay tại Gateway giúp đường tín hiệu DHT11 và ẩm đất điện dung ổn định hẳn mà vẫn giữ nguyên cờ lỗi phần cứng cho máy chủ.
+    \item Hiện thực hoàn chỉnh mô-đun \texttt{ml/wur\_adapter.py} khai thác 22 buồng thực nghiệm công khai qua 4 kỳ \textit{WUR Autonomous Greenhouse Challenge}, sinh bộ dữ liệu chuẩn hóa \texttt{data/public\_wur.csv} gồm 110 mẫu.
+    \item Thêm cột \texttt{crop\_cycles.feedback} (migration \texttt{0005}) để lưu phản hồi thực địa sau thu hoạch và xóa sạch \texttt{mockData.ts} trên Web Console.
+    \item Tách riêng chế độ phát triển cục bộ không cần Docker (\texttt{USE\_DEV\_SQLITE=true}) trong \texttt{platform/core/dev\_db.py} phục vụ lập trình nhanh, trong khi vẫn giữ mặc định tuyệt đối là PostgreSQL/TimescaleDB cho chạy thật và kiểm thử tích hợp.
+\end{enumerate}
+
+\section{Chiến lược kiểm thử và kết quả đo đạc thực tế}
+\label{sec:c4-testing}
+
+\subsection{Kết quả chạy bộ kiểm thử tự động và kiểm tra tĩnh}
+\label{subsec:c4-unit-tests}
+
+Kết quả thực thi trực tiếp trên mã nguồn dự án ngày 20/11/2026 cho thấy độ ổn định cao ở cả backend lẫn frontend:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Kiểm thử đơn vị Python (\texttt{pytest -m "not integration"}):} Đạt \textbf{58/58 ca kiểm thử PASSED (100\%)} trong thời gian \(25{,}65\;\text{giây}\). Riêng kịch bản kiểm thử tích hợp \texttt{test\_m2\_integration.py} được gắn nhãn \texttt{@pytest.mark.integration} để chạy trực tiếp trên cụm Docker Compose.
+    \item \textbf{Kiểm tra kiểu tĩnh TypeScript (\texttt{npm run typecheck --prefix web}):} Đạt \textbf{PASSED (0 lỗi biên dịch \texttt{tsc -b --noEmit})}.
+    \item \textbf{Kiểm tra tĩnh Python (\texttt{ruff check .}):} Ghi nhận trung thực còn \textbf{2 cảnh báo nhỏ} trong tệp \texttt{platform/api/routers/zones.py}, gồm lỗi \texttt{F841} (biến cục bộ \texttt{start\_ts} tại dòng 103 chưa được sử dụng) và lỗi \texttt{F821} (thiếu câu lệnh import \texttt{Any} cho chú thích kiểu tại dòng 141). Hai cảnh báo này không ảnh hưởng đến chạy thử unit test nhưng cần được dọn gọn trước khi bàn giao cuối cùng.
+\end{itemize}
+
+Chi tiết phạm vi kiểm chứng của toàn bộ 14 tệp kiểm thử tự động trong \texttt{platform/tests/} được liệt kê ở Bảng~\ref{tab:unit-test-suites}.
+
+\begingroup
+\scriptsize
+\sloppy
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.1}
+\begin{longtable}{|>{\raggedright\arraybackslash}p{0.25\textwidth}|>{\centering\arraybackslash}p{0.07\textwidth}|>{\centering\arraybackslash}p{0.10\textwidth}|>{\raggedright\arraybackslash}p{0.51\textwidth}|}
+\caption{Danh sách 14 bộ kiểm thử tự động trong thư mục \texttt{platform/tests/}}\label{tab:unit-test-suites}\\
+\hline
+\textbf{Tệp kiểm thử} & \textbf{Số ca} & \textbf{Loại} & \textbf{Nội dung kiểm chứng trọng tâm} \\
+\hline
+\endfirsthead
+\hline
+\textbf{Tệp kiểm thử} & \textbf{Số ca} & \textbf{Loại} & \textbf{Nội dung kiểm chứng trọng tâm} \\
+\hline
+\endhead
+\texttt{test\_smoke.py} & 4 & Unit & Cấu hình \texttt{Settings}, danh sách đường dẫn OpenAPI FastAPI, danh sách topic subscribe của worker. \\ \hline
+\texttt{test\_vpd\_dli.py} & 5 & Unit & Kiểm chứng \(T=20,\;\text{RH}=94,\;\text{offset}=0 \Rightarrow \text{VPD} \approx 0{,}1403\;\text{kPa}\), \texttt{leaf\_offset}, giới hạn ngưng tụ, \texttt{lux\_to\_ppfd}, \texttt{integrate\_dli} kèm \texttt{max\_gap\_s}, \texttt{risk\_vpd\_low}, \texttt{risk\_heat}. \\ \hline
+\texttt{test\_quality.py} & 5 & Unit & Kiểm tra 5 nhãn \texttt{ok}, \texttt{dropout} (miễn trừ \texttt{FLAG\_BH\_ERR}), \texttt{out\_of\_range} (đứt dây ADC 0/4095), \texttt{spike} (miễn trừ sau mất mạng), \texttt{stuck} (air 30 / soil 60) và đối chiếu zone lân cận. \\ \hline
+\texttt{test\_gateway\_sim\_safety.py} & 3 & Unit & \texttt{GatewaySafetyEngine}: từ chối \texttt{mist} không hỗ trợ (\texttt{invalid}), giới hạn \texttt{fan\_max\_on\_s} / \texttt{max\_run\_s}, tự tắt, \texttt{min\_gap\_s}, \texttt{max\_total\_s\_per\_hour}, \texttt{expired} và tính lũy đẳng \texttt{cmd\_id}. \\ \hline
+\texttt{test\_core\_and\_api\_unit.py} & 5 & Unit & Băm Argon2 + JWT, 10 mẫu hồ sơ cây \texttt{schema\_version = 2}, chuẩn hóa MAC, cô lập DynSec ACL và \texttt{test\_api\_process\_does\_not\_import\_heavy\_ml\_libraries}. \\ \hline
+\texttt{test\_worker\_and\_routers\_unit.py} & 4 & Unit & Xác thực 401 JWT (\texttt{owner}), \texttt{409 gateway\_offline}, ghép MAC thủ công và tăng \texttt{cfg\_version}, \texttt{handle\_ack} + \texttt{side\_effects} + \texttt{actuator\_logs}, hết hạn \texttt{manual}. \\ \hline
+\texttt{test\_rules\_engine.py} & 5 & Unit & Hysteresis tưới (\texttt{soil\_min}/\texttt{soil\_max}/\texttt{soil\_settle\_s}), quạt theo zone nguy hiểm nhất, chặn quạt khi VPD cao, tích lũy \texttt{fungal\_minutes}, bỏ qua mẫu \texttt{quality != 'ok'}. \\ \hline
+\texttt{test\_alerts\_and\_notify.py} & 5 & Unit & Vòng đời 4 trạng thái cảnh báo, chống trùng \texttt{dedupe}, cooldown 10 phút, \texttt{acknowledged} ngừng nhắc lại, tự động \texttt{resolved}, phát sự kiện In-app \texttt{ws\_events}, API \texttt{/alerts} và \texttt{/ack}. \\ \hline
+\texttt{test\_ws\_realtime.py} & 6 & Unit & Xác thực \texttt{WS /ws?token=}, phân phát 7 loại sự kiện cô lập tuyệt đối theo \texttt{farm\_id}. \\ \hline
+\texttt{test\_climate\_features.py} & 3 & Unit & Kiểm chứng chính xác 16 đặc trưng khí hậu (\texttt{feature\_version = 1}), múi giờ \texttt{Asia/Ho\_Chi\_Minh}, mượn \texttt{lux} cùng nhà kính, \texttt{coverage} và biên OOD \([\min, \max]\). \\ \hline
+\texttt{test\_ml\_pipeline.py} & 5 & Unit & Mô hình sinh trưởng tất định theo seed, chia \texttt{GroupShuffleSplit} theo \texttt{greenhouse\_key} 0\% rò rỉ, baselines B0/B1, Activation Gate và sinh lý do gợi ý tiếng Việt. \\ \hline
+\texttt{test\_inference.py} & 6 & Unit & Nạp tệp \texttt{.joblib}, chạy \texttt{yield\_forecast}, \texttt{crop\_recommendation}, tạo \texttt{yield\_samples} khi thu hoạch (bỏ qua nếu \texttt{coverage < 0,7}), xác nhận AI không phát lệnh chấp hành. \\ \hline
+\texttt{test\_cycles\_and\_models\_api.py} & 2 & Unit & Vòng đời REST \texttt{crop\_cycles} (trả \texttt{409} khi trùng vụ active), cô lập tenant trên \texttt{recommendations}/\texttt{models} và xác nhận không có endpoint lộ \texttt{yield\_samples}. \\ \hline
+\texttt{test\_m2\_integration.py} & 1 & Integration & Kiểm thử trọn vòng trên Docker Compose (TimescaleDB + Mosquitto TLS \texttt{:8883} + API + Worker): đăng nhập \(\rightarrow\) cấp phát DynSec \(\rightarrow\) discovery/pair \(\rightarrow\) config-sync \(\rightarrow\) telemetry và rút dây \(\rightarrow\) từ chối \texttt{mist} (\texttt{422}) + lệnh \texttt{fan} \(\rightarrow\) LWT offline. \\ \hline
+\end{longtable}
+\endgroup
+
+\subsection{Kiểm thử chấp nhận theo 5 kịch bản vận hành (A--E)}
+\label{subsec:c4-acceptance}
+
+Để đánh giá hệ thống theo đúng luồng sử dụng thực tế trên mô hình nhà kính mini kết hợp cụm máy chủ, nhóm xây dựng ma trận kiểm thử chấp nhận gồm 17 ca kiểm thử (T1--T17) phân vào 5 kịch bản trình diễn A--E như trong Bảng~\ref{tab:acceptance-matrix}.
+
+\begingroup
+\scriptsize
+\sloppy
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{longtable}{|>{\raggedright\arraybackslash}p{0.19\textwidth}|>{\centering\arraybackslash}p{0.15\textwidth}|>{\raggedright\arraybackslash}p{0.59\textwidth}|}
+\caption{Ma trận kiểm thử chấp nhận theo 5 kịch bản vận hành A--E và 17 ca kiểm thử T1--T17}\label{tab:acceptance-matrix}\\
+\hline
+\textbf{Kịch bản Demo} & \textbf{Ánh xạ ca kiểm thử} & \textbf{Điều kiện chấp nhận bắt buộc} \\
+\hline
+\endfirsthead
+\hline
+\textbf{Kịch bản Demo} & \textbf{Ánh xạ ca kiểm thử} & \textbf{Điều kiện chấp nhận bắt buộc} \\
+\hline
+\endhead
+\textbf{A. Nguy cơ nấm bệnh} & T1, T11, T13 & Tăng RH làm VPD giảm dưới \texttt{low\_crit} kéo dài \(\rightarrow\) mở cảnh báo \texttt{DISEASE\_RISK}, quạt tự bật (\texttt{fan.min\_on\_s}) \(\rightarrow\) WebSocket hiển thị Toast và badge cảnh báo trên Web Console, nhấn mở đúng trang \texttt{/zones/\{id\}}. \\ \hline
+\textbf{B. Điều khiển ẩm đất} & T2, T5, T6, T9, T10 & Đất khô dưới \texttt{soil\_min} \(\rightarrow\) bơm chạy tối đa \texttt{max\_run\_s}, tắt sớm khi đạt \texttt{soil\_max}, tuân thủ \texttt{min\_gap\_s}, \texttt{max\_total\_s\_per\_hour} và \texttt{soil\_settle\_s}; bơm vẫn tự tắt đúng hẹn khi rớt mạng; chuyển đổi Auto/Manual hoạt động chính xác. \\ \hline
+\textbf{C. Lỗi cảm biến \& Mất mạng} & T7, T8 & Rút dây cảm biến ẩm đất (\texttt{soil\_raw} \(\approx 0\)) \(\rightarrow\) gán \texttt{quality = out\_of\_range}, không tưới nhầm và bật \texttt{SENSOR\_FAULT}. Cắt Wi-Fi Gateway quá \(60\;\text{s}\) \(\rightarrow\) LWT báo \texttt{DEVICE\_OFFLINE}, failsafe cục bộ vận hành đúng giới hạn kèm Buzzer, khi nối lại xả bù hàng đợi RAM và đồng bộ \texttt{cfg\_version}. \\ \hline
+\textbf{D. Đa tenant (Multi-farm)} & T12 & Simulator đăng ký Farm B, Farm C qua đúng API provisioning \(\rightarrow\) tài khoản Farm A không nhìn thấy hay tác động được dữ liệu Farm B (HTTP \texttt{403}); bảng \texttt{yield\_samples} không bị lộ qua bất kỳ API nào. \\ \hline
+\textbf{E. AI Năng suất \& Gợi ý} & T14, T15, T16, T17 & Trang Mô hình AI công bố metrics trên nhà kính chưa thấy thắng B0 và B1; Zone có vụ active hiển thị năng suất dự kiến; Gợi ý cây trồng phân hóa hợp lý theo khí hậu (\texttt{dalat} ưu tiên dâu tây/xà lách, \texttt{hcm} ưu tiên dưa leo/ớt chuông); bấm Làm mới cập nhật tức thời; có kịch bản thử tải 50--100 gateway. \\ \hline
+\end{longtable}
+\endgroup
+
+\subsection{Kiểm thử yêu cầu phi chức năng}
+\label{subsec:c4-nfr-tests}
+
+Song song với các ca kiểm thử chức năng, nhóm rà soát các yêu cầu phi chức năng trọng yếu về cô lập dữ liệu, bảo mật, phục hồi sự cố, hiệu năng thời gian thực và ngân sách tài nguyên như tổng hợp ở Bảng~\ref{tab:greenhub-nfr}.
+
+\begingroup
+\scriptsize
+\sloppy
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.1}
+\begin{longtable}{|>{\centering\arraybackslash}p{0.08\textwidth}|>{\raggedright\arraybackslash}p{0.18\textwidth}|>{\raggedright\arraybackslash}p{0.34\textwidth}|>{\raggedright\arraybackslash}p{0.32\textwidth}|}
+\caption{Kiểm chứng các yêu cầu phi chức năng của hệ thống GreenHub}\label{tab:greenhub-nfr}\\
+\hline
+\textbf{Mã} & \textbf{Yêu cầu} & \textbf{Phương thức kiểm chứng} & \textbf{Kết quả ghi nhận} \\
+\hline
+\endfirsthead
+\hline
+\textbf{Mã} & \textbf{Yêu cầu} & \textbf{Phương thức kiểm chứng} & \textbf{Kết quả ghi nhận} \\
+\hline
+\endhead
+NFR-01 & Cô lập đa tenant \& Xác thực & Gọi REST API chéo \texttt{farm\_id}, kiểm tra \texttt{WS /ws} giữa nhiều farm và kiểm tra xác thực JWT quyền \texttt{owner} trong bộ test tự động. & Đạt: từ chối truy cập thiếu/sai xác thực hoặc chéo farm (401/403), fan-out WebSocket chỉ gửi đúng \texttt{farm\_id}, không có endpoint đọc \texttt{yield\_samples}. \\ \hline
+NFR-02 & Bảo mật tầng truyền thông & Kiểm tra kết nối Mosquitto ẩn danh, kiểm tra TLS 1.2+ cổng \texttt{8883} bằng \texttt{openssl s\_client} và quyền ACL giữa hai gateway khác nhau. & Đạt: chặn kết nối anonymous, chỉ chấp nhận TLS 1.2+, gateway chỉ publish/subscribe được trong đúng nhánh nhà kính của mình. \\ \hline
+NFR-03 & Phục hồi mất mạng \& Khởi động lại & Ngắt mạng Gateway \(> 60\;\text{s}\) để kiểm tra RAM queue 150 bản tin + failsafe; khởi động lại \texttt{worker} kiểm tra \texttt{warm\_up}. & Đạt: dữ liệu được xả bù FIFO sau khi online, relay vẫn tự ngắt đúng \texttt{duration\_s}, \texttt{worker} khôi phục cửa sổ phát hiện \texttt{stuck}/\texttt{spike}. \\ \hline
+NFR-04 & Giới hạn bộ nhớ VPS 2 GB & Áp đặt \texttt{mem\_limit} cho 5 container trong \texttt{docker-compose.yml} và kiểm thử chặn import ML trong \texttt{api}. & Đạt: tổng giới hạn 1.792 MB (\texttt{api} \(\le 384\;\text{MB}\)), kiểm thử \texttt{test\_api\_process\_does\_not\_import\_heavy\_ml\_libraries} pass. \\ \hline
+NFR-05 & Phản hồi thời gian thực & Kiểm tra kênh \texttt{LISTEN/NOTIFY} (\texttt{worker\_events}, \texttt{ws\_events}) và đẩy các tác vụ nặng sang \texttt{asyncio.to\_thread}. & Đạt: lệnh điều khiển, cập nhật telemetry và cảnh báo hiển thị tức thời trên Web Console mà không làm nghẽn vòng sự kiện. \\ \hline
+NFR-06 & An toàn điện \& Cơ cấu chấp hành & Rà soát khởi tạo tắt 3 kênh relay lúc boot, kiểm tra giới hạn \texttt{duration\_s}, \texttt{min\_gap\_s}, \texttt{max\_total\_s\_per\_hour} và bảo vệ chống tác dụng phụ VPD. & Đạt: vận hành hoàn toàn bằng nguồn \(5\;\text{V DC}\) có diode \texttt{1N4007} và tụ \(1000\;\mu\text{F}\); không xảy ra xung bật nhầm lúc khởi động hay vượt ngưỡng an toàn bơm/quạt. \\ \hline
+\end{longtable}
+\endgroup
+
+\section{Kết quả huấn luyện và đánh giá mô hình AI/ML}
+\label{sec:c4-ml-results}
+
+Quy trình huấn luyện \texttt{ml/train.py} đã được thực thi và kiểm định trên hai bộ dữ liệu lưu trong thư mục \texttt{data/}, đảm bảo tách tuyệt đối nhà kính giữa train, validation và test bằng \texttt{GroupShuffleSplit}:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Phiên bản \texttt{v1} (\texttt{models/yield/v1.joblib}):} Huấn luyện trên \(1.000\) mẫu \texttt{synthetic} từ \(200\) nhà kính (\(695\) mẫu train, \(155\) mẫu validation, \(150\) mẫu test thuộc \(30\) nhà kính hoàn toàn chưa từng thấy).
+    \item \textbf{Phiên bản \texttt{v2} (\texttt{models/yield/v2.joblib}):} Huấn luyện trên \(1.110\) mẫu gộp (\(1.000\) mẫu \texttt{synthetic} kết hợp \(110\) mẫu thực nghiệm công khai \texttt{public} WUR) từ \(222\) nhà kính (\(770\) mẫu train, \(170\) mẫu validation, \(170\) mẫu test thuộc các nhà kính tách biệt hoàn toàn).
+\end{itemize}
+
+\subsection{So sánh tổng thể với hai mô hình cơ sở trên tập Test}
+\label{subsec:c4-ml-overall}
+
+Bảng~\ref{tab:ml-overall} đối chiếu hiệu năng của LightGBM ở cả hai phiên bản so với Baseline B0 (trung vị theo từng loại cây) và Baseline B1 (hồi quy tuyến tính Ridge).
+
+\begingroup
+\scriptsize
+\sloppy
+\setlength{\tabcolsep}{2.5pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{longtable}{|>{\raggedright\arraybackslash}p{0.24\textwidth}|>{\centering\arraybackslash}p{0.05\textwidth}|>{\raggedleft\arraybackslash}p{0.09\textwidth}|>{\raggedleft\arraybackslash}p{0.095\textwidth}|>{\raggedleft\arraybackslash}p{0.075\textwidth}|>{\raggedleft\arraybackslash}p{0.085\textwidth}|>{\raggedleft\arraybackslash}p{0.08\textwidth}|>{\raggedleft\arraybackslash}p{0.075\textwidth}|>{\raggedright\arraybackslash}p{0.12\textwidth}|}
+\caption{So sánh hiệu năng mô hình LightGBM với B0 và B1 trên tập Test (nhà kính chưa từng thấy)}\label{tab:ml-overall}\\
+\hline
+\textbf{Phiên bản \& Mô hình} & \textbf{\(n\)} & \textbf{MAE} (\(\text{kg/m}^2\))\(\downarrow\) & \textbf{RMSE} (\(\text{kg/m}^2\))\(\downarrow\) & \textbf{\(R^2\)}\(\uparrow\) & \textbf{MAPE} (\%)\(\downarrow\) & \textbf{Top-1} (\%)\(\uparrow\) & \textbf{NDCG @3}\(\uparrow\) & \textbf{Cổng kích hoạt} \\
+\hline
+\endfirsthead
+\hline
+\textbf{Phiên bản \& Mô hình} & \textbf{\(n\)} & \textbf{MAE}\(\downarrow\) & \textbf{RMSE}\(\downarrow\) & \textbf{\(R^2\)}\(\uparrow\) & \textbf{MAPE}\(\downarrow\) & \textbf{Top-1}\(\uparrow\) & \textbf{NDCG@3}\(\uparrow\) & \textbf{Trạng thái} \\
+\hline
+\endhead
+\texttt{v1} -- Baseline B0 (Median) & 150 & 2,0935 & 2,9141 & 0,5616 & 236,98 & 54,00 & 0,8116 & Baseline \\ \hline
+\texttt{v1} -- Baseline B1 (Ridge) & 150 & 2,0113 & 2,7489 & 0,6099 & 391,45 & 54,00 & 0,8099 & Baseline \\ \hline
+\texttt{v1} -- LightGBM (\texttt{synthetic}) & 150 & \textbf{0,6844} & \textbf{1,1448} & \textbf{0,9323} & \textbf{30,20} & \textbf{90,00} & \textbf{0,9929} & \textbf{ĐẠT} (thắng B0, B1) \\ \hline
+\texttt{v2} -- Baseline B0 (Median) & 170 & 2,3977 & 3,5870 & 0,3442 & 198,90 & 47,88 & 0,7715 & Baseline \\ \hline
+\texttt{v2} -- Baseline B1 (Ridge) & 170 & 2,3336 & 3,2220 & 0,4709 & 226,62 & 47,88 & 0,7715 & Baseline \\ \hline
+\texttt{v2} -- LightGBM (\texttt{synth}+\texttt{WUR}) & 170 & \textbf{0,6792} & \textbf{1,0970} & \textbf{0,9387} & \textbf{24,90} & \textbf{85,45} & \textbf{0,9919} & \textbf{KÍCH HOẠT} (thắng B0, B1, \texttt{v1}) \\ \hline
+\end{longtable}
+\endgroup
+
+\subsection{Phân tích chi tiết phiên bản \texttt{v2} theo từng loại cây và nguồn dữ liệu}
+\label{subsec:c4-ml-detail}
+
+Bảng~\ref{tab:ml-per-crop} cho thấy sai số dự báo của phiên bản đang kích hoạt (\texttt{v2}) trên từng loại cây trong tập kiểm thử. Hệ số xác định \(R^2\) duy trì ổn định từ \(0{,}8357\) đến \(0{,}9488\) trên cả năm giống cây trồng, trong khi độ lớn MAE tỷ lệ thuận tự nhiên với mức năng suất tham chiếu của mỗi loài.
+
+\begingroup
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{longtable}{|>{\raggedright\arraybackslash}p{0.28\textwidth}|>{\raggedleft\arraybackslash}p{0.18\textwidth}|>{\centering\arraybackslash}p{0.12\textwidth}|>{\raggedleft\arraybackslash}p{0.12\textwidth}|>{\raggedleft\arraybackslash}p{0.12\textwidth}|>{\raggedleft\arraybackslash}p{0.10\textwidth}|}
+\caption{Hiệu năng chi tiết của mô hình LightGBM \texttt{v2} theo 5 loại cây ứng viên trên tập Test}\label{tab:ml-per-crop}\\
+\hline
+\textbf{Loại cây (\texttt{crop\_code})} & \textbf{Năng suất chuẩn} (\(\text{kg/m}^2\)) & \textbf{Số mẫu (\(n\))} & \textbf{MAE} (\(\text{kg/m}^2\)) & \textbf{RMSE} (\(\text{kg/m}^2\)) & \textbf{\(R^2\)} \\
+\hline
+\endfirsthead
+\hline
+\textbf{Loại cây} & \textbf{Năng suất chuẩn} & \textbf{\(n\)} & \textbf{MAE} & \textbf{RMSE} & \textbf{\(R^2\)} \\
+\hline
+\endhead
+Xà lách (\texttt{lettuce}) & 3,0 & 38 & 0,1877 & 0,2958 & 0,9488 \\ \hline
+Dâu tây (\texttt{strawberry}) & 4,0 & 33 & 0,2963 & 0,4982 & 0,9047 \\ \hline
+Ớt chuông (\texttt{bell\_pepper}) & 8,0 & 33 & 0,5643 & 0,7003 & 0,8928 \\ \hline
+Cà chua bi (\texttt{tomato\_cherry}) & 10,0 & 33 & 0,8543 & 1,1999 & 0,8357 \\ \hline
+Dưa leo (\texttt{cucumber}) & 15,0 & 33 & 1,5679 & 1,9799 & 0,8759 \\ \hline
+\end{longtable}
+\endgroup
+
+Khi tách riêng kết quả phiên bản \texttt{v2} theo từng nguồn dữ liệu (\texttt{metrics.by\_source}):
+\begin{itemize}[leftmargin=*]
+    \item Trên nhóm mẫu \texttt{synthetic} (\(n = 165\)): đạt \(\text{MAE} = 0{,}6982\;\text{kg/m}^2\) và \(\text{RMSE} = 1{,}1134\;\text{kg/m}^2\).
+    \item Trên nhóm mẫu thực nghiệm công khai \texttt{public} WUR (\(n = 5\) buồng thực nghiệm chưa từng xuất hiện lúc huấn luyện): đạt \(\text{MAE} = 0{,}0532\;\text{kg/m}^2\) và \(\text{RMSE} = 0{,}0632\;\text{kg/m}^2\), vượt xa B0 (\(2{,}1770\;\text{kg/m}^2\)) và B1 (\(1{,}0171\;\text{kg/m}^2\)).
+    \item Phân vị phần dư chuẩn hóa trên tập validation là \(\text{p10} = -0{,}1423\) và \(\text{p90} = +0{,}1611\), được lưu trực tiếp trong bundle \texttt{v2.joblib} để sinh khoảng tin cậy 80\% khi suy luận trực tuyến.
+\end{itemize}
+
+Từ các kết quả trên, có thể rút ra hai nhận xét kỹ thuật rõ ràng. Trước hết, mô hình cây phi tuyến LightGBM giảm khoảng \textbf{70,9\% MAE} so với hồi quy tuyến tính Ridge B1 (\(0{,}6792\) so với \(2{,}3336\;\text{kg/m}^2\)). Nguyên nhân mang tính sinh học: phản ứng sinh trưởng của cây trồng trước nhiệt độ, VPD và ánh sáng có dạng hình chuông hoặc hình thang (tăng ở vùng tối ưu và suy giảm mạnh khi quá nóng, quá lạnh hay quá ẩm), nên một hàm tuyến tính đơn giản không thể mô tả chính xác. Thứ hai, ở bài toán gợi ý cây trồng, chỉ số \(\text{NDCG@3}\) đạt tới \textbf{0,9919} đi kèm \texttt{Top-1 Accuracy} đạt \textbf{85,45\%--90,00\%}, chứng tỏ danh sách Top-3 cây được đề xuất khớp gần như tuyệt đối với thứ hạng năng suất thực tế của từng vùng khí hậu. Khi hệ thống thu thập thêm các vụ thu hoạch thật (\texttt{source = 'real'}), bảng báo cáo sẽ tự động tách riêng một dòng \texttt{real} trong \texttt{by\_source} để đánh giá trung thực sai số thực địa.
+
+\subsection{Thử tải mô phỏng đa trang trại với \texttt{tools/simulator}}
+\label{subsec:c4-load-test}
+
+Để kiểm chứng năng lực chịu tải ở quy mô lớn hơn một mô hình nhà kính đơn lẻ, nhóm phát triển công cụ \texttt{tools/simulator} mô phỏng đồng thời nhiều trang trại với 50--100 gateway kết nối qua MQTT TLS cổng \texttt{8883}:
+
+\begin{lstlisting}[language=bash, caption={Lệnh chạy giả lập thử tải 50 gateway qua MQTT TLS}]
+$env:PYTHONPATH = "platform;."
+python -m tools.simulator --farms 2 --gateways 50 --nodes-per-gw 2 \
+    --interval 10 --scenario normal --region dalat
+\end{lstlisting}
+
+Mỗi gateway ảo đều đăng ký qua đúng API \texttt{POST /api/gateways} (\texttt{is\_simulated = true}), nhận tài khoản Dynamic Security riêng, sinh dữ liệu cảm biến biến thiên ngày -- đêm theo đặc trưng vùng khí hậu và xử lý lệnh \texttt{cmd}/\texttt{ack} tương tự phần cứng thật. Khi chạy thử tải trên các VPS sử dụng vCPU chia sẻ, nhóm khuyến nghị thực hiện theo từng đợt ngắn đồng thời giám sát \texttt{docker stats} (CPU, RAM), thông lượng bản tin/giây và độ trễ p50/p95 từ thời điểm gửi tới lúc ghi nhận vào TimescaleDB.
+
+\section{Triển khai hệ thống (Laptop Dev và VPS Linux Production)}
+\label{sec:c4-deployment}
+
+\subsection{Kiến trúc Docker Compose và ngân sách bộ nhớ RAM}
+\label{subsec:c4-docker-budget}
+
+Cả hai môi trường \texttt{dev} và \texttt{prod} đều dùng chung tệp nền \texttt{deploy/docker-compose.yml} và nạp cấu hình từ duy nhất một tệp \texttt{.env} ở thư mục gốc, không dùng biểu thức nội suy biến phức tạp trong compose để tránh sai lệch khi triển khai. Bảng~\ref{tab:docker-budget} tổng hợp 5 container và mức giới hạn bộ nhớ được thiết kế vừa khít cho máy chủ VPS 2 GB RAM (+ 2 GB swap).
+
+\begingroup
+\scriptsize
+\sloppy
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{longtable}{|>{\raggedright\arraybackslash}p{0.13\textwidth}|>{\raggedright\arraybackslash}p{0.24\textwidth}|>{\raggedright\arraybackslash}p{0.19\textwidth}|>{\raggedleft\arraybackslash}p{0.09\textwidth}|>{\raggedright\arraybackslash}p{0.28\textwidth}|}
+\caption{Phân bổ 5 container Docker Compose và ngân sách bộ nhớ RAM (1.792 MB / 2.048 MB)}\label{tab:docker-budget}\\
+\hline
+\textbf{Dịch vụ} & \textbf{Image / Build} & \textbf{Cổng mở (\texttt{prod})} & \textbf{RAM} & \textbf{Healthcheck \& Phụ thuộc} \\
+\hline
+\endfirsthead
+\hline
+\textbf{Dịch vụ} & \textbf{Image / Build} & \textbf{Cổng mở (\texttt{prod})} & \textbf{RAM} & \textbf{Healthcheck \& Phụ thuộc} \\
+\hline
+\endhead
+\texttt{timescaledb} & \texttt{timescale/timescaledb: 2.17.2-pg16} & Không publish (\texttt{dev}: \texttt{127.0.0.1:15432}) & 640 MB & \texttt{pg\_isready}, \texttt{shared\_buffers=256MB}, \texttt{max\_connections=50}. \\ \hline
+\texttt{mosquitto} & \texttt{eclipse-mosquitto:2.0.20} & \texttt{8883/tcp} (\texttt{dev}: thêm \texttt{127.0.0.1:1883}) & 128 MB & \texttt{mosquitto\_ctrl ... getDefaultACLAccess}. \\ \hline
+\texttt{api} & \texttt{greenhub-platform:latest} (\texttt{cmd: api}) & Không publish (\texttt{dev}: \texttt{127.0.0.1:8000}) & 384 MB & Chờ \texttt{timescaledb} healthy; tự chạy \texttt{alembic upgrade head}; \texttt{curl /api/health}. \\ \hline
+\texttt{worker} & \texttt{greenhub-platform:latest} (\texttt{cmd: worker}) & Không publish & 512 MB & Chờ đồng thời \texttt{timescaledb}, \texttt{mosquitto} và \texttt{api} healthy. \\ \hline
+\texttt{caddy} & \texttt{greenhub-caddy:latest} (multi-stage Node 22 \(\rightarrow\) Caddy 2.8) & \texttt{80/tcp}, \texttt{443/tcp}, \texttt{443/udp} & 128 MB & \texttt{depends\_on: api}; phục vụ \texttt{/srv} tĩnh và proxy \texttt{/api/*}, \texttt{/ws*}. \\ \hline
+\textbf{Tổng cộng} & \textbf{5 containers + 5 named volumes} & \textbf{Chỉ 80, 443, 8883} & \textbf{1.792 MB} & Vừa gọn VPS 2 GB RAM + 2 GB swap (khuyến nghị 4 GB RAM). \\ \hline
+\end{longtable}
+\endgroup
+
+\subsection{Quy trình triển khai trên môi trường phát triển (Laptop)}
+\label{subsec:c4-dev-deploy}
+
+Trên máy tính phát triển (Windows/Linux có cài Docker và Python 3.12), toàn bộ quá trình dựng hệ thống gồm năm bước tuần tự: khởi tạo tệp \texttt{.env} và môi trường ảo Python; sinh chứng chỉ TLS tự ký kèm địa chỉ IP mạng LAN cố định của laptop để Gateway ESP32 kết nối thật; dựng 5 container và tạo dữ liệu mẫu (\texttt{owner@greenhub.vn}); nạp dữ liệu huấn luyện và chạy \texttt{ml/train.py}; cuối cùng là biên dịch và nạp firmware xuống hai nút cảm biến và Gateway bằng PlatformIO.
+
+\begin{lstlisting}[language=bash, caption={Các lệnh khởi dựng môi trường phát triển GreenHub trên laptop}]
+# 1. Setup .env and Python 3.12 venv
+Copy-Item .env.example .env
+py -3.12 -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r platform/requirements-dev.txt
+
+# 2. Generate dev TLS certs with laptop LAN IP
+python -m tools.gen_dev_certs 192.168.1.10
+
+# 3. Start 5 containers and seed dev farm account
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml up -d --build
+python -m tools.seed_dev
+
+# 4. Generate synthetic data, import WUR dataset and train model
+$env:PYTHONPATH = "platform;."
+python -m tools.simulator synth-yield --greenhouses 200 --cycles-per-gh 5 --seed 42 --out data/synthetic_yield.csv
+python -m ml.dataset import --source synthetic --file data/synthetic_yield.csv
+python -m ml.dataset import --source public --file data/public_wur.csv
+python -m ml.train --task yield
+
+# 5. Build and flash ESP32 firmware via PlatformIO
+cd firmware/node;    pio run -e node_demo -t upload
+cd firmware/gateway; pio run -e gateway -t upload
+\end{lstlisting}
+
+\subsection{Quy trình triển khai Production trên VPS Linux (Ubuntu 24.04 LTS)}
+\label{subsec:c4-prod-deploy}
+
+Hệ thống được triển khai trọn gói trên một máy chủ VPS Linux tự quản trị có địa chỉ IPv4 công khai tĩnh (tối thiểu 2 vCPU, 2 GB RAM -- khuyến nghị 4 GB RAM, ổ cứng SSD từ 40 GB) và tên miền trỏ bản ghi \texttt{A} về IP máy chủ. Quy trình triển khai sản xuất gồm năm bước bắt buộc:
+
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Gia cố hệ điều hành (\textit{Hardening}):} Tạo người dùng thường \texttt{deploy} thuộc nhóm \texttt{sudo} và \texttt{docker}, tắt đăng nhập \texttt{root} và xác thực mật khẩu qua SSH (\texttt{PermitRootLogin no}, \texttt{PasswordAuthentication no}), cài đặt \texttt{unattended-upgrades} và \texttt{fail2ban}.
+    \item \textbf{Thiết lập 2 GB Swap:} Khởi tạo tệp hoán đổi \texttt{/swapfile} dung lượng \(2\;\text{GB}\) (\texttt{chmod 600}) nhằm tránh tình trạng cạn bộ nhớ (OOM) khi biên dịch Docker image hoặc huấn luyện lại mô hình LightGBM.
+    \item \textbf{Cấu hình tường lửa \texttt{ufw}:} Đặt mặc định từ chối toàn bộ kết nối đến (\texttt{default deny incoming}), chỉ mở các cổng \texttt{22/tcp} (khuyến nghị giới hạn IP quản trị), \texttt{80/tcp}, \texttt{443/tcp}, \texttt{443/udp} và \texttt{8883/tcp}. Vì Docker có thể ghi trực tiếp luật \texttt{iptables} vượt qua \texttt{ufw}, tệp \texttt{deploy/docker-compose.prod.yml} tuyệt đối không publish các cổng nội bộ \texttt{1883}, \texttt{5432} và \texttt{8000}.
+    \item \textbf{Cấu hình \texttt{.env} và khởi chạy cụm dịch vụ:} Khai báo \texttt{DOMAIN}, \texttt{MQTT\_PUBLIC\_HOST}, \texttt{TZ=Asia/Ho\_Chi\_Minh}, trỏ đường dẫn chứng chỉ TLS của Mosquitto vào volume \texttt{caddy\_data} gắn chỉ đọc, sau đó chạy lệnh khởi dựng cụm sản xuất.
+    \item \textbf{Xác minh độc lập từ mạng ngoài:} Kiểm tra điểm đầu cuối sức khỏe HTTPS, chuỗi chứng chỉ TLS trên cổng MQTT \texttt{8883} và quét cổng bằng \texttt{nmap} để xác nhận các cổng \texttt{1883}, \texttt{5432}, \texttt{8000} đều bị đóng hoặc lọc hoàn toàn.
+\end{enumerate}
+
+\begin{lstlisting}[language=bash, caption={Lệnh khởi chạy và xác minh triển khai Production trên VPS Linux}]
+# Start production stack
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml up -d --build
+
+# Verify HTTPS, MQTT TLS and closed internal ports from external host
+curl -fsS https://<DOMAIN>/api/health
+openssl s_client -connect <DOMAIN>:8883 -servername <DOMAIN> </dev/null
+nmap -Pn -p 22,80,443,1883,5432,8000,8883 <DOMAIN>
+\end{lstlisting}
+
+\section{Bảo mật, sao lưu và vận hành hệ thống}
+\label{sec:c4-security-ops}
+
+Trong quá trình đóng gói sản phẩm, nhóm rà soát an ninh hệ thống theo sáu lớp kiểm tra độc lập:
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Xác thực và quản lý bí mật:} Mật khẩu băm bằng Argon2id; JWT ký HS256 có thời hạn (\texttt{JWT\_EXPIRE\_MIN = 720}); toàn bộ khóa bí mật tập trung trong \texttt{.env} (\texttt{chmod 600}) và được loại trừ khỏi Git cùng \texttt{.dev-gateway.json}, \texttt{deploy/certs/} và \texttt{backups/}.
+    \item \textbf{Mạng và hệ điều hành VPS:} SSH chỉ dùng khóa công khai, \texttt{ufw} đóng mọi cổng ngoài 22/80/443/8883, còn Caddy tự động bổ sung các header bảo mật trình duyệt (\texttt{Strict-Transport-Security}, \texttt{X-Content-Type-Options: nosniff}, \texttt{Referrer-Policy}).
+    \item \textbf{Bảo mật MQTT Broker:} Cấm ẩn danh, bắt buộc TLS 1.2+ trên cổng \texttt{8883}, mỗi gateway có cặp tài khoản và ACL riêng khóa chặt vào \texttt{farm\_id}/\texttt{greenhouse\_id}; mọi lệnh chấp hành đều gắn \texttt{cmd\_id} chống phát lại và \texttt{expires\_at}.
+    \item \textbf{Cơ sở dữ liệu và cô lập tenant:} TimescaleDB chỉ nằm trong mạng nội bộ Docker; mọi truy vấn API kiểm tra đồng thời JWT (\texttt{owner}) và \texttt{farm\_id}; không tồn tại endpoint đọc trực tiếp \texttt{yield\_samples}.
+    \item \textbf{An toàn AI và vòng điều khiển:} Phân hệ AI tách hẳn khỏi điều khiển thiết bị; mọi lệnh chấp hành đều phải vượt qua giới hạn cứng tại Gateway (\texttt{duration\_s}, \texttt{min\_gap\_s}, \texttt{max\_total\_s\_per\_hour}) và cơ chế kiểm soát \texttt{auto}/\texttt{manual} có thời hạn.
+    \item \textbf{An toàn điện vật lý:} Toàn bộ tải trên mô hình chạy điện áp \(5\;\text{V DC}\) có diode dập xung ngược và tụ lọc nguồn, tuyệt đối không đấu tải xoay chiều \(220\;\text{V AC}\).
+\end{enumerate}
+
+Về vận hành dài hạn, hệ thống thiết lập ba tác vụ bảo trì định kỳ:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Sao lưu cơ sở dữ liệu tự động (\texttt{deploy/backup.sh}):} Chạy \texttt{pg\_dump -Fc} (định dạng nén phục hồi nhanh qua \texttt{pg\_restore}) hằng ngày lúc \texttt{03:00 UTC} bằng cron và tự xoay vòng xóa bản cũ. Nhóm ghi nhận kịch bản \texttt{backup.sh} hiện đang giữ \texttt{KEEP=14} bản sao lưu cơ sở dữ liệu; bước hoàn thiện tiếp theo cần bổ sung thao tác nén volume \texttt{/models} và điều chỉnh về \texttt{KEEP=7} cho khớp hoàn toàn đặc tả triển khai.
+    \item \textbf{Làm mới chứng chỉ TLS cho Mosquitto:} Lập lịch cron lúc \texttt{04:00 UTC} ngày mùng 1 hằng tháng để khởi động lại container \texttt{mosquitto}, giúp entrypoint tự sao chép lại cặp chứng chỉ Let's Encrypt mới gia hạn từ volume \texttt{caddy\_data}.
+    \item \textbf{Lưu trữ bản sao ngoại tuyến:} Sử dụng \texttt{rsync -avz deploy@<DOMAIN>:~/greenhub/backups/ ./backups/} hằng tuần để kéo bản dự phòng về máy quản trị cục bộ.
+\end{itemize}
+
+\section{Đánh giá tổng kết, hạn chế và hướng phát triển}
+\label{sec:c4-evaluation}
+
+\subsection{Đánh giá kết quả đạt được}
+
+Các số liệu cài đặt và kiểm thử ở trên cho thấy GreenHub đã hiện thực đồng bộ từ tầng nhúng đến máy chủ, học máy, giao diện Web PWA và hạ tầng Production. Toàn bộ 27.049 dòng mã nguồn đều do nhóm tự chủ xây dựng mà không lệ thuộc nền tảng IoT đóng. Hệ thống đạt độ tin cậy kỹ thuật tốt với 58/58 unit tests pass, 0 lỗi kiểm tra kiểu TypeScript, mô hình LightGBM \texttt{v2} đạt \(R^2 = 0{,}9387\), \(\text{MAE} = 0{,}6792\;\text{kg/m}^2\) và \(\text{NDCG@3} = 0{,}9919\) trên tập nhà kính chưa từng xuất hiện lúc huấn luyện, kết hợp chặt chẽ với kiến trúc an toàn nhiều lớp từ Gateway tới máy chủ và hệ thống cảnh báo 2 lớp (In-app WebSocket kết hợp còi Buzzer tại chỗ).
+
+\subsection{Hạn chế còn tồn tại}
+
+Bên cạnh các kết quả khả quan, nhóm đánh giá thẳng thắn bốn hạn chế hiện hữu của phiên bản hiện tại:
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Số lượng mẫu thu hoạch thật (\texttt{source = 'real'}) còn ít:} Do một vụ xà lách \textit{baby leaf} ngoài thực tế cần 3--4 tuần sinh trưởng và mô hình chỉ có 2 vùng trồng, tập huấn luyện hiện chủ yếu dựa vào 1.000 mẫu \texttt{synthetic} và 110 mẫu thực nghiệm WUR. Dù đường ống ghi nhận mẫu \texttt{real} đã sẵn sàng, hệ thống vẫn cần tích lũy thêm nhiều vụ thật để hiệu chỉnh sát hơn sai số thực địa.
+    \item \textbf{Sai số từ các giả định cảm biến phổ thông:} Việc sử dụng các cảm biến môi trường phổ thông (nhiệt độ không khí và độ rọi \texttt{lux}) buộc hệ thống phải dựa trên các phép xấp xỉ (\(T_{\text{lá}} = T_{\text{khí}} - 1\,^\circ\text{C}\) và hệ số quy đổi \texttt{lux} sang PPFD), phát sinh sai số nhất định trong điều kiện ánh sáng nhân tạo hoặc vi khí hậu biến động mạnh.
+    \item \textbf{Khác biệt động lực học giữa hộp mini và nhà kính thương mại:} Bộ tham số \texttt{demo} được thu gọn cho thể tích \(40 \times 30 \times 30\;\text{cm}\); khi triển khai ra trang trại thực tế cần chuyển sang bộ \texttt{real} và hiệu chỉnh lại \texttt{soil\_settle\_s}, \texttt{max\_run\_s} theo tính chất giá thể.
+    \item \textbf{Một vài điểm nhỏ cần dọn sạch trước nghiệm thu cuối:} Xử lý 2 cảnh báo \texttt{ruff} trong \texttt{platform/api/routers/zones.py} (\texttt{start\_ts} chưa dùng và import \texttt{Any}), đồng thời bổ sung sao lưu volume \texttt{/models} và chỉnh \texttt{KEEP=7} trong \texttt{deploy/backup.sh}.
+\end{enumerate}
+
+\subsection{Hướng phát triển mở rộng}
+
+Trong giai đoạn phát triển tiếp theo, hệ thống có thể được hoàn thiện và mở rộng theo ba hướng trọng tâm:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Hiệu chuẩn thực địa và tối ưu vận hành biên:} Thử nghiệm bộ tham số \texttt{real} trên nhà kính sản xuất quy mô lớn để tinh chỉnh đặc tuyến tưới và thông gió theo từng loại giá thể, đồng thời tối ưu chu kỳ ngủ sâu \texttt{deep sleep} cho nút cảm biến khi lấy mẫu ở tần suất thưa.
+    \item \textbf{Hoàn thiện nền tảng và hỗ trợ truy xuất nguồn gốc:} Dọn gọn hai cảnh báo tĩnh còn lại, mở rộng kịch bản sao lưu trọn bộ cơ sở dữ liệu cùng volume \texttt{/models}, và bổ sung chức năng xuất báo cáo nhật ký canh tác theo chuẩn VietGAP/GlobalGAP.
+    \item \textbf{Nâng cấp phân hệ AI/ML theo dữ liệu thực tế:} Khi tích lũy đủ nhiều mẫu thu hoạch thực địa (\texttt{source = 'real'}) từ đa dạng trang trại, áp dụng tinh chỉnh mô hình theo từng vùng khí hậu, tích hợp giải thích mức độ đóng góp đặc trưng bằng SHAP hoặc LightGBM \texttt{pred\_contrib} ngay trên trang Gợi ý cây trồng và xây dựng cảnh báo bảo trì cảm biến sớm (\texttt{MAINTENANCE}) dựa trên xu hướng RSSI cũng như tỷ lệ mất gói.
+\end{itemize}
+
+\section{Tổng kết chương}
+\label{sec:c4-summary}
+
+Trong Chương 4, nhóm chúng em đã báo cáo toàn bộ kết quả cài đặt mã nguồn, kiểm thử tự động, kiểm thử chấp nhận theo 5 kịch bản vận hành, đánh giá mô hình LightGBM trên dữ liệu đa nguồn cũng như quy trình triển khai Docker Compose và bảo mật 6 lớp trên VPS Linux. Các con số đo đạc thực tế cho thấy nền tảng GreenHub vận hành ổn định, đáp ứng trọn vẹn cả yêu cầu chức năng lẫn các ràng buộc khắt khe về an toàn, đa tenant và ngân sách bộ nhớ, tạo tiền đề vững chắc cho việc tiếp tục mở rộng vào môi trường canh tác thực tế.

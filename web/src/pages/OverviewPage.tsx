@@ -2,7 +2,6 @@ import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, formatApiError } from '../lib/api'
-import { useAuth } from '../lib/auth'
 import { Button, Card, Field, SelectField, StatusDot } from '../components/ui'
 import {
   formatCropName,
@@ -30,7 +29,6 @@ function fmtSoil(v: number | null | undefined): string | null {
 }
 
 export default function OverviewPage() {
-  const { isOwner } = useAuth()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
 
@@ -179,11 +177,9 @@ export default function OverviewPage() {
             textColor="var(--text-muted, #626861)"
             label={`${onlineCount}/${greenhouses.length} nhà kính online`}
           />
-          {isOwner && (
-            <Button variant="primary" onClick={() => setShowCreateModal(true)}>
-              + Tạo nhà kính mới
-            </Button>
-          )}
+          <Button variant="primary" onClick={() => setShowCreateModal(true)}>
+            + Tạo nhà kính mới
+          </Button>
         </div>
       </div>
 

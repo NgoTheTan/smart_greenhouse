@@ -1,4 +1,4 @@
-"""Rule & Control Engine: hysteresis cố định, rủi ro nấm, interlock, auto/manual."""
+"""Rule & Control Engine: hysteresis cố định, rủi ro nấm, auto/manual."""
 
 import logging
 import uuid
@@ -47,8 +47,6 @@ class ZoneRuleState:
 class GreenhouseRuleState:
     fan_on_since: datetime | None = None
     fan_auto_reason: str | None = None
-    mist_lockout_until: datetime | None = None
-    last_mist_end_at: datetime | None = None
     last_pump_end_at: dict[str, datetime] = field(default_factory=dict)
     pump_hourly_runs: dict[str, list[tuple[datetime, int]]] = field(default_factory=dict)
     soil_settle_until: dict[str, datetime] = field(default_factory=dict)
@@ -134,8 +132,6 @@ class RuleEngine:
                 if act.startswith("pump_"):
                     gh_state.last_pump_end_at[act] = end_t
                     gh_state.pump_hourly_runs.setdefault(act, []).append((end_t, dur))
-                elif act == "mist":
-                    gh_state.last_mist_end_at = end_t
                 elif act == "fan" and log_entry.action == "on":
                     gh_state.fan_on_since = log_entry.created_at
 
@@ -266,7 +262,7 @@ class RuleEngine:
                 zone_id,
                 reading.quality,
             )
-            # Nếu cảm biến khí lỗi, thử fallback sang zone lân cận để đánh giá quạt/ẩm
+            # Nếu cảm biến khí lỗi, thử fallback sang zone lân cận để đánh giá quạt
             await self._evaluate_greenhouse_climate(
                 session, greenhouse_id, client, now=now
             )
@@ -404,7 +400,7 @@ class RuleEngine:
                 now=now,
             )
 
-        # 4. Đánh giá Quạt và Máy tạo ẩm chung cho cả Nhà kính
+        # 4. Đánh giá Quạt thông gió chung cho cả Nhà kính
         if gw_online:
             await self._evaluate_greenhouse_climate(
                 session=session,
@@ -527,13 +523,12 @@ class RuleEngine:
         client: aiomqtt.Client | None,
         now: datetime,
     ) -> None:
-        """Đánh giá Quạt thông gió và Máy tạo ẩm trên toàn bộ nhà kính (spec 5.2, 5.3)."""
+        """Đánh giá Quạt thông gió trên toàn bộ nhà kính (spec 5.2)."""
         gh_state = self.get_gh_state(greenhouse_id)
         dev_state = await ensure_device_state(session, greenhouse_id)
         modes = dev_state.desired.get("modes", {})
         reported_acts = dev_state.reported.get("actuators", {})
         cur_fan = reported_acts.get("fan", "off")
-        cur_mist = reported_acts.get("mist", "off")
 
         # Lấy tất cả các zone của nhà kính
         zones = (
@@ -614,30 +609,7 @@ class RuleEngine:
                         fan_trigger_reason = f"heat_stress:{air_t:.1f}>{temp_max_opt}"
 
         fan_cfg = dangerous_params.get("fan", {})
-        mist_cfg = dangerous_params.get("mist", {})
         fan_min_on_s = int(fan_cfg.get("min_on_s", 180))
-        mist_lockout_s = int(mist_cfg.get("lockout_s", 300))
-        mist_max_on_s = int(mist_cfg.get("max_on_s", 120))
-
-        # --- INTERLOCK AN TOÀN: Ép tắt Mist khi Quạt chuẩn bị bật vì rủi ro (Kịch bản A) ---
-        if should_turn_on_fan and cur_mist == "on":
-            gh_state.mist_lockout_until = now + timedelta(seconds=mist_lockout_s)
-            log.warning(
-                "INTERLOCK: Quạt tự bật vì rủi ro -> Ép tắt máy tạo ẩm (kể cả manual) cho gh %s",
-                greenhouse_id,
-            )
-            # Không kiểm tra has_pending_command cho mist off để đảm bảo lệnh an toàn được ưu tiên
-            await self._create_command(
-                session=session,
-                client=client,
-                greenhouse_id=greenhouse_id,
-                actuator="mist",
-                action="off",
-                duration_s=None,
-                reason=f"interlock_fan_on_lockout_{mist_lockout_s}s",
-                now=now,
-                source="auto",
-            )
 
         # --- ĐIỀU KHIỂN QUẠT (FAN) ---
         fan_mode = _get_actuator_mode(modes, "fan")
@@ -702,64 +674,15 @@ class RuleEngine:
                             gh_state.fan_on_since = None
                             gh_state.fan_auto_reason = None
 
-        # --- ĐIỀU KHIỂN MÁY TẠO ẨM (MIST) ---
-        mist_mode = _get_actuator_mode(modes, "mist")
-        if mist_mode == "auto":
-            has_mist_cmd = await self._has_pending_command(session, greenhouse_id, "mist")
-            if not has_mist_cmd:
-                # Kiểm tra có zone nào quá khô (VPD > high_crit)
-                any_zone_dry = False
-                for z, prof in zones:
-                    z_st = self.get_zone_state(z.id)
-                    p = prof.parameters_json if prof is not None else DEFAULT_DEMO_PARAMS
-                    h_crit = float(p.get("vpd", {}).get("high_crit", 1.4))
-                    if z_st.last_valid_vpd is not None and z_st.last_valid_vpd > h_crit:
-                        any_zone_dry = True
-                        break
-
-                is_locked_out = (
-                    gh_state.mist_lockout_until is not None
-                    and now < gh_state.mist_lockout_until
-                )
-
-                if (
-                    any_zone_dry
-                    and cur_mist == "off"
-                    and cur_fan == "off"
-                    and not is_locked_out
-                ):
-                    await self._create_command(
-                        session=session,
-                        client=client,
-                        greenhouse_id=greenhouse_id,
-                        actuator="mist",
-                        action="on",
-                        duration_s=mist_max_on_s,
-                        reason="vpd_too_high",
-                        now=now,
-                    )
-                    gh_state.last_mist_end_at = now + timedelta(seconds=mist_max_on_s)
-                elif cur_mist == "on" and not any_zone_dry:
-                    await self._create_command(
-                        session=session,
-                        client=client,
-                        greenhouse_id=greenhouse_id,
-                        actuator="mist",
-                        action="off",
-                        duration_s=None,
-                        reason="vpd_recovered",
-                        now=now,
-                    )
-
     async def tick_5s(
         self,
         session: AsyncSession,
         client: aiomqtt.Client | None = None,
         now: datetime | None = None,
     ) -> None:
-        """Quét định kỳ 5s để kiểm tra hết hạn quạt/máy tạo ẩm hoặc mất cảm biến kéo dài."""
+        """Quét định kỳ 5s để kiểm tra hết hạn quạt hoặc mất cảm biến kéo dài."""
         now = now or datetime.now(UTC)
-        # Quét kiểm tra khí hậu cho các nhà kính đang có quạt hoặc mist đang chạy
+        # Quét kiểm tra khí hậu cho các nhà kính đang theo dõi
         gh_ids = list(self._gh_states.keys())
         for gh_id in gh_ids:
             try:

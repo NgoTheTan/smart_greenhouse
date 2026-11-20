@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import func, or_, select
 
-from api.deps import CurrentOwner, CurrentViewer, DbSession
+from api.deps import CurrentUser, DbSession
 from core.crop_templates import TEMPLATE_STRAWBERRY_DEMO_ID, TEMPLATE_TOMATO_DEMO_ID
 from core.models import Alert, CropProfile, DeviceState, Gateway, Greenhouse, Zone
 from core.pubsub import CHANNEL_WORKER, pg_notify
@@ -69,7 +69,7 @@ async def _serialize_greenhouse(session: DbSession, gh: Greenhouse) -> Greenhous
 
 
 @router.get("", response_model=list[GreenhouseResponse])
-async def list_greenhouses(user: CurrentViewer, session: DbSession) -> list[GreenhouseResponse]:
+async def list_greenhouses(user: CurrentUser, session: DbSession) -> list[GreenhouseResponse]:
     ghs = (
         await session.execute(
             select(Greenhouse)
@@ -82,7 +82,7 @@ async def list_greenhouses(user: CurrentViewer, session: DbSession) -> list[Gree
 
 @router.post("", response_model=GreenhouseResponse, status_code=status.HTTP_201_CREATED)
 async def create_greenhouse(
-    body: GreenhouseCreateRequest, user: CurrentOwner, session: DbSession
+    body: GreenhouseCreateRequest, user: CurrentUser, session: DbSession
 ) -> GreenhouseResponse:
     gh = Greenhouse(farm_id=user.farm_id, name=body.name, location=body.location)
     session.add(gh)
@@ -132,7 +132,7 @@ async def create_greenhouse(
 
 @router.get("/{gh_id}", response_model=GreenhouseResponse)
 async def get_greenhouse(
-    gh_id: uuid.UUID, user: CurrentViewer, session: DbSession
+    gh_id: uuid.UUID, user: CurrentUser, session: DbSession
 ) -> GreenhouseResponse:
     gh = await get_owned_greenhouse(session, gh_id, user.farm_id)
     return await _serialize_greenhouse(session, gh)
@@ -140,7 +140,7 @@ async def get_greenhouse(
 
 @router.get("/{gh_id}/config-sync", response_model=ConfigSyncResponse)
 async def get_config_sync(
-    gh_id: uuid.UUID, user: CurrentViewer, session: DbSession
+    gh_id: uuid.UUID, user: CurrentUser, session: DbSession
 ) -> ConfigSyncResponse:
     await get_owned_greenhouse(session, gh_id, user.farm_id)
     state = await ensure_device_state(session, gh_id)
@@ -158,7 +158,7 @@ async def get_config_sync(
 async def create_zone(
     gh_id: uuid.UUID,
     body: ZoneCreateRequest,
-    user: CurrentOwner,
+    user: CurrentUser,
     session: DbSession,
 ) -> Zone:
     gh = await get_owned_greenhouse(session, gh_id, user.farm_id)

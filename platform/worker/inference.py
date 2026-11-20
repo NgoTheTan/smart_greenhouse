@@ -123,6 +123,10 @@ def _predict_rows_sync(bundle: dict[str, Any], rows: list[dict[str, Any]]) -> li
     feature_names: list[str] = list(bundle["feature_names"])
     df = pd.DataFrame(rows, columns=feature_names)
 
+    for col in feature_names:
+        if col != "crop_code" and col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").astype(float)
+
     if "crop_code" in df.columns:
         cats: list[str] = list(bundle.get("crop_categories") or [])
         if cats and all(c in cats for c in df["crop_code"].tolist()):

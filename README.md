@@ -19,10 +19,9 @@ platform/             # Backend Python 3.12 (gốc import: api, worker, core)
   core/               # config, db, models, schemas, vpd/dli, climate_features
   migrations/         # Alembic
   tests/
-web/                  # React 18 + Vite + TS, PWA (public/manifest.json, sw.js)
+web/                  # React 18 + Vite + TS, PWA manifest (public/manifest.json)
 ml/                   # train.py, dataset.py, evaluate.py, notebooks/
 tools/simulator/      # Simulator gateway/node & sinh dữ liệu synthetic (synth-yield)
-tools/gen_vapid.py    # Sinh khoá VAPID cho Web Push
 tools/gen_dev_certs.py # Sinh chứng chỉ TLS tự ký cho dev (đa nền tảng)
 deploy/               # docker-compose*.yml, mosquitto/, caddy/, scripts/, backup.sh
 docs/
@@ -48,7 +47,6 @@ Copy-Item .env.example .env        # rồi sửa mật khẩu, JWT_SECRET...
 py -3.12 -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r platform/requirements-dev.txt
-python -m tools.gen_vapid           # chép 2 dòng VAPID_* vào .env
 
 # 3. Chứng chỉ TLS dev cho Mosquitto (thêm IP LAN của laptop nếu dùng gateway thật)
 python -m tools.gen_dev_certs 192.168.1.10   # hoặc: bash deploy/scripts/gen-dev-certs.sh 192.168.1.10

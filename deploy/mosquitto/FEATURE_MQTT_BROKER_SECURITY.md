@@ -101,8 +101,8 @@ Tiền tố bắt buộc: **`gh/{farm_id}/{greenhouse_id}/`** (`farm_id`, `green
 | `status` | Gateway → Cloud | **Có** (+ **LWT**) | Online: `{"online":true,"fw","rssi","uptime_s","heap","queue_len","cfg_version","actuators":{"pump_1",...},"nodes":[{"mac","zone","last_seen_s"}]}`. LWT khi rớt mạng đột ngột: `{"online":false}`. |
 | `event` | Gateway → Cloud | Không | `{"ts","type","zone","detail", ...}`; `type` ∈ `boot \| failsafe_start \| failsafe_stop \| actuator_changed \| sensor_invalid`. Với `actuator_changed`: kèm `actuator`, `action`, `source:"failsafe"`. |
 | `discovery` | Gateway → Cloud | Không | `{"ts","mac","fw","rssi"}` (khi gateway bắt được `PKT_HELLO` hoặc telemetry từ MAC chưa có trong `cfg`). |
-| `cmd/{actuator}` | Cloud → Gateway | Không | `{"cmd_id":"<uuid>","actuator":"pump_1\|pump_2\|fan\|mist","action":"on\|off","duration_s":120,"expires_at":"<utc>","source":"auto\|manual"}` (`duration_s` bắt buộc khi `action="on"`). |
-| `ack/{cmd_id}` | Gateway → Cloud | Không | `{"cmd_id","status":"applied\|rejected\|expired","reason":null\|"interlock"\|"min_gap"\|"max_total"\|"max_run"\|"invalid","applied_at","side_effects":["mist_off"],"state":{...}}`. |
+| `cmd/{actuator}` | Cloud → Gateway | Không | `{"cmd_id":"<uuid>","actuator":"pump_1\|pump_2\|fan","action":"on\|off","duration_s":120,"expires_at":"<utc>","source":"auto\|manual"}` (`duration_s` bắt buộc khi `action="on"`). |
+| `ack/{cmd_id}` | Gateway → Cloud | Không | `{"cmd_id","status":"applied\|rejected\|expired","reason":null\|"min_gap"\|"max_total"\|"max_run"\|"invalid","applied_at","side_effects":[],"state":{...}}`. |
 | `cfg` | Cloud → Gateway | **Có** | `{"cfg_version":int,"offline_failsafe_after_s":60,"nodes":[{"mac","zone"}],"zones":[{"zone","pump","sample_interval_s","soil_cal":{"dry_raw","wet_raw"},"limits":{...},"failsafe":{...}}]}`. |
 
 - **Worker Subscriptions (`platform/worker/main.py`):**

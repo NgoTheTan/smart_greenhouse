@@ -74,10 +74,8 @@ class FakeAsyncSession:
 def _make_context(
     pump_status: str = "off",
     fan_status: str = "off",
-    mist_status: str = "off",
     pump_mode: Any = "auto",
     fan_mode: Any = "auto",
-    mist_mode: Any = "auto",
 ) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, Zone, Greenhouse, Gateway, CropProfile, DeviceState]:
     farm_id = uuid.uuid4()
     gh_id = uuid.uuid4()
@@ -109,8 +107,8 @@ def _make_context(
     )
     dev_state = DeviceState(
         greenhouse_id=gh_id,
-        desired={"modes": {"pump_1": pump_mode, "fan": fan_mode, "mist": mist_mode}},
-        reported={"actuators": {"pump_1": pump_status, "fan": fan_status, "mist": mist_status}},
+        desired={"modes": {"pump_1": pump_mode, "fan": fan_mode}},
+        reported={"actuators": {"pump_1": pump_status, "fan": fan_status}},
     )
     return farm_id, gh_id, zone_id, zone, gh, gw, prof, dev_state
 
@@ -313,17 +311,16 @@ def test_manual_mode_dict_blocks_auto_irrigation() -> None:
     assert not [c for c in created_commands if getattr(c, "actuator", None) == "pump_1"]
 
 
-def test_scenario_a_fan_interlock_forces_mist_off() -> None:
-    """Kịch bản A: Mist đang manual -> Rủi ro nấm -> Quạt tự bật và ép tắt mist."""
+def test_scenario_a_disease_risk_activates_fan_and_high_vpd_guard() -> None:
+    """Kịch bản A: Rủi ro nấm mở DISEASE_RISK & bật quạt; VPD > high_crit chặn bật quạt."""
     engine = RuleEngine()
     farm_id, gh_id, zone_id, zone, gh, gw, prof, dev_state = _make_context(
         fan_status="off",
-        mist_status="on",
         fan_mode="auto",
-        mist_mode="manual",
     )
 
     created_commands = []
+    created_alerts = []
 
     def _execute(stmt):
         s_str = str(stmt)
@@ -346,15 +343,17 @@ def test_scenario_a_fan_interlock_forces_mist_off() -> None:
             return zone
         return None
 
-    session = FakeAsyncSession(
-        execute_fn=_execute,
-        get_fn=_get,
-        add_fn=lambda obj: created_commands.append(obj),
-    )
+    def _add(obj):
+        if hasattr(obj, "actuator"):
+            created_commands.append(obj)
+        elif hasattr(obj, "alert_type"):
+            created_alerts.append(obj)
+
+    session = FakeAsyncSession(execute_fn=_execute, get_fn=_get, add_fn=_add)
 
     now = datetime(2026, 11, 8, 10, 0, 0, tzinfo=UTC)
     z_state = engine.get_zone_state(zone_id)
-    # Giả lập đã tích luỹ đủ vpd_low_streak_s (>= 30 phút * 60 = 1800s)
+    # Giả lập đã tích luỹ đủ vpd_low_streak_s (>= 1800s)
     z_state.vpd_low_streak_s = 1850.0
 
     reading = Reading(
@@ -369,21 +368,34 @@ def test_scenario_a_fan_interlock_forces_mist_off() -> None:
 
     _run_coro(engine.evaluate_zone_telemetry(session, zone_id, gh_id, farm_id, reading, now=now))
 
-    actuator_cmds = {c.actuator: c for c in created_commands if hasattr(c, "actuator")}
+    # 1. Mở alert DISEASE_RISK và bật quạt tự động (duration_s = fan.min_on_s = 60)
+    assert any(getattr(a, "alert_type", None) == "DISEASE_RISK" for a in created_alerts)
+    fan_cmds = [c for c in created_commands if c.actuator == "fan"]
+    assert len(fan_cmds) == 1
+    assert fan_cmds[0].action == "on"
+    assert fan_cmds[0].duration_s == 60
+    assert not any(c.actuator == "mist" for c in created_commands)
 
-    # 1. Quạt được kích hoạt bật tự động
-    assert "fan" in actuator_cmds
-    assert actuator_cmds["fan"].action == "on"
-
-    # 2. Máy tạo ẩm bị ÉP TẮT (Interlock an toàn thắng thủ công)
-    assert "mist" in actuator_cmds
-    assert actuator_cmds["mist"].action == "off"
-    assert "interlock_fan_on_lockout" in actuator_cmds["mist"].reason
-
-    # 3. Máy tạo ẩm bị khóa lockout_until
-    gh_state = engine.get_gh_state(gh_id)
-    assert gh_state.mist_lockout_until is not None
-    assert gh_state.mist_lockout_until > now
+    # 2. Side-effect guard: khi air_t > optimal_max nhưng VPD > high_crit -> KHÔNG bật quạt
+    guard_engine = RuleEngine()
+    created_commands.clear()
+    created_alerts.clear()
+    dry_hot_reading = Reading(
+        zone_id=zone_id,
+        ts=now + timedelta(seconds=30),
+        air_temp=30.0,
+        air_rh=40.0,
+        vpd=2.2,
+        soil_moisture=65.0,
+        quality="ok",
+    )
+    _run_coro(
+        guard_engine.evaluate_zone_telemetry(
+            session, zone_id, gh_id, farm_id, dry_hot_reading, now=now + timedelta(seconds=30)
+        )
+    )
+    assert not any(c.actuator == "fan" for c in created_commands)
+    assert not any(c.actuator == "mist" for c in created_commands)
 
 
 def test_scenario_c_sensor_fault_blocks_irrigation() -> None:

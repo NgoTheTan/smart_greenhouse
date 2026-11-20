@@ -1,0 +1,48 @@
+\chapter*{Danh mục các từ viết tắt}
+\addcontentsline{toc}{chapter}{Danh mục các từ viết tắt}
+
+\begin{small}
+\renewcommand{\arraystretch}{1.15}
+\begin{longtable}{|p{2.0cm}|p{5.5cm}|p{6.2cm}|}
+    \hline
+\multicolumn{1}{|>{\centering\arraybackslash}m{2.0cm}|}{\makecell[c]{\textbf{Từ viết}\\\textbf{tắt}}} & \multicolumn{1}{>{\centering\arraybackslash}m{5.5cm}|}{\textbf{Cụm từ đầy đủ}} & \multicolumn{1}{>{\centering\arraybackslash}m{6.2cm}|}{\textbf{Ý nghĩa / Mô tả}} \\
+    \hline
+\endfirsthead
+    \hline
+\multicolumn{1}{|>{\centering\arraybackslash}m{2.0cm}|}{\makecell[c]{\textbf{Từ viết}\\\textbf{tắt}}} & \multicolumn{1}{>{\centering\arraybackslash}m{5.5cm}|}{\textbf{Cụm từ đầy đủ}} & \multicolumn{1}{>{\centering\arraybackslash}m{6.2cm}|}{\textbf{Ý nghĩa / Mô tả}} \\
+    \hline
+\endhead
+ACL & Access Control List & Danh sách kiểm soát truy cập dùng để giới hạn quyền đọc/ghi topic MQTT theo từng gateway \\ \hline
+ADC & Analog-to-Digital Converter & Bộ chuyển đổi tương tự sang số dùng để đọc tín hiệu cảm biến ẩm đất điện dung \\ \hline
+AI / ML & Artificial Intelligence / Machine Learning & Trí tuệ nhân tạo và Học máy, dùng cho bài toán dự báo năng suất và gợi ý cây trồng \\ \hline
+API & Application Programming Interface & Giao diện lập trình ứng dụng phục vụ trao đổi dữ liệu giữa Web Console, công cụ giả lập và backend \\ \hline
+CA & Certificate Authority & Tổ chức chứng thực số cấp phát và xác minh chứng chỉ TLS \\ \hline
+DLI & Daily Light Integral & Tích phân ánh sáng hằng ngày (\(\text{mol/m}^2/\text{ngày}\)), đo tổng lượng bức xạ quang hợp cây nhận được trong ngày \\ \hline
+EMA & Exponential Moving Average & Bộ lọc trung bình trượt hàm mũ dùng làm mượt tín hiệu cảm biến tại Gateway \\ \hline
+ERD & Entity-Relationship Diagram & Sơ đồ thực thể -- mối quan hệ biểu diễn cấu trúc cơ sở dữ liệu quan hệ \\ \hline
+ESP-NOW & Espressif Connectionless Wi-Fi Protocol & Giao thức truyền thông không kết nối mức liên kết của Espressif giữa các thiết bị ESP32/ESP8266 \\ \hline
+GPIO & General-Purpose Input/Output & Chân vào/ra đa năng trên vi điều khiển ESP32 và ESP8266 \\ \hline
+I2C & Inter-Integrated Circuit & Chuẩn giao tiếp nối tiếp hai dây dùng để đọc cảm biến AHT20, SHT30 và BH1750 \\ \hline
+IoT & Internet of Things & Internet vạn vật, kết nối các thiết bị vật lý, cảm biến và nền tảng phần mềm qua mạng \\ \hline
+JSON & JavaScript Object Notation & Định dạng trao đổi dữ liệu gọn nhẹ dùng trong REST API, WebSocket và payload MQTT \\ \hline
+JWT & JSON Web Token & Chuẩn mã thông báo xác thực phiên làm việc của người dùng trên REST API và WebSocket \\ \hline
+LWT & Last Will and Testament & Cơ chế di chúc của MQTT giúp máy chủ phát hiện nhanh khi Gateway mất kết nối đột ngột \\ \hline
+MAE & Mean Absolute Error & Sai số tuyệt đối trung bình dùng để đánh giá độ chính xác mô hình dự báo năng suất \\ \hline
+MAPE & Mean Absolute Percentage Error & Sai số phần trăm tuyệt đối trung bình \\ \hline
+MQTT & Message Queuing Telemetry Transport & Giao thức nhắn tin nhẹ theo mô hình publish/subscribe chuyên dụng cho hệ thống IoT \\ \hline
+NDCG@3 & Normalized Discounted Cumulative Gain at 3 & Độ đo chất lượng xếp hạng top-3 cây trồng được gợi ý \\ \hline
+NTP & Network Time Protocol & Giao thức đồng bộ thời gian thực trên mạng dùng để kiểm tra hạn lệnh \texttt{expires\_at} tại Gateway \\ \hline
+NVS & Non-Volatile Storage & Vùng nhớ không bay hơi trên ESP32 dùng để lưu cấu hình Wi-Fi, MQTT và thông số vận hành \\ \hline
+OOD & Out-of-Distribution & Dữ liệu nằm ngoài phân phối tập huấn luyện, làm căn cứ gắn cờ giảm độ tin cậy dự báo \\ \hline
+PPFD & Photosynthetic Photon Flux Density & Mật độ thông lượng photon quang hợp (\(\mu\text{mol}\cdot\text{m}^{-2}\cdot\text{s}^{-1}\)) \\ \hline
+PWA & Progressive Web App & Ứng dụng web tiến bộ có thể cài đặt lên màn hình chính từ tệp \texttt{manifest.json} \\ \hline
+QoS & Quality of Service & Mức đảm bảo chất lượng chuyển phát bản tin trong giao thức MQTT \\ \hline
+RH & Relative Humidity & Độ ẩm tương đối của không khí (\%) \\ \hline
+RMSE & Root Mean Square Error & Căn bậc hai sai số bình phương trung bình \\ \hline
+RSSI & Received Signal Strength Indicator & Chỉ số cường độ tín hiệu vô tuyến nhận được (dBm) \\ \hline
+TLS & Transport Layer Security & Giao thức mã hóa tầng truyền tải bảo vệ kết nối HTTPS và MQTT cổng 8883 \\ \hline
+VPD & Vapor Pressure Deficit & Thâm hụt áp suất hơi bão hòa (kPa), chỉ số quyết định tốc độ thoát hơi nước và nguy cơ nấm bệnh \\ \hline
+VPS & Virtual Private Server & Máy chủ ảo dùng riêng để triển khai toàn bộ hệ thống GreenHub bằng Docker Compose \\ \hline
+WUR & Wageningen University \& Research & Đại học và Trung tâm Nghiên cứu Wageningen (Hà Lan), nguồn bộ dữ liệu nhà kính thực nghiệm công khai \\ \hline
+\end{longtable}
+\end{small}

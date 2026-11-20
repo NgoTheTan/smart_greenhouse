@@ -78,7 +78,7 @@ Quản lý trọn vẹn vòng đời cấp phát và kết nối thiết bị ch
 - Lưu vào `zones.soil_dry_raw`, `zones.soil_wet_raw`.
 - Tăng `cfg_version_desired` và thông báo `worker_events` (`cfg_updated`) để gateway đẩy `CfgPkt` mới xuống node.
 
-### 3.4 Trạng thái Gateway (`GET /api/gateways/{gateway_id}/status`, vai trò: `viewer`)
+### 3.4 Trạng thái Gateway (`GET /api/gateways/{gateway_id}/status`, vai trò: `owner`)
 
 - Trả trạng thái kết nối (`online`, `last_seen`, `fw_version`, `rssi`, `is_simulated`) kèm Device Shadow (`reported`, `desired`, `cfg_version_desired`, `cfg_version_reported`).
 

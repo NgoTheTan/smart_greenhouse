@@ -35,19 +35,6 @@ class Settings(BaseSettings):
     mqtt_admin_user: str = "api-admin"
     mqtt_admin_password: str = ""
 
-    # Web Push
-    vapid_public_key: str = ""
-    vapid_private_key: str = ""
-    vapid_subject: str = "mailto:admin@example.com"
-
-    # Email
-    smtp_host: str = ""
-    smtp_port: int = 587
-    smtp_tls: bool = False
-    smtp_user: str = ""
-    smtp_password: str = ""
-    alert_email_from: str = "greenhub@example.com"
-
     # Khác
     domain: str = "localhost"
     tz: str = "Asia/Ho_Chi_Minh"
@@ -57,7 +44,6 @@ class Settings(BaseSettings):
     # Hằng số nghiệp vụ mặc định (có thể override bằng env)
     command_expire_s: int = 30
     alert_cooldown_min: int = 10
-    escalate_after_min: int = 5
     yield_low_threshold: float = 0.6
 
 

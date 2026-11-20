@@ -1,4 +1,4 @@
-"""Unit tests cho quy tắc an toàn tại Gateway: interlock, bơm, tự tắt, hết hạn (T3–T6, T10)."""
+"""Unit tests cho quy tắc an toàn tại Gateway: bơm, quạt, tự tắt, hết hạn (T5–T6, T10)."""
 
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -27,29 +27,27 @@ def _cmd(
     )
 
 
-def test_interlock_fan_overrides_mist_and_blocks_mist_when_fan_on() -> None:
-    """Tests T3 & T4: bật quạt tắt máy tạo ẩm (side_effects); bật mist khi quạt chạy bị chặn."""
+def test_fan_duration_cap_and_reject_unsupported_mist() -> None:
+    """Từ chối thiết bị không hỗ trợ (mist) và chặn trần thời lượng bật quạt."""
     eng = GatewaySafetyEngine()
 
-    c1, now = _cmd("mist", "on", duration_s=60)
-    ack1 = eng.apply_command(c1, now, now_mono=0.0)
-    assert ack1 is not None and ack1["status"] == "applied"
-    assert eng.actuators["mist"] == "on"
+    c_mist, now = _cmd("mist", "on", duration_s=60)
+    ack_mist = eng.apply_command(c_mist, now, now_mono=0.0)
+    assert ack_mist is not None
+    assert ack_mist["status"] == "rejected"
+    assert ack_mist["reason"] == "invalid"
+    assert "mist" not in eng.actuators
 
-    # T3: bật quạt khi mist đang chạy -> mist tự tắt + side_effects=["mist_off"]
-    c2, now = _cmd("fan", "on", duration_s=60)
-    ack2 = eng.apply_command(c2, now, now_mono=5.0)
-    assert ack2 is not None
-    assert ack2["status"] == "applied"
-    assert ack2["side_effects"] == ["mist_off"]
-    assert eng.actuators == {"pump_1": "off", "pump_2": "off", "fan": "on", "mist": "off"}
-
-    # T4: bật mist khi fan đang chạy -> rejected (interlock)
-    c3, now = _cmd("mist", "on", duration_s=30)
-    ack3 = eng.apply_command(c3, now, now_mono=10.0)
-    assert ack3 is not None
-    assert ack3["status"] == "rejected"
-    assert ack3["reason"] == "interlock"
+    # Chặn duration_s ở fan_max_on_s = 300s và tự tắt khi hết hạn
+    c_fan, now = _cmd("fan", "on", duration_s=600)
+    ack_fan = eng.apply_command(c_fan, now, now_mono=0.0)
+    assert ack_fan is not None
+    assert ack_fan["status"] == "applied"
+    assert ack_fan["side_effects"] == []
+    assert eng.actuators == {"pump_1": "off", "pump_2": "off", "fan": "on"}
+    assert eng.tick(299.0) == []
+    assert eng.tick(300.0) == ["fan"]
+    assert eng.actuators["fan"] == "off"
 
 
 def test_pump_duration_cap_auto_off_and_min_gap_max_total() -> None:
@@ -68,7 +66,6 @@ def test_pump_duration_cap_auto_off_and_min_gap_max_total() -> None:
                         "irrigation_min_gap_s": 90,
                         "irrigation_max_total_s_per_hour": 30,
                         "fan_max_on_s": 300,
-                        "mist_max_on_s": 300,
                     },
                 }
             ],

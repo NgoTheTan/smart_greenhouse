@@ -1,0 +1,91 @@
+\chapter{Đặt vấn đề}
+\label{chap:problem-statement}
+
+Trong những năm gần đây, mô hình canh tác nông nghiệp công nghệ cao trong nhà kính, nhà màng và nhà lưới tại Việt Nam phát triển khá nhanh, đặc biệt tại các vùng chuyên canh rau hoa quả như Đà Lạt (Lâm Đồng), đồng bằng sông Hồng, Đông Nam Bộ và đồng bằng sông Cửu Long. Việc đưa cây trồng vào không gian bán khép kín giúp nhà nông chủ động hơn trước thời tiết cực đoan, hạn chế sâu bệnh và nâng cao độ đồng đều của nông sản. Thế nhưng, khi quan sát cách vận hành thực tế ở các trang trại quy mô vừa và nhỏ, nhóm chúng em nhận thấy quá trình tự động hóa hiện nay vẫn còn nhiều khoảng trống kỹ thuật, khiến hiệu quả đầu tư chưa tương xứng với kỳ vọng.
+
+\section{Bối cảnh thực tiễn và các thách thức trong canh tác nhà kính}
+\label{sec:c1-context}
+
+Khó khăn đầu tiên đến từ thói quen điều khiển mang nặng tính cảm tính và thiếu các chỉ số nông học cốt lõi. Phần lớn các bộ điều khiển giá rẻ trên thị trường chỉ dựa trên ngưỡng nhiệt độ không khí (\(T\)) hoặc độ ẩm tương đối (\(\text{RH}\)) tách rời nhau, mà bỏ qua thâm hụt áp suất hơi bão hòa (VPD -- \textit{Vapor Pressure Deficit}) và tích phân ánh sáng hằng ngày (DLI -- \textit{Daily Light Integral}). Trong thực tế sinh lý thực vật, chính VPD mới là đại lượng vật lý chi phối trực tiếp độ mở khí khổng, tốc độ thoát hơi nước và khả năng hút khoáng của bộ rễ~\cite{monteithVpd}. Nếu chỉ nhìn vào nhiệt độ hay độ ẩm đơn lẻ, người trồng rất dễ bỏ sót trạng thái VPD xuống thấp dưới \(0{,}4\;\text{kPa}\) đi kèm \(\text{RH} \ge 85\text{--}90\%\) kéo dài -- điều kiện lý tưởng để các bệnh nấm nguy hiểm như sương mai hay mốc xám \textit{Botrytis} bùng phát trên diện rộng.
+
+Vấn đề thứ hai nằm ở nhu cầu canh tác đa vùng và đa loại cây trong cùng một công trình nhà kính. Mỗi giống cây lại có một khoảng sinh lý tối ưu rất khác nhau: dâu tây và xà lách ưa mát trong khoảng \(15\text{--}24\,^\circ\text{C}\) với VPD từ \(0{,}6\text{--}1{,}0\;\text{kPa}\), trong khi dưa leo và cà chua bi chịu nhiệt tốt hơn (\(20\text{--}30\,^\circ\text{C}\), VPD \(0{,}8\text{--}1{,}2\;\text{kPa}\)) và đòi hỏi lượng ánh sáng tích lũy cao từ \(20\text{--}30\;\text{mol/m}^2/\text{ngày}\). Khi áp dụng chung một bộ ngưỡng cứng cho cả nhà kính, luống cần khô ráo dễ bị tưới thừa còn luống cần nhiều nước lại rơi vào tình trạng thiếu ẩm.
+
+Thách thức thứ ba mang tính rủi ro vận hành rất rõ rệt: nhiễu cảm biến và sự cố mất kết nối mạng. Môi trường nhà kính thường xuyên ẩm ướt khiến đầu dò ẩm đất điện dung dễ bị oxy hóa, lỏng hoặc đứt dây tín hiệu (trả giá trị ADC sát \(0\) hoặc \(4095\)), kẹt nguyên một giá trị cố định (\texttt{stuck}) hoặc phát sinh gai nhiễu đột biến (\texttt{spike}). Nếu bộ điều khiển không có lớp kiểm định chất lượng dữ liệu trước khi ra quyết định, một dây tín hiệu bị tuột sẽ lập tức bị hiểu nhầm là ``đất khô \(0\%\)'' và kích bơm chạy liên tục gây ngập úng. Tương tự, khi đường truyền Wi-Fi hoặc Internet gặp trục trặc, những thiết bị chấp hành đang bật như bơm hay quạt hút có thể chạy kéo dài không kiểm soát nếu tại nút biên không có cơ chế tự ngắt theo thời lượng (\texttt{duration\_s}) và chế độ an toàn dự phòng (failsafe).
+
+Bên cạnh đó, việc kiểm soát điều kiện không khí và quản lý thao tác thủ công cũng đòi hỏi kỷ luật vận hành chặt chẽ. Khi độ ẩm tăng vọt lên vùng nguy cơ nấm bệnh hoặc nhiệt độ vượt ngưỡng chịu đựng, quạt thông gió phải được kích hoạt đúng ngưỡng và duy trì đủ thời gian chạy tối thiểu (\texttt{min\_on\_s}). Ngược lại, nếu không khí đang quá khô (\(\text{VPD} > \text{high\_crit}\)), việc bật quạt lại gây tác dụng phụ làm cây mất nước nhanh hơn; đồng thời các thao tác bật tắt thủ công (\texttt{manual}) cần có thời hạn tự động trả về chế độ tự động (\texttt{auto}) để tránh rủi ro quên tắt thiết bị.
+
+Cuối cùng, dữ liệu vi khí hậu và sản lượng thu hoạch tại các trang trại hiện nay hầu như bị phân mảnh hoặc chỉ ghi chép thủ công, chưa được gom lại có hệ thống để phục vụ ra quyết định. Vì thế, nông hộ rất khó ước lượng sớm năng suất của vụ đang trồng, cũng như khó trả lời một câu hỏi mang tính chiến lược trước mỗi mùa vụ: với đặc trưng khí hậu thực tế của chính nhà kính mình, loại cây nào có khả năng mang lại năng suất tương đối tốt nhất?
+
+\section{Định vị bài toán: Nền tảng IoT chuyên biệt và hệ thống tự động hóa nhúng}
+\label{sec:c1-positioning}
+
+Từ những phân tích trên, nhóm chúng em xác định bài toán cho GreenHub không phải là một mạch vi điều khiển đọc cảm biến rồi đóng ngắt relay cục bộ, mà là một \textbf{nền tảng IoT chuyên biệt tự xây dựng trọn vẹn} từ phần cứng, firmware biên, tầng truyền thông bảo mật, dịch vụ nền tảng, cơ sở dữ liệu chuỗi thời gian cho tới giao diện web và phân hệ học máy. Sự khác biệt bản chất giữa hai hướng tiếp cận này được tổng hợp trong Bảng~\ref{tab:iot-vs-embedded}.
+
+\begingroup
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.15}
+\begin{longtable}{|>{\raggedright\arraybackslash}p{0.21\textwidth}|>{\raggedright\arraybackslash}p{0.34\textwidth}|>{\raggedright\arraybackslash}p{0.39\textwidth}|}
+\caption{So sánh giữa hệ thống tự động hóa nhúng cục bộ và nền tảng IoT chuyên biệt GreenHub}\label{tab:iot-vs-embedded}\\
+\hline
+\textbf{Tiêu chí} & \textbf{Hệ thống nhúng / Tự động hóa cục bộ} & \textbf{Nền tảng IoT chuyên biệt GreenHub} \\
+\hline
+\endfirsthead
+\hline
+\textbf{Tiêu chí} & \textbf{Hệ thống nhúng / Tự động hóa cục bộ} & \textbf{Nền tảng IoT chuyên biệt GreenHub} \\
+\hline
+\endhead
+Vị trí vòng quyết định & Lập trình cứng trực tiếp trong vi điều khiển. & Đặt tại máy chủ (Cloud/VPS); vi điều khiển giữ lớp an toàn cứng và failsafe khi mất mạng. \\
+\hline
+Quản lý vòng đời thiết bị & Đấu nối tĩnh; mỗi lần đổi ngưỡng phải biên dịch và nạp lại mã nguồn. & Cấp phát định danh MQTT TLS riêng, tự phát hiện (\texttt{discovery}) và ghép nút vào vùng, đồng bộ cấu hình theo phiên bản (\texttt{cfg\_version}), theo dõi trực tuyến/ngoại tuyến (LWT), RSSI và thời điểm hoạt động gần nhất. \\
+\hline
+Kiến trúc đa người dùng (Multi-tenant) & Một mạch phục vụ đơn lẻ một vị trí cố định. & Quản lý nhiều trang trại (\texttt{farm}), nhiều nhà kính, nhiều vùng trồng; cô lập dữ liệu theo \texttt{farm\_id} với một quyền người dùng duy nhất (\texttt{owner}). \\
+\hline
+Mô hình dữ liệu nông học & Chỉ xoay quanh các biến nhiệt độ, độ ẩm thô. & Mô hình hóa thực thể hạng nhất (\texttt{Farm} \(\rightarrow\) \texttt{Greenhouse} \(\rightarrow\) \texttt{Zone} \(\rightarrow\) \texttt{CropProfile} \(\rightarrow\) \texttt{CropCycle}); tự động tính VPD, PPFD, DLI, rủi ro nấm và năng suất (\(\text{kg/m}^2\)). \\
+\hline
+Mức độ tự chủ nền tảng & Thường lệ thuộc vào nền tảng đóng bên thứ ba. & Tự xây dựng 100\% mã nguồn từ firmware, backend API/Worker, Web Console PWA đến quy trình ML, vận hành trên VPS Linux tự quản trị. \\
+\hline
+Khai thác dữ liệu liên nhà kính & Không có cơ chế tổng hợp dữ liệu giữa nhiều cơ sở. & Gộp dữ liệu khí hậu và sản lượng thu hoạch từ nhiều nhà kính để huấn luyện mô hình dự báo năng suất và gợi ý cây trồng. \\
+\hline
+\end{longtable}
+\endgroup
+
+\section{Mục tiêu và phạm vi của hệ thống GreenHub}
+\label{sec:c1-goals-scope}
+
+Nhằm giải quyết đồng bộ cả bài toán kỹ thuật nhúng lẫn bài toán nền tảng phần mềm và dữ liệu, nhóm đặt ra năm mục tiêu cốt lõi cho hệ thống GreenHub:
+
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Xây dựng trọn vẹn kiến trúc IoT ba lớp vật lý kết hợp máy chủ đám mây:} kết nối xuyên suốt từ nút cảm biến (ESP32/ESP8266) qua bộ tập trung Gateway ESP32 kèm tủ relay 3 kênh, lên cụm dịch vụ nền tảng triển khai bằng Docker Compose trên VPS Linux và hiển thị trực tiếp trên Web Console PWA.
+    \item \textbf{Thống nhất luồng vận hành giữa thiết bị thật và thiết bị giả lập:} cả mô hình nhà kính mini vật lý (2 vùng trồng, 2 nút cảm biến, 1 gateway và 3 cơ cấu chấp hành gồm \texttt{pump\_1}, \texttt{pump\_2}, \texttt{fan}) lẫn hàng chục đến hàng trăm nhà kính giả lập từ công cụ \texttt{tools/simulator} đều đi qua đúng một luồng cấp phát HTTP provisioning, xác thực MQTT TLS kèm ACL, thu nhận dữ liệu, điều khiển và phân tích.
+    \item \textbf{Thiết lập cơ chế phòng vệ an toàn nhiều tầng (\textit{Defense-in-Depth}):} sàng lọc chất lượng dữ liệu theo luật trước khi đưa vào điều khiển và học máy; áp đặt giới hạn cứng tại Gateway (tự ngắt theo \texttt{duration\_s}, giới hạn \texttt{min\_gap\_s} và \texttt{max\_total\_s\_per\_hour}, failsafe cục bộ khi mất MQTT quá \(60\;\text{s}\)); đồng thời tích hợp cơ chế chống tác dụng phụ tại bộ luật máy chủ (không bật quạt thông gió khi VPD đang vượt ngưỡng quá khô \texttt{vpd.high\_crit}) và tự động kết thúc chế độ thủ công \texttt{manual} về \texttt{auto} theo thời hạn đã cấu hình.
+    \item \textbf{Giải quyết một bài toán học máy tập trung, thực dụng và minh bạch:} xây dựng duy nhất một mô hình LightGBM toàn cục (\texttt{task = 'yield'}) học từ dữ liệu khí hậu tổng hợp liên nhà kính để phục vụ đồng thời hai tính năng là dự báo năng suất vụ đang trồng (\texttt{yield\_forecast}) và gợi ý top-3 cây nên trồng (\texttt{crop\_recommendation}) kèm lời giải thích bằng tiếng Việt, tách biệt hoàn toàn AI khỏi vòng điều khiển đóng ngắt thiết bị.
+    \item \textbf{Tối ưu tài nguyên để sẵn sàng triển khai thực tế:} đóng gói toàn bộ cơ sở dữ liệu, broker, backend và giao diện vào 5 container Docker Compose chạy gọn trên một máy chủ VPS Linux tối thiểu 2 vCPU, 2 GB RAM (kèm 2 GB swap), hỗ trợ tự động cấp phát HTTPS, thông báo In-app WebSocket thời gian thực và sao lưu định kỳ.
+\end{enumerate}
+
+Để hệ thống đạt độ hoàn thiện cao và chạy thông suốt mọi kịch bản kiểm thử từ phần cứng đến máy chủ, phạm vi xây dựng của GreenHub tập trung vào bảy hạng mục cụ thể sau:
+
+\begin{itemize}[leftmargin=*]
+    \item Một mô hình nhà kính mini thật kích thước khoảng \(40 \times 30 \times 30\;\text{cm}\) dựng bằng bìa fomex có cửa sổ trong suốt, bố trí 2 vùng trồng, 2 nút cảm biến, 1 Gateway ESP32 kết nối module relay 3 kênh (\texttt{pump\_1}, \texttt{pump\_2}, \texttt{fan}) và còi cảnh báo buzzer, toàn bộ vận hành ở điện áp an toàn \(5\;\text{V DC}\).
+    \item Bộ công cụ giả lập đa trang trại và đa vùng khí hậu (\texttt{tools/simulator}) đăng ký thiết bị qua REST API provisioning và truyền nhận qua MQTT TLS cổng \texttt{8883}, có khả năng thử tải đồng thời 50--100 gateway.
+    \item Nền tảng backend theo kiến trúc monolith module hóa gồm hai tiến trình (\texttt{api} và \texttt{worker}) viết bằng Python 3.12, FastAPI, PostgreSQL/TimescaleDB và Mosquitto 2.x.
+    \item Giao diện Web Console phát triển bằng React 18, Vite và TypeScript gồm 9 trang chức năng tiếng Việt, thích ứng cả máy tính lẫn điện thoại, hỗ trợ PWA manifest và cập nhật thời gian thực qua WebSocket.
+    \item Bộ kiểm định chất lượng dữ liệu theo luật cùng Rule \& Control Engine sử dụng một chiến lược điều khiển cố định theo cơ chế trễ (hysteresis).
+    \item Một quy trình học máy duy nhất cho dự báo năng suất và gợi ý cây trồng, huấn luyện ngoại tuyến qua công cụ dòng lệnh (\texttt{ml/train.py}, \texttt{ml/dataset.py}, \texttt{ml/evaluate.py}, \texttt{ml/wur\_adapter.py}).
+    \item Cấu hình triển khai Docker Compose đầy đủ cho cả môi trường phát triển trên laptop (\texttt{dev}) và môi trường vận hành trên một VPS Linux Ubuntu 24.04 (\texttt{prod}).
+\end{itemize}
+
+\section{Các giả định khoa học và giới hạn thực nghiệm}
+\label{sec:c1-assumptions}
+
+Vì hệ thống sử dụng cảm biến phổ thông và kiểm chứng phần cứng trên mô hình nhà kính thu nhỏ, nhóm chuẩn hóa và công bố minh bạch năm giả định kỹ thuật xuyên suốt toàn bộ mã nguồn cũng như quá trình đánh giá:
+
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Xấp xỉ nhiệt độ tán lá (\(T_{\text{lá}}\)):} Do hệ thống chỉ thu thập nhiệt độ không khí tại vùng trồng, nhiệt độ tán lá được tính theo giả định \(T_{\text{lá}} = T_{\text{khí}} - \text{leaf\_offset\_c}\), với giá trị mặc định \(\text{leaf\_offset\_c} = 1{,}0\,^\circ\text{C}\) và cho phép hiệu chỉnh trong hồ sơ cây trồng.
+    \item \textbf{Quy đổi cường độ sáng sang bức xạ quang hợp (PPFD/DLI):} Cảm biến BH1750 đo độ rọi quang thông theo đơn vị \texttt{lux} (giới hạn tối đa \(65.535\;\text{lux}\)). Hệ số quy đổi \(\text{PPFD} \approx \text{lux} \times 0{,}0185\;\mu\text{mol}\cdot\text{m}^{-2}\cdot\text{s}^{-1}\) là phép xấp xỉ chuẩn cho phổ ánh sáng tự nhiên.
+    \item \textbf{Phân tách thang thời gian \texttt{real} và \texttt{demo}:} Hộp nhà kính mini có thể tích khoảng \(36\;\text{lít}\) nên biến thiên nhiệt -- ẩm xảy ra nhanh hơn rất nhiều so với nhà kính sản xuất rộng hàng trăm mét vuông. Do đó, mỗi loại cây trong danh mục 5 cây mẫu đều có hai bộ tham số riêng biệt: bộ \texttt{real} cho canh tác thực tế và bộ \texttt{demo} rút gọn thang thời gian để trình diễn. Toàn bộ ngưỡng sinh học trong mẫu khởi tạo đều cho phép người dùng chỉnh sửa phù hợp với giống cây thực tế.
+    \item \textbf{Giả định tưới đủ ẩm khi xếp hạng gợi ý cây trồng:} Vì độ ẩm đất là yếu tố có thể điều khiển chủ động bằng bơm tưới, khi mô hình chấm điểm các cây ứng viên dựa trên khí hậu đo được của nhà kính, trường \texttt{soil\_mean} được đặt bằng trung điểm khoảng ẩm đất tối ưu của từng loài cây, còn \texttt{soil\_std} lấy theo giá trị trung vị của tập huấn luyện.
+    \item \textbf{Gắn cờ suy giảm độ tin cậy trên cửa sổ ngắn hạn:} Khi vận hành ở chế độ \texttt{demo} với cửa sổ quan sát dưới \(24\;\text{giờ}\) (\texttt{recommend\_window\_h = 1}), những đặc trưng tích lũy theo chu kỳ ngày như \texttt{dli\_mean}, \texttt{gdd\_per\_day} hay chênh lệch nhiệt ngày/đêm chỉ mang tính ngoại suy ngắn hạn. Hệ thống chủ động bật cờ \texttt{low\_confidence = true} và hiển thị cảnh báo rõ ràng trên giao diện người dùng.
+\end{enumerate}
+
+Trong các phần tiếp theo của báo cáo, nhóm sẽ trình bày chi tiết quá trình hiện thực hệ thống GreenHub. Chương 2 giới thiệu giải pháp kỹ thuật 4 tầng, các nền tảng công nghệ được lựa chọn kèm phân tích lý do đằng sau những quyết định kiến trúc quan trọng. Chương 3 đi sâu vào phân tích yêu cầu và thiết kế chi tiết từ phần cứng, giao thức truyền thông, cơ sở dữ liệu, dịch vụ nền tảng, mô hình học máy cho đến giao diện người dùng. Chương 4 tổng hợp kết quả cài đặt mã nguồn, số liệu kiểm thử tự động và thực nghiệm, đánh giá mô hình AI/ML cũng như quy trình triển khai và bảo mật trên VPS. Cuối cùng là phần kết luận tổng kết và danh mục tài liệu tham khảo.

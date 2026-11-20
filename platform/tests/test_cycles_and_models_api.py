@@ -84,7 +84,7 @@ def test_cycles_create_conflict_harvest_and_abandon() -> None:
         schema_version=2,
         parameters_json=lettuce_tpl["parameters_json"],
     )
-    user = User(id=uuid.uuid4(), farm_id=farm_id, email="op@greenhub.vn", role="operator")
+    user = User(id=uuid.uuid4(), farm_id=farm_id, email="owner@greenhub.vn", role="owner")
     gh = Greenhouse(id=gh_id, farm_id=farm_id, name="GH 1")
     zone = Zone(
         id=zone_id,
@@ -214,8 +214,7 @@ def test_recommendations_and_global_models_endpoints() -> None:
     farm_id = uuid.uuid4()
     gh_id = uuid.uuid4()
     zone_id = uuid.uuid4()
-    viewer = User(id=uuid.uuid4(), farm_id=farm_id, email="v@greenhub.vn", role="viewer")
-    operator = User(id=uuid.uuid4(), farm_id=farm_id, email="op@greenhub.vn", role="operator")
+    owner = User(id=uuid.uuid4(), farm_id=farm_id, email="owner@greenhub.vn", role="owner")
     gh = Greenhouse(id=gh_id, farm_id=farm_id, name="GH Dalat")
     zone = Zone(id=zone_id, greenhouse_id=gh_id, zone_index=1, name="Zone 1")
 
@@ -242,19 +241,19 @@ def test_recommendations_and_global_models_endpoints() -> None:
 
     # 1. GET /recommendations khi chưa có -> None
     session.execute.side_effect = [_FakeResult(gh), _FakeResult(None)]
-    rec_empty = _run_coro(get_greenhouse_recommendations(gh_id, viewer, session))
+    rec_empty = _run_coro(get_greenhouse_recommendations(gh_id, owner, session))
     assert rec_empty is None
 
     # 2. POST /recommendations/refresh -> 202 accepted + NOTIFY
     session.execute.side_effect = [_FakeResult(gh), _FakeResult(None)]
-    ref_res = _run_coro(refresh_greenhouse_recommendations(gh_id, operator, session))
+    ref_res = _run_coro(refresh_greenhouse_recommendations(gh_id, owner, session))
     assert ref_res.status == "accepted"
     assert ref_res.greenhouse_id == gh_id
 
     # 3. GET /models & GET /models/active kèm feature_drift thuần Python
     session.execute.side_effect = None
     session.execute.return_value = _FakeResult([model_v1])
-    models = _run_coro(list_models(viewer, session))
+    models = _run_coro(list_models(owner, session))
     assert len(models) == 1
     assert models[0].version == 1
 
@@ -264,7 +263,7 @@ def test_recommendations_and_global_models_endpoints() -> None:
         _FakeResult(model_v1),
         _FakeResult(recent_details),
     ]
-    active = _run_coro(get_active_model(viewer, session))
+    active = _run_coro(get_active_model(owner, session))
     assert active is not None
     assert active.feature_drift is not None
     assert active.feature_drift["n_predictions"] == 6
@@ -273,7 +272,7 @@ def test_recommendations_and_global_models_endpoints() -> None:
 
     # 4. GET /zones/{id}/predictions: reject task != yield_forecast -> 422
     with pytest.raises(HTTPException) as exc_task:
-        _run_coro(list_zone_predictions(zone_id, viewer, session, task="risk_forecast"))
+        _run_coro(list_zone_predictions(zone_id, owner, session, task="risk_forecast"))
     assert exc_task.value.status_code == 422
 
     pred_row = Prediction(
@@ -288,6 +287,6 @@ def test_recommendations_and_global_models_endpoints() -> None:
         details={"crop_code": "lettuce"},
     )
     session.execute.side_effect = [_FakeResult(zone), _FakeResult([pred_row])]
-    preds = _run_coro(list_zone_predictions(zone_id, viewer, session, task="yield_forecast"))
+    preds = _run_coro(list_zone_predictions(zone_id, owner, session, task="yield_forecast"))
     assert len(preds) == 1
     assert preds[0].value == pytest.approx(2.7)

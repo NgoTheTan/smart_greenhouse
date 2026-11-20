@@ -17,7 +17,7 @@ import aiomqtt
 
 log = logging.getLogger("simulator.gw")
 
-ACTUATORS = ("pump_1", "pump_2", "fan", "mist")
+ACTUATORS = ("pump_1", "pump_2", "fan")
 
 
 @dataclass
@@ -26,12 +26,11 @@ class ZoneSafetyLimits:
     irrigation_min_gap_s: int = 90
     irrigation_max_total_s_per_hour: int = 120
     fan_max_on_s: int = 300
-    mist_max_on_s: int = 300
 
 
 @dataclass
 class GatewaySafetyEngine:
-    """Thực thi quy tắc an toàn tại biên của gateway: tự tắt, chặn duration, interlock, min_gap."""
+    """Thực thi quy tắc an toàn tại biên của gateway: tự tắt, chặn duration, min_gap, max_total."""
 
     cfg_version: int = 0
     sample_interval_s: int = 10
@@ -45,7 +44,6 @@ class GatewaySafetyEngine:
         }
     )
     fan_max_on_s: int = 300
-    mist_max_on_s: int = 300
 
     _off_deadlines: dict[str, float] = field(default_factory=dict)
     _last_pump_end: dict[str, float] = field(default_factory=dict)
@@ -68,11 +66,9 @@ class GatewaySafetyEngine:
                     lim.get("irrigation_max_total_s_per_hour", 120)
                 ),
                 fan_max_on_s=int(lim.get("fan_max_on_s", 300)),
-                mist_max_on_s=int(lim.get("mist_max_on_s", 300)),
             )
             self.limits_by_pump[pump_name] = z_lim
             self.fan_max_on_s = z_lim.fan_max_on_s
-            self.mist_max_on_s = z_lim.mist_max_on_s
             self.sample_interval_s = int(z.get("sample_interval_s", self.sample_interval_s))
         return changed
 
@@ -136,15 +132,6 @@ class GatewaySafetyEngine:
         req_duration = int(duration_raw)
         side_effects: list[str] = []
 
-        # Interlock quạt - máy tạo ẩm (spec 4.3)
-        if actuator == "mist" and self.actuators["fan"] == "on":
-            return self._reject(cmd_id, "interlock")
-
-        if actuator == "fan" and self.actuators["mist"] == "on":
-            self.actuators["mist"] = "off"
-            self._off_deadlines.pop("mist", None)
-            side_effects.append("mist_off")
-
         # Chặn trên duration_s và kiểm tra giới hạn bơm
         if actuator in ("pump_1", "pump_2"):
             lim = self.limits_by_pump.get(actuator, ZoneSafetyLimits())
@@ -161,10 +148,8 @@ class GatewaySafetyEngine:
             ):
                 return self._reject(cmd_id, "max_total")
             self._pump_history[actuator].append((now_mono, eff_duration))
-        elif actuator == "fan":
-            eff_duration = min(req_duration, self.fan_max_on_s)
         else:
-            eff_duration = min(req_duration, self.mist_max_on_s)
+            eff_duration = min(req_duration, self.fan_max_on_s)
 
         self.actuators[actuator] = "on"
         self._off_deadlines[actuator] = now_mono + eff_duration
@@ -247,11 +232,10 @@ class SimulatedGateway:
         st = self._zone_state[zone_idx]
         pump_on = self.safety.actuators.get(f"pump_{zone_idx}") == "on"
         fan_on = self.safety.actuators.get("fan") == "on"
-        mist_on = self.safety.actuators.get("mist") == "on"
 
         # Nhiệt độ & ẩm không khí
         st["air_t"] += random.uniform(-0.15, 0.15) - (0.04 * dt_s if fan_on else 0.0)
-        if self.scenario == "humid_spike" or mist_on:
+        if self.scenario == "humid_spike":
             st["air_rh"] = min(98.5, st["air_rh"] + 0.35 * dt_s)
         elif fan_on:
             st["air_rh"] = max(50.0, st["air_rh"] - 0.25 * dt_s)

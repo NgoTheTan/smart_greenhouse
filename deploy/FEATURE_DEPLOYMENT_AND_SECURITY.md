@@ -18,13 +18,13 @@
   - `deploy/docker-compose.yml`: định nghĩa 5 service chính, healthcheck, `restart: unless-stopped`, memory limits và 5 named volumes.
   - `deploy/docker-compose.dev.yml` & `deploy/docker-compose.prod.yml`: override tách biệt môi trường `dev` vs `prod` (VPS).
   - `platform/Dockerfile` & `platform/docker-entrypoint.sh`: single image Python 3.12 cho `api` và `worker` (chứa cả `ml/` và `libgomp1` cho LightGBM), user non-root `greenhub` (UID 1000).
-  - `deploy/caddy/Dockerfile` & `deploy/caddy/Caddyfile`: multi-stage build `web/` (`node:22-alpine` -> `caddy:2.8-alpine`), proxy `/api/*` & `/ws*`, SPA fallback + `no-cache` cho `sw.js`/`manifest.json`, HSTS/security headers.
+  - `deploy/caddy/Dockerfile` & `deploy/caddy/Caddyfile`: multi-stage build `web/` (`node:22-alpine` -> `caddy:2.8-alpine`), proxy `/api/*` & `/ws*`, SPA fallback + `no-cache` cho `manifest.json`, HSTS/security headers.
   - `deploy/scripts/gen-dev-certs.sh` (và `tools/gen_dev_certs.py`): tạo CA + server cert dev có SAN cho `localhost`, `mosquitto`, `127.0.0.1` và `LAN_IP`.
   - `deploy/backup.sh` & `.env.example`.
 - **Cần thực hiện & kiểm chứng tại M4 & M6:**
   - Thuê VPS (mục 5.2), cài Ubuntu 24.04 LTS, tạo 2 GB swap, hardening SSH, `ufw`, cài Docker Engine + Compose plugin, trỏ bản ghi A của tên miền về IP VPS.
   - Kiểm tra `deploy/docker-compose.prod.yml` **chỉ publish `80`, `443` (TCP + UDP) và `8883`**; không publish `5432`, `1883`, `8000` (Docker bỏ qua `ufw`, xem mục 5.2.3).
-  - Deploy bằng `docker-compose.prod.yml`, kiểm chứng Let's Encrypt HTTPS, `openssl s_client` trên `:8883` với tên miền, Web Push trên Android/iOS, thử tải 50–100 gateway giả lập từ laptop (M5).
+  - Deploy bằng `docker-compose.prod.yml`, kiểm chứng Let's Encrypt HTTPS, `openssl s_client` trên `:8883` với tên miền, thử tải 50–100 gateway giả lập từ laptop (M5).
   - Cập nhật `deploy/backup.sh` theo mục 7: giữ **7** bản (hiện mã đang `KEEP=14`) và sao lưu thêm thư mục/volume `/models`.
   - Cài đặt 2 cronjob trên VPS (`backup.sh` 03:00 UTC hằng ngày + `restart mosquitto` ngày 1 hằng tháng) và kéo toàn bộ DB/models/video về laptop định kỳ, đặc biệt trước khi kết thúc hợp đồng thuê VPS (M6).
 
@@ -59,7 +59,7 @@
    - Nén `encode zstd gzip`.
    - `handle /api/*` & `handle /ws*` → `reverse_proxy api:8000` (chuyển tiếp cả HTTP REST và WebSocket Upgrade kèm header gốc).
    - `handle` (tất cả đường dẫn còn lại): `root * /srv`, `try_files {path} /index.html` phục vụ React Router SPA.
-   - `@sw path /sw.js /manifest.json` → `header @sw Cache-Control "no-cache"` để trình duyệt luôn kiểm tra bản Service Worker & manifest mới nhất.
+   - `@manifest path /manifest.json` → `header @manifest Cache-Control "no-cache"` để trình duyệt luôn kiểm tra manifest mới nhất.
    - Security headers toàn cục: `Strict-Transport-Security "max-age=31536000"`, `X-Content-Type-Options nosniff`, `Referrer-Policy strict-origin-when-cross-origin`.
 
 ## 5. Hai Môi trường Vận hành (`dev` vs `prod`)
@@ -170,7 +170,7 @@ docker version && docker compose version
 # --- 7. Lấy mã nguồn & cấu hình .env ---
 git clone <REPO_URL> ~/greenhub && cd ~/greenhub
 cp .env.example .env && chmod 600 .env
-nano .env   # DOMAIN, MQTT_PUBLIC_HOST, MQTT_TLS_*, mật khẩu DB/MQTT, JWT_SECRET, VAPID_*, SMTP_*, TZ
+nano .env   # DOMAIN, MQTT_PUBLIC_HOST, MQTT_TLS_*, mật khẩu DB/MQTT, JWT_SECRET, TZ
 
 # --- 8. Kiểm tra compose ghép nối & chỉ publish 80/443/8883 ---
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.prod.yml config | grep -A3 'ports:'
@@ -199,8 +199,6 @@ File `.env` nằm trong `.gitignore`, tuyệt đối không commit. Khi chạy s
 | **Auth** | `JWT_SECRET`, `JWT_EXPIRE_MIN` | Chuỗi random dài tối thiểu 32+ bytes; mặc định `720` phút (12 h). |
 | **MQTT Nội bộ** | `MQTT_HOST`, `MQTT_PORT`, `MQTT_WORKER_USER`, `MQTT_WORKER_PASSWORD`, `MQTT_ADMIN_USER`, `MQTT_ADMIN_PASSWORD` | `mosquitto` / `1883` trong Docker (`127.0.0.1` ngoài Docker). |
 | **MQTT Public & TLS** | `MQTT_PUBLIC_HOST`, `MQTT_PUBLIC_PORT`, `MQTT_TLS_CERTFILE`, `MQTT_TLS_KEYFILE` | Trả về từ `POST /api/gateways`; prod là `<DOMAIN>:8883` + path cert Caddy. |
-| **Web Push** | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Sinh từ `python -m tools.gen_vapid`; subject dạng `mailto:admin@example.com`. |
-| **Email SMTP** | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `ALERT_EMAIL_FROM` | Leo thang cảnh báo `critical` chưa ack; TLS `587`. Một số VPS chặn cổng SMTP 25 — dùng 587 của dịch vụ email. |
 | **Triển khai** | `DOMAIN`, `MODELS_DIR`, `LOG_LEVEL`, `TZ` | `localhost` (dev) hoặc tên miền VPS (prod); `/models`; `INFO`; `Asia/Ho_Chi_Minh` (dùng cho đặc trưng khí hậu ngày/đêm, dữ liệu vẫn lưu ts UTC). |
 
 ## 7. Sao lưu, Cronjob & Vòng đời Dữ liệu (`deploy/backup.sh`)
@@ -230,9 +228,9 @@ File `.env` nằm trong `.gitignore`, tuyệt đối không commit. Khi chạy s
 - [ ] **Mật khẩu & Secret:** Băm Argon2/bcrypt; JWT có `exp`; `.env`, `.dev-gateway.json`, `deploy/certs/`, `*.key`, `*.pem`, `backups/` nằm trong `.gitignore`; `.env` trên VPS `chmod 600`.
 - [ ] **VPS:** SSH chỉ key, `PermitRootLogin no`, `ufw` default deny + chỉ mở 22/80/443/8883, `unattended-upgrades` bật, SHOULD `fail2ban`; compose prod không publish `5432`/`1883`/`8000`.
 - [ ] **MQTT Broker:** Cấm anonymous, chỉ mở `:8883` TLS ra ngoài, mỗi gateway có user + Dynamic Security ACL khóa chặt theo `farm_id`/`greenhouse_id`.
-- [ ] **CSDL & API:** TimescaleDB không mở ra ngoài (không có Redis); API kiểm tra JWT + RBAC (`viewer` / `operator` / `owner`) + lọc `farm_id` trên mọi truy vấn và WebSocket; bảng `yield_samples` **không bao giờ** trả qua API, `GET /models` chỉ trả số liệu tổng hợp.
+- [ ] **CSDL & API:** TimescaleDB không mở ra ngoài (không có Redis); API kiểm tra JWT (1 quyền duy nhất `owner`) + lọc `farm_id` trên mọi truy vấn và WebSocket; bảng `yield_samples` **không bao giờ** trả qua API, `GET /models` chỉ trả số liệu tổng hợp.
 - [ ] **An toàn AI:** Tuyệt đối không dùng LLM; AI chỉ dự báo năng suất (`yield_forecast`) và gợi ý cây trồng (`crop_recommendation`), **không** gửi lệnh tới thiết bị. Điều khiển chỉ do Rule Engine (hysteresis cố định) và `GatewaySafetyEngine` đảm nhiệm.
-- [ ] **An toàn điện vật lý (Demo):** Toàn bộ bơm mini (3–6 V), quạt, máy tạo ẩm chỉ dùng nguồn **5 V DC** có diode `1N4007` chống EMF ngược và tụ lọc `1000 µF`; **TUYỆT ĐỐI KHÔNG** đấu tải AC 220 V.
+- [ ] **An toàn điện vật lý (Demo):** Toàn bộ bơm mini (3–6 V), quạt chỉ dùng nguồn **5 V DC** có diode `1N4007` chống EMF ngược và tụ lọc `1000 µF`; **TUYỆT ĐỐI KHÔNG** đấu tải AC 220 V.
 
 ## 9. Kiểm tra & Xác nhận Khởi động sạch
 

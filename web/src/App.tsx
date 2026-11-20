@@ -8,7 +8,6 @@ import DevicesPage from './pages/DevicesPage'
 import GreenhousePage from './pages/GreenhousePage'
 import LoginPage from './pages/LoginPage'
 import ModelsPage from './pages/ModelsPage'
-import NotificationsPage from './pages/NotificationsPage'
 import OverviewPage from './pages/OverviewPage'
 import RecommendationsPage from './pages/RecommendationsPage'
 import ZoneDetailPage from './pages/ZoneDetailPage'
@@ -230,14 +229,6 @@ function AppShell() {
             element={
               <RequireAuth>
                 <ModelsPage />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/settings/notifications"
-            element={
-              <RequireAuth>
-                <NotificationsPage />
               </RequireAuth>
             }
           />

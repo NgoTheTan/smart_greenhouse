@@ -7,8 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
-ACTUATOR_NAMES = ("pump_1", "pump_2", "fan", "mist")
-ActuatorType = Literal["pump_1", "pump_2", "fan", "mist"]
+ACTUATOR_NAMES = ("pump_1", "pump_2", "fan")
+ActuatorType = Literal["pump_1", "pump_2", "fan"]
 ActionType = Literal["on", "off"]
 ModeType = Literal["auto", "manual"]
 AckStatusType = Literal["applied", "rejected", "expired"]
@@ -119,7 +119,6 @@ class CfgLimits(BaseModel):
     irrigation_min_gap_s: int
     irrigation_max_total_s_per_hour: int
     fan_max_on_s: int
-    mist_max_on_s: int
 
 
 class CfgFailsafe(BaseModel):
@@ -170,7 +169,7 @@ class UserResponse(BaseModel):
     id: uuid.UUID
     farm_id: uuid.UUID
     email: str
-    role: str
+    role: Literal["owner"] = "owner"
     created_at: datetime
     farm_name: str | None = None
 
@@ -385,7 +384,7 @@ class ConfigSyncResponse(BaseModel):
 
 
 # ==============================================================================
-# 5. Schemas Cảnh báo & Thông báo (Alerts & Push)
+# 5. Schemas Cảnh báo (Alerts)
 # ==============================================================================
 
 AlertSeverityType = Literal["info", "warning", "critical"]
@@ -405,43 +404,9 @@ class AlertResponse(BaseModel):
     payload: dict[str, Any] | None
     created_at: datetime
     notified_at: datetime | None
-    escalated_at: datetime | None
     acknowledged_at: datetime | None
     acked_by: uuid.UUID | None
     resolved_at: datetime | None
-
-
-class PushPublicKeyResponse(BaseModel):
-    public_key: str
-
-
-class PushSubscriptionKeys(BaseModel):
-    p256dh: str
-    auth: str
-
-
-class PushSubscribeRequest(BaseModel):
-    endpoint: str
-    keys: PushSubscriptionKeys
-
-
-class PushUnsubscribeRequest(BaseModel):
-    endpoint: str
-
-
-class NotificationPrefResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    user_id: uuid.UUID
-    push_enabled: bool
-    email_enabled: bool
-    min_severity: str
-
-
-class NotificationPrefUpdateRequest(BaseModel):
-    push_enabled: bool | None = None
-    email_enabled: bool | None = None
-    min_severity: AlertSeverityType | None = None
 
 
 # ==============================================================================

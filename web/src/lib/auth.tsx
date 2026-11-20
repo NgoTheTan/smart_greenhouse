@@ -16,8 +16,6 @@ interface AuthContextValue {
   user: User | null
   isLoading: boolean
   isAuthenticated: boolean
-  canOperate: boolean
-  isOwner: boolean
   loginWithToken: (token: string) => Promise<User>
   logout: () => void
   refreshMe: () => Promise<void>
@@ -95,8 +93,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       isLoading,
       isAuthenticated: Boolean(token && user),
-      canOperate: Boolean(user),
-      isOwner: Boolean(user),
       loginWithToken,
       logout,
       refreshMe: fetchMe,

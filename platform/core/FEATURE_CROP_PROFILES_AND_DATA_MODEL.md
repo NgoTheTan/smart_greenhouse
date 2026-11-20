@@ -11,19 +11,18 @@
 - **Khởi tạo nền tảng (M2):**
   - `platform/core/config.py`: `Settings` (`pydantic-settings`), đọc `.env` từ gốc repo hoặc CWD, cache qua `get_settings()`.
   - `platform/core/db.py`: `engine` SQLAlchemy async (`asyncpg`), `SessionLocal`, `Base`, `get_session()`.
-  - `platform/core/models.py`: ORM models SQLAlchemy 2.0 (nền tảng M2, cần nâng cấp lên 18 bảng nghiệp vụ ở M3–M5).
+  - `platform/core/models.py`: ORM models SQLAlchemy 2.0 (16 bảng nghiệp vụ).
   - `platform/core/schemas.py`: toàn bộ MQTT payload schemas (`TelemetryPayload`, `GatewayStatusPayload`, `GatewayEventPayload`, `DiscoveryPayload`, `CommandMqttPayload`, `AckPayload`, `CfgPayload`) và REST schemas cơ bản + `normalize_mac`.
-  - `platform/core/crop_templates.py`: Pydantic validator `CropParameters` và `SYSTEM_CROP_TEMPLATES` với UUID cố định (nâng cấp từ 4 template `schema_version = 1` lên 10 template `schema_version = 2`).
+  - `platform/core/crop_templates.py`: Pydantic validator `CropParameters` và `SYSTEM_CROP_TEMPLATES` với UUID cố định (10 template `schema_version = 2`).
   - `platform/core/security.py`: Argon2id (`hash_password`, `verify_password`) và JWT HS256 (`create_access_token`, `decode_access_token`).
   - `platform/core/pubsub.py`: `pg_notify` (gọi trong transaction SQLAlchemy) và `listen_loop` (kết nối `asyncpg` riêng kèm ping 15 s & exponential backoff) cho `CHANNEL_WS = "ws_events"` và `CHANNEL_WORKER = "worker_events"`.
   - `platform/core/log.py`: cấu hình logging thống nhất theo `Settings.log_level`.
 - **Cần cập nhật / bổ sung khi làm M3–M5:**
   - `platform/core/crop_templates.py`: nâng cấp `CropParameters` lên `schema_version = 2` (bổ sung `light.dli_optimal`, `cycle.days`, `yield.reference_kg_m2`, `ai.*`; nhóm `risk` chỉ còn `vpd_low_duration_min`) và đủ **10 template hệ thống** (5 cây × 2 bộ `real`/`demo`).
-  - `platform/core/models.py` (kèm Alembic migration): cập nhật từ khung M2 lên đầy đủ 18 bảng nghiệp vụ ở mục 3.1 (thêm `crop_profiles.crop_code`, `zones.area_m2`, bảng `crop_cycles`, `yield_samples`; dọn các cột/bảng của cơ chế cũ ở `zones`/`alerts`; cập nhật `ml_models` toàn cục và `predictions`).
+  - `platform/core/models.py` (kèm Alembic migration): cập nhật lên đầy đủ 16 bảng nghiệp vụ ở mục 3.1 (thêm `crop_profiles.crop_code`, `zones.area_m2`, bảng `crop_cycles`, `yield_samples`; dọn các cột/bảng không dùng; cập nhật `ml_models` toàn cục và `predictions`).
   - `platform/core/climate_features.py`: trích 16 đặc trưng khí hậu (`feature_version = 1`) bằng Python thuần (xem [FEATURE_MICROCLIMATE_AND_QUALITY.md](./FEATURE_MICROCLIMATE_AND_QUALITY.md)).
   - `platform/core/schemas.py`: bổ sung/cập nhật Pydantic schemas cho M3–M5:
     - Cảnh báo: `AlertResponse`.
-    - Web Push & Tuỳ chọn thông báo: `PushPublicKeyResponse`, `PushSubscribeRequest` (`endpoint`, `keys: {p256dh, auth}`, `user_agent`), `NotificationPrefUpdateRequest`, `NotificationPrefResponse`.
     - Zone: `ZoneUpdateRequest` (`name`, `crop_profile_id`, `area_m2`), `ZoneResponse` (thêm `area_m2`).
     - Vụ trồng & AI năng suất / gợi ý: `CropCycleCreateRequest`, `CropCycleHarvestRequest`, `CropCycleResponse`, `PredictionResponse`, `CropRecommendationResponse`, `RefreshRecommendationResponse`, `MlModelResponse`.
   - `platform/core/config.py`: dọn biến cấu hình không còn dùng, bổ sung `tz: str = "Asia/Ho_Chi_Minh"`.
@@ -32,17 +31,17 @@
 
 ### 3.1 Phân cấp sở hữu (Multi-tenant), Cập nhật ORM & Cô lập dữ liệu
 - **Phân cấp tenant:**
-  - `farms` (gốc tenant) → `users` (`farm_id`, `role ∈ {'owner','operator','viewer'}`).
+  - `farms` (gốc tenant) → `users` (`farm_id`, `role = 'owner'`).
   - `farms` → `greenhouses` (`1 greenhouse = 1 gateway` qua `UNIQUE(greenhouse_id)` trên `gateways` và `1 device_state` qua `PRIMARY KEY(greenhouse_id)`).
   - `greenhouses` → `zones` (`UNIQUE(greenhouse_id, zone_index)`, `zone_index = 1..N`, `pump_channel`, `area_m2`, `soil_dry_raw`, `soil_wet_raw`).
   - `zones` → `crop_cycles` (vụ trồng theo zone; tối đa 1 vụ `status = 'active'` trên mỗi zone).
   - `device_nodes`: `mac_address` chuẩn `AA:BB:CC:DD:EE:01`, `status ∈ {'discovered','paired'}`.
-- **18 bảng nghiệp vụ trong `platform/core/models.py` (cộng `Base`):**
-  - Nhóm cốt lõi & thiết bị giữ nguyên cấu trúc: `farms`, `users`, `greenhouses`, `gateways`, `device_nodes`, `readings` (TimescaleDB hypertable), `commands`, `actuator_logs`, `device_state`, `push_subscriptions`, `notification_prefs`.
-  - Các bảng được cập nhật / thêm / bỏ so với khung M2 ban đầu:
+- **16 bảng nghiệp vụ trong `platform/core/models.py` (cộng `Base`):**
+  - Nhóm cốt lõi & thiết bị giữ nguyên cấu trúc: `farms`, `users`, `greenhouses`, `gateways`, `device_nodes`, `readings` (TimescaleDB hypertable), `commands`, `actuator_logs`, `device_state`.
+  - Các bảng được cập nhật / thêm / bỏ:
     - **`crop_profiles`** (`CropProfile`): `crop_code VARCHAR(40) NOT NULL` (`tomato_cherry | strawberry | lettuce | cucumber | bell_pepper`), `schema_version INT NOT NULL DEFAULT 2`.
     - **`zones`** (`Zone`): `id`, `greenhouse_id`, `zone_index`, `name`, `crop_profile_id`, `area_m2 REAL` (diện tích canh tác, m²), `planting_date`, `pump_channel`, `soil_dry_raw`, `soil_wet_raw` (chỉ còn một chiến lược điều khiển hysteresis cố định nên không có cột chọn chiến lược).
-    - **`alerts`** (`Alert`): giữ các cột vòng đời cảnh báo (`id`, `greenhouse_id`, `zone_id`, `alert_type`, `severity`, `state`, `dedupe_key`, `payload`, `created_at`, `notified_at`, `escalated_at`, `acknowledged_at`, `acked_by`, `resolved_at`).
+    - **`alerts`** (`Alert`): giữ các cột vòng đời cảnh báo (`id`, `greenhouse_id`, `zone_id`, `alert_type`, `severity`, `state`, `dedupe_key`, `payload`, `created_at`, `notified_at`, `acknowledged_at`, `acked_by`, `resolved_at`).
     - **Thêm `crop_cycles`** (`CropCycle` – dữ liệu tenant):
       - `id` UUID PK, `zone_id` FK→`zones.id` NOT NULL, `crop_profile_id` FK→`crop_profiles.id` NOT NULL, `started_at` TIMESTAMPTZ NOT NULL, `harvested_at` TIMESTAMPTZ, `area_m2` REAL NOT NULL (`CHECK (area_m2 > 0)`), `yield_kg` REAL (`CHECK (yield_kg >= 0)`), `status` VARCHAR(10) NOT NULL DEFAULT `'active'` (`CHECK (status IN ('active','harvested','abandoned'))`), `notes` TEXT, `created_by` FK→`users.id`, `created_at` TIMESTAMPTZ NOT NULL.
       - Partial unique index `crop_cycles_one_active` trên `(zone_id) WHERE status = 'active'`.
@@ -76,7 +75,6 @@
   "disease": {"rh_gt": 85.0, "temp_range_c": [15.0, 25.0], "fungal_minutes_alert": 360},
   "irrigation": {"max_run_s": 300, "min_gap_s": 1800, "max_total_s_per_hour": 420, "soil_settle_s": 300},
   "fan": {"min_on_s": 300, "max_on_s": 1800},
-  "mist": {"max_on_s": 900, "lockout_s": 900},
   "risk": {"vpd_low_duration_min": 60},
   "cycle": {"days": 120},
   "yield": {"reference_kg_m2": 10.0},
@@ -119,7 +117,6 @@
 | `irrigation.max_total_s_per_hour` | `420` | `120` | Tổng giây bơm tối đa trong 1 giờ |
 | `irrigation.soil_settle_s` | `300` | `30` | Thời gian chờ đất thấm sau khi bơm |
 | `fan.min_on_s` / `max_on_s` | `300` / `1800` | `60` / `300` | Thời lượng chạy tối thiểu / tối đa quạt |
-| `mist.max_on_s` / `lockout_s` | `900` / `900` | `300` / `120` | Thời lượng tối đa máy tạo ẩm / khóa sau khi quạt bật |
 | `risk.vpd_low_duration_min` | `60` | `3` | Thời gian VPD < `low_crit` liên tục để cảnh báo/bật quạt |
 | `disease.fungal_minutes_alert` | `360` | `5` | Số phút tích luỹ điều kiện nấm để bật `DISEASE_RISK` |
 | `ai.recommend_window_h` | `336` | `1` | Cửa sổ giờ lấy khí hậu để gợi ý cây trồng |
@@ -136,8 +133,7 @@
 ### 4.1 Biến cấu hình chính trong `Settings`
 - DB & Auth: `database_url`, `jwt_secret`, `jwt_algorithm="HS256"`, `jwt_expire_min=720`.
 - MQTT: `mqtt_host` (Docker: `mosquitto`), `mqtt_port=1883`, `mqtt_public_host`, `mqtt_public_port=8883`, `mqtt_worker_user`, `mqtt_worker_password`, `mqtt_admin_user`, `mqtt_admin_password`.
-- Push & Email: `vapid_public_key`, `vapid_private_key`, `vapid_subject`, `smtp_host`, `smtp_port=587`, `smtp_user`, `smtp_password`, `alert_email_from`.
-- Nghiệp vụ & ML: `models_dir=Path("./models")` (trong Docker là `/models`), `tz="Asia/Ho_Chi_Minh"`, `command_expire_s=30`, `alert_cooldown_min=10`, `escalate_after_min=5`.
+- Nghiệp vụ & ML: `models_dir=Path("./models")` (trong Docker là `/models`), `tz="Asia/Ho_Chi_Minh"`, `command_expire_s=30`, `alert_cooldown_min=10`, `yield_low_threshold=0.6`.
 
 ### 4.2 Kênh PostgreSQL `LISTEN/NOTIFY`
 - **`CHANNEL_WORKER = "worker_events"` (`api` / `ml.train` → `worker`):**

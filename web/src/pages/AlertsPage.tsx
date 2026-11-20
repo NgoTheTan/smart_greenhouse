@@ -184,11 +184,6 @@ export default function AlertsPage() {
                     >
                       <span>{n.relativeTime}</span>
                       <span>Thời gian: {n.formattedTime}</span>
-                      {n.rawAlert.escalated_at && (
-                        <span style={{ color: 'var(--danger)', fontWeight: 600 }}>
-                          Đã gửi Email leo thang
-                        </span>
-                      )}
                     </div>
                   </div>
 

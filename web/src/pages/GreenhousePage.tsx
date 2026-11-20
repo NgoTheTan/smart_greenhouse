@@ -2,7 +2,6 @@ import { useState, type FormEvent } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, formatApiError } from '../lib/api'
-import { useAuth } from '../lib/auth'
 import { Button, Card, Field, SelectField, StatusDot } from '../components/ui'
 import {
   formatCropName,
@@ -211,7 +210,6 @@ function ZoneCard({ zone, activeCycle, profile, reading }: ZoneCardProps) {
 
 export default function GreenhousePage() {
   const { ghId } = useParams<{ ghId: string }>()
-  const { isOwner } = useAuth()
   const queryClient = useQueryClient()
   const [refreshing, setRefreshing] = useState(false)
   const [refreshMsg, setRefreshMsg] = useState<string | null>(null)
@@ -530,11 +528,9 @@ export default function GreenhousePage() {
           </p>
         </div>
 
-        {isOwner && (
-          <Button variant="secondary" onClick={handleOpenZoneModal}>
-            Sửa zone
-          </Button>
-        )}
+        <Button variant="secondary" onClick={handleOpenZoneModal}>
+          Sửa zone
+        </Button>
       </div>
 
       {zoneEditMsg && (
@@ -588,7 +584,7 @@ export default function GreenhousePage() {
 
           <Button
             variant="secondary"
-            disabled={refreshing || !isOwner}
+            disabled={refreshing}
             onClick={() => ghId && refreshMutation.mutate(ghId)}
           >
             {refreshing ? 'Đang phân tích...' : 'Làm mới gợi ý'}

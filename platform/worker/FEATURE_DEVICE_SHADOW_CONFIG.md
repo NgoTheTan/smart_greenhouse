@@ -26,8 +26,7 @@ Mỗi `greenhouse_id` có đúng 1 dòng trong `device_state`:
     "modes": {
       "pump_1": {"mode": "auto", "until": null},
       "pump_2": {"mode": "auto", "until": null},
-      "fan": {"mode": "manual", "until": "2026-10-14T08:30:00+00:00"},
-      "mist": {"mode": "auto", "until": null}
+      "fan": {"mode": "manual", "until": "2026-10-14T08:30:00+00:00"}
     }
   }
   ```
@@ -35,7 +34,7 @@ Mỗi `greenhouse_id` có đúng 1 dòng trong `device_state`:
   - Khi `mode == "manual"` và `until` đã quá hạn (`until <= now`), `worker.commands.expire_manual_modes()` trong tick 5 s tự động trả về `{"mode": "auto", "until": None}`.
 - **`reported` (JSONB):** Cập nhật từ 2 nguồn của gateway:
   1. `status` (heartbeat 30 s): `actuators`, `uptime_s`, `heap`, `queue_len`, `nodes`.
-  2. `ack/{cmd_id}`: cập nhật ngay `reported["actuators"]` theo `payload.state` (kể cả `side_effects` như `mist_off`).
+  2. `ack/{cmd_id}`: cập nhật ngay `reported["actuators"]` theo `payload.state`.
 - **`cfg_version_desired` vs `cfg_version_reported`:**
   - `cfg_version_desired`: khởi tạo `1` khi tạo nhà kính; tăng `+1` qua `bump_cfg_version()` mỗi khi thay đổi node ghép, hiệu chuẩn đất, crop profile của zone hoặc tham số crop profile.
   - `cfg_version_reported`: cập nhật từ trường `cfg_version` trong gói `status` của gateway.
@@ -64,8 +63,7 @@ Topic: `gh/{farm_id}/{greenhouse_id}/cfg` (`retain=True`, `qos=1`).
         "irrigation_max_run_s": 15,
         "irrigation_min_gap_s": 90,
         "irrigation_max_total_s_per_hour": 120,
-        "fan_max_on_s": 300,
-        "mist_max_on_s": 300
+        "fan_max_on_s": 300
       },
       "failsafe": {
         "temp_critical_high_c": 35.0,

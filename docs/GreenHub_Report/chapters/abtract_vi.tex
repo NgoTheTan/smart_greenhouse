@@ -1,0 +1,18 @@
+\begin{center}
+\textbf{\large{Tóm tắt}}
+\end{center}
+
+\addcontentsline{toc}{chapter}{Tóm tắt}
+
+\begin{small}
+
+Báo cáo này trình bày quá trình nhóm chúng em nghiên cứu và xây dựng hệ thống GreenHub, một nền tảng IoT chuyên biệt phục vụ giám sát, điều khiển vi khí hậu nhà kính thông minh và hỗ trợ ra quyết định canh tác bằng học máy. Xuất phát từ thực tế canh tác nhà kính quy mô nhỏ và vừa hiện nay vẫn phụ thuộc nhiều vào kinh nghiệm cảm tính, dễ gặp rủi ro khi cảm biến nhiễu hoặc mất kết nối mạng, đồng thời chưa tận dụng được dữ liệu lịch sử để hoạch định mùa vụ, nhóm chúng em đề xuất GreenHub như một hệ thống hoàn chỉnh từ thiết bị biên đến máy chủ và giao diện quản trị giúp việc vận hành nhà kính trở nên chủ động, an toàn và minh bạch hơn.
+
+GreenHub cho phép quản lý tập trung nhiều trang trại, nhiều nhà kính và nhiều vùng trồng với phân quyền rõ ràng theo vai trò người dùng. Hệ thống tự động thu thập thông số môi trường, tính toán các chỉ số nông học cốt lõi như thâm hụt áp suất hơi bão hòa (VPD) và tích phân ánh sáng hằng ngày (DLI), đồng thời kiểm định chất lượng dữ liệu trước khi đưa vào bộ luật điều khiển tưới tiêu, thông gió và tạo ẩm. Để đảm bảo an toàn vận hành, hệ thống kết hợp lọc nhiễu, tự ngắt theo thời lượng và chế độ dự phòng cục bộ tại thiết bị biên với nguyên tắc an toàn ưu tiên hơn thao tác thủ công trên máy chủ, đi kèm cơ chế cảnh báo 2 lớp từ giao diện web thời gian thực đến còi báo tại chỗ. Bên cạnh đó, nền tảng còn tích hợp phân hệ học máy khai thác dữ liệu khí hậu liên nhà kính để dự báo năng suất vụ đang trồng và gợi ý cây trồng phù hợp kèm lời giải thích tiếng Việt, nhưng vẫn tách biệt hoàn toàn khỏi vòng điều khiển thiết bị trực tiếp.
+
+Hệ thống được tự xây dựng đồng bộ từ firmware trên vi điều khiển ESP32 và ESP8266 sử dụng giao thức ESP-NOW, cầu nối MQTT bảo mật qua Eclipse Mosquitto có phân quyền động, máy chủ nền tảng viết bằng Python với FastAPI kết hợp cơ sở dữ liệu PostgreSQL và TimescaleDB, giao diện Web Console dạng ứng dụng web tiến bộ bằng React và TypeScript, cùng mô hình học máy LightGBM và hạ tầng đóng gói Docker Compose đứng sau Caddy. Quá trình kiểm thử được tiến hành toàn diện cả bằng kiểm thử tự động, mô hình nhà kính thu nhỏ lẫn công cụ giả lập nhiều nhà kính, đánh giá đồng thời các yêu cầu chức năng, phi chức năng và chất lượng dự báo trên những nhà kính chưa từng xuất hiện lúc huấn luyện. Kết quả đạt được cho thấy GreenHub hoạt động ổn định, đáp ứng tốt mục tiêu xây dựng một nền tảng IoT nhà kính thông minh tự chủ, an toàn và có khả năng triển khai thực tế.
+
+\vspace*{1cm}
+\textbf{Từ khóa}: GreenHub, nền tảng IoT, nhà kính thông minh, điều khiển vi khí hậu, dự báo năng suất, gợi ý cây trồng
+
+\end{small}

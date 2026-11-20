@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, formatApiError } from '../lib/api'
-import { useAuth } from '../lib/auth'
 import {
   formatCropName,
   formatDateTimeVi,
@@ -15,7 +14,6 @@ import {
 export default function RecommendationsPage() {
   const { id: routeGhId } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { canOperate } = useAuth()
   const queryClient = useQueryClient()
 
   const [selectedGhId, setSelectedGhId] = useState<string>(routeGhId || '')
@@ -129,7 +127,7 @@ export default function RecommendationsPage() {
             ))}
           </select>
 
-          {canOperate && selectedGhId && (
+          {selectedGhId && (
             <button
               type="button"
               className="btn btn-primary"

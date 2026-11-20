@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Body, HTTPException, Query, status
 from sqlalchemy import desc, or_, select
 
-from api.deps import CurrentOperator, CurrentViewer, DbSession
+from api.deps import CurrentUser, DbSession
 from api.routers.zones import _get_owned_zone
 from core.models import CropCycle, CropProfile, Greenhouse, Zone
 from core.pubsub import CHANNEL_WORKER, CHANNEL_WS, pg_notify
@@ -99,7 +99,7 @@ async def _get_owned_cycle(
 @router.get("/zones/{zone_id}/cycles", response_model=list[CropCycleResponse])
 async def list_zone_cycles(
     zone_id: uuid.UUID,
-    user: CurrentViewer,
+    user: CurrentUser,
     session: DbSession,
     cycle_status: Annotated[CycleStatusType | None, Query(alias="status")] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
@@ -129,7 +129,7 @@ async def list_zone_cycles(
 async def create_zone_cycle(
     zone_id: uuid.UUID,
     body: CropCycleCreateRequest,
-    user: CurrentOperator,
+    user: CurrentUser,
     session: DbSession,
 ) -> CropCycleResponse:
     """Bắt đầu vụ trồng mới cho zone (tối đa 1 vụ active trên mỗi zone)."""
@@ -204,7 +204,7 @@ async def create_zone_cycle(
 async def harvest_cycle(
     cycle_id: uuid.UUID,
     body: CropCycleHarvestRequest,
-    user: CurrentOperator,
+    user: CurrentUser,
     session: DbSession,
 ) -> CropCycleResponse:
     """Ghi nhận thu hoạch vụ trồng và kích hoạt worker tạo mẫu `yield_samples`."""
@@ -266,7 +266,7 @@ async def harvest_cycle(
 @router.post("/cycles/{cycle_id}/abandon", response_model=CropCycleResponse)
 async def abandon_cycle(
     cycle_id: uuid.UUID,
-    user: CurrentOperator,
+    user: CurrentUser,
     session: DbSession,
     body: Annotated[CropCycleAbandonRequest | None, Body()] = None,
 ) -> CropCycleResponse:

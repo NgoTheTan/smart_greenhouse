@@ -1,0 +1,519 @@
+\section{Thiết kế hệ thống chi tiết}
+\label{sec:c3-detailed}
+
+\setcounter{secnumdepth}{3}
+
+\subsection{Thiết kế phần cứng và tầng thiết bị biên}
+\label{subsec:c3-hardware}
+
+\subsubsection{Phân bổ chân GPIO cho Sensor Node và Gateway}
+
+Trong quá trình lắp ráp mô hình thực tế, nhóm thiết kế firmware Sensor Node hỗ trợ linh hoạt năm cấu hình biên dịch trong tệp \texttt{firmware/node/platformio.ini} gồm \texttt{node}, \texttt{node\_demo}, \texttt{node\_sht30}, \texttt{node\_dht11} và \texttt{node\_esp8266}. Nhờ vậy, hệ thống dễ dàng thích ứng với nhiều chủng loại cảm biến hiện có mà không phải sửa kiến trúc gói tin. Bảng~\ref{tab:node-wiring} và Bảng~\ref{tab:gateway-wiring} trình bày chi tiết sơ đồ đấu nối của nút cảm biến và Gateway ESP32.
+
+\begingroup
+\footnotesize
+\setlength{\tabcolsep}{3.5pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{longtable}{|>{\raggedright\arraybackslash}p{0.26\textwidth}|>{\raggedright\arraybackslash}p{0.23\textwidth}|>{\raggedright\arraybackslash}p{0.21\textwidth}|>{\raggedright\arraybackslash}p{0.23\textwidth}|}
+\caption{Bảng phân bổ chân đấu nối phần cứng của Sensor Node}\label{tab:node-wiring}\\
+\hline
+\textbf{Linh kiện} & \textbf{ESP32 (AHT20 / SHT30 / DHT11)} & \textbf{ESP8266 (NodeMCU v2 -- Soil only)} & \textbf{Ghi chú kỹ thuật} \\
+\hline
+\endfirsthead
+\hline
+\textbf{Linh kiện} & \textbf{ESP32 (AHT20 / SHT30 / DHT11)} & \textbf{ESP8266 (NodeMCU v2 -- Soil only)} & \textbf{Ghi chú kỹ thuật} \\
+\hline
+\endhead
+AHT20 / SHT30 \& BH1750 (I2C: \texttt{0x38}/\texttt{0x44}, \texttt{0x23}) & \texttt{SDA = GPIO21}, \texttt{SCL = GPIO22}, \texttt{VCC = 3V3} & Không gắn (\texttt{-DNO\_AIR\_SENSOR -DNO\_LIGHT\_SENSOR}) & Tự dò BH1750 lúc khởi động; nếu không có gửi \texttt{lux = 0xFFFFFFFF}. \\
+\hline
+DHT11 (biến thể \texttt{node\_dht11}) & \texttt{DATA = GPIO4} (\texttt{-DUSE\_DHT11}) & Không sử dụng & Dùng khi phần cứng mô hình lắp DHT11. \\
+\hline
+Cảm biến ẩm đất điện dung v1.2 (\texttt{AOUT}) & \texttt{GPIO34} (\textbf{ADC1} -- 12 bit) & \texttt{A0} (10 bit) & Bắt buộc dùng ADC1 trên ESP32 vì ADC2 xung đột với Wi-Fi/ESP-NOW. \\
+\hline
+Nguồn cảm biến ẩm đất (\texttt{VCC}) & \texttt{GPIO25} (bật \(50\;\text{ms}\) khi đo rồi ngắt) & \texttt{GPIO14} & Hạn chế điện phân ăn mòn đầu dò và tiết kiệm điện năng. \\
+\hline
+LED trạng thái & \texttt{GPIO2} & \texttt{GPIO2} & Nháy báo chu kỳ gửi dữ liệu và trạng thái dò kênh. \\
+\hline
+\end{longtable}
+\endgroup
+
+\begingroup
+\footnotesize
+\setlength{\tabcolsep}{3.5pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{longtable}{|>{\raggedright\arraybackslash}p{0.28\textwidth}|>{\centering\arraybackslash}p{0.16\textwidth}|>{\raggedright\arraybackslash}p{0.49\textwidth}|}
+\caption{Bảng phân bổ chân đấu nối Gateway ESP32 và tủ Relay 3 kênh}\label{tab:gateway-wiring}\\
+\hline
+\textbf{Chức năng} & \textbf{Chân GPIO} & \textbf{Đặc tả điện và bảo vệ phần cứng} \\
+\hline
+\endfirsthead
+\hline
+\textbf{Chức năng} & \textbf{Chân GPIO} & \textbf{Đặc tả điện và bảo vệ phần cứng} \\
+\hline
+\endhead
+Relay IN1 -- Bơm Zone 1 (\texttt{pump\_1}) & \texttt{GPIO25} & Module relay \(5\;\text{V}\) cách ly quang, kích mức thấp (\texttt{LOW} = đóng). Bơm \(3\text{--}6\;\text{V}\) mắc song song diode \texttt{1N4007} (cathode về \texttt{+5V}) dập xung ngược. \\
+\hline
+Relay IN2 -- Bơm Zone 2 (\texttt{pump\_2}) & \texttt{GPIO26} & Tương tự IN1, cấp nước riêng biệt cho chậu trồng Zone 2. \\
+\hline
+Relay IN3 -- Quạt hút (\texttt{fan}) & \texttt{GPIO27} & Quạt \(5\;\text{V DC}\) lắp trên thành hộp fomex để thông gió toàn nhà kính. \\
+\hline
+Buzzer cảnh báo tại chỗ & \texttt{GPIO23} & Phát âm báo theo nhịp khi chế độ failsafe kích hoạt hoặc mất cloud kéo dài. \\
+\hline
+LED trạng thái & \texttt{GPIO2} & Hiển thị trực quan trạng thái Wi-Fi, MQTT và Failsafe. \\
+\hline
+Nguồn chung \(5\;\text{V -- 3 A}\) & Rail \(5\;\text{V}\) + GND & Lắp tụ hóa \(1000\;\mu\text{F}\) trên rail \(5\;\text{V}\) chống sụt áp gây reset ESP32 lúc bơm khởi động. \\
+\hline
+\end{longtable}
+\endgroup
+
+\subsubsection{Giao thức nhị phân ESP-NOW}
+
+Để tối ưu thời gian phát sóng và tránh sai lệch bộ nhớ giữa các kiến trúc vi điều khiển, toàn bộ cấu trúc gói tin trong thư mục dùng chung \texttt{firmware/common/gh\_common/gh\_packets.h} được khai báo thuộc tính \texttt{packed}, thứ tự byte \textit{little-endian} và kiểm tra kích thước cứng bằng \texttt{static\_assert} ngay lúc biên dịch (Bảng~\ref{tab:espnow-packets}).
+
+\begingroup
+\footnotesize
+\setlength{\tabcolsep}{3.5pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{longtable}{|>{\raggedright\arraybackslash}p{0.19\textwidth}|>{\centering\arraybackslash}p{0.08\textwidth}|>{\centering\arraybackslash}p{0.13\textwidth}|>{\raggedright\arraybackslash}p{0.53\textwidth}|}
+\caption{Đặc tả bốn loại gói tin nhị phân ESP-NOW giữa Sensor Node và Gateway}\label{tab:espnow-packets}\\
+\hline
+\textbf{Loại gói tin} & \textbf{Mã \texttt{type}} & \textbf{Kích thước} & \textbf{Các trường dữ liệu chính và mục đích} \\
+\hline
+\endfirsthead
+\hline
+\textbf{Loại gói tin} & \textbf{Mã \texttt{type}} & \textbf{Kích thước} & \textbf{Các trường dữ liệu chính và mục đích} \\
+\hline
+\endhead
+\texttt{TelemetryPkt} & \texttt{1} & \textbf{20 byte} & Chứa \texttt{zone}, \texttt{seq}, \texttt{air\_t\_x100} (\texttt{int16}), \texttt{air\_rh\_x100} (\texttt{uint16}), \texttt{soil\_raw}, \texttt{soil\_pct}, \texttt{flags} (bit 0 \texttt{AHT\_ERR}, bit 1 \texttt{SOIL\_ERR}, bit 2 \texttt{BH\_ERR}), \texttt{lux} (\texttt{uint32}), \texttt{vbat\_mv} và \texttt{fw\_major/minor}. \\
+\hline
+\texttt{HelloPkt} & \texttt{2} & \textbf{3 byte} & Chứa \texttt{type}, \texttt{fw\_major}, \texttt{fw\_minor}; phát broadcast để tự dò kênh Wi-Fi (1--13) và báo danh nút mới chưa ghép. \\
+\hline
+\texttt{HelloAckPkt} & \texttt{3} & \textbf{2 byte} & Chứa \texttt{type}, \texttt{channel}; Gateway trả về kênh Wi-Fi hiện tại để nút đồng bộ và lưu lại vào NVS/EEPROM. \\
+\hline
+\texttt{CfgPkt} & \texttt{4} & \textbf{10 byte} & Chứa \texttt{type}, \texttt{zone}, \texttt{sample\_interval\_s}, \texttt{soil\_dry\_raw}, \texttt{soil\_wet\_raw}, \texttt{cfg\_version}; Gateway gửi xuống nút trong cửa sổ lắng nghe \(200\;\text{ms}\) ngay sau gói telemetry. \\
+\hline
+\end{longtable}
+\endgroup
+
+Các hằng số quy ước khi thiếu cảm biến gồm \texttt{GH\_LUX\_NONE = 0xFFFFFFFF}, \texttt{GH\_AIR\_T\_NONE = -32768} và \texttt{GH\_AIR\_RH\_NONE = 0xFFFF}. Trong trường hợp Node Zone 2 chạy biến thể \texttt{node\_esp8266} không gắn cảm biến không khí, Gateway tự động chia sẻ số đo nhiệt độ và độ ẩm hợp lệ gần nhất từ Zone 1 (vốn nằm chung khối không khí trong nhà kính) để dữ liệu đẩy lên backend luôn đầy đủ.
+
+\subsubsection{Tiền xử lý tín hiệu, lớp an toàn và Failsafe tại Gateway}
+
+Firmware Gateway (\texttt{firmware/gateway/src/main.cpp}) không đơn thuần chuyển tiếp gói tin mà được trang bị năm cơ chế phòng vệ chủ động:
+
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Khởi tạo an toàn và cấu hình cục bộ:} Hàm \texttt{initRelaysOff()} luôn được gọi ở dòng đầu tiên của \texttt{setup()} để đảm bảo không xảy ra xung bật nhầm bơm hay quạt khi cấp nguồn. Khi chạy lần đầu hoặc giữ nút \texttt{BOOT}, Gateway mở captive portal \texttt{WiFiManager} cho phép nhập Wi-Fi \(2{,}4\;\text{GHz}\), \texttt{mqtt\_host}, tài khoản MQTT, \texttt{farm\_id} và \texttt{greenhouse\_id} rồi lưu vào NVS (\texttt{gh\_gw}). Firmware nhúng sẵn bộ chứng chỉ gốc gồm cả GreenHub Dev CA và \texttt{ISRG Root X1} của Let's Encrypt để xác thực TLS ở cả môi trường phát triển lẫn sản xuất.
+    \item \textbf{Tiền xử lý nhiễu tại biên (\texttt{preprocessZoneTelemetry}):} Các mẫu lỗi phần cứng hoặc nằm ngoài dải vật lý được giữ nguyên vẹn cờ lỗi để máy chủ nhận diện chính xác \texttt{dropout} hay \texttt{out\_of\_range}. Với các mẫu hợp lệ, Gateway loại bỏ gai nhiễu đơn lẻ một mẫu (chỉ chấp nhận bước nhảy lớn nếu xuất hiện hai chu kỳ liên tiếp), sau đó áp dụng lọc trung vị 3 mẫu (\texttt{FILTER\_WIN = 3}) kết hợp lọc trung bình trượt hàm mũ EMA (\(\alpha = 0{,}5\)) nhằm làm mượt số đo DHT11 và cảm biến ẩm đất điện dung. Bộ đếm phát hiện kẹt (\texttt{STUCK\_SOIL\_CYCLES = 60}, \texttt{STUCK\_AIR\_CYCLES = 30}) vẫn bám trên dữ liệu thô để không bị bộ lọc che giấu.
+    \item \textbf{Hàng đợi vòng trên RAM chống mất dữ liệu:} Khi rớt MQTT, tối đa \(150\) bản tin (\texttt{MQTT\_QUEUE\_SIZE = 150}, mỗi ô gồm \texttt{topic[112]} và \texttt{payload[320]}) được lưu trong RAM và xả dần theo thứ tự FIFO khi nối lại, tuyệt đối không ghi liên tục xuống bộ nhớ Flash nhằm tránh chai chip nhớ.
+    \item \textbf{Thực thi lệnh lũy đẳng và bảo vệ cơ cấu chấp hành:} Gateway lưu vòng \(50\) mã \texttt{cmd\_id} gần nhất chống thực thi trùng và đối chiếu \texttt{expires\_at} với đồng hồ NTP. Mọi lệnh \texttt{on} đều gắn mốc tắt tự động \texttt{g\_off\_deadline\_ms} dựa trên bộ đếm \(64\text{-bit}\) \texttt{millis64()} (khắc phục lỗi tràn sau \(49{,}7\) ngày), đảm bảo relay tự ngắt đúng hạn kể cả khi rớt mạng. Trần thời gian \texttt{duration\_s} luôn bị cắt theo \texttt{cfg} (\texttt{irrigation\_max\_run\_s}, \texttt{fan\_max\_on\_s}). Riêng với hai bơm tưới, Gateway ép kiểm tra khoảng nghỉ tối thiểu \texttt{min\_gap\_s} cùng tổng thời gian chạy trong giờ qua (\texttt{max\_total\_s\_per\_hour}, lưu lịch sử \(48\) lượt) và trả \texttt{rejected} (\texttt{min\_gap} hoặc \texttt{max\_total}) nếu vi phạm.
+    \item \textbf{Chế độ Failsafe cục bộ:} Nếu mất MQTT liên tục quá \texttt{offline\_failsafe\_after\_s} (mặc định \(60\;\text{s}\)) và dữ liệu cảm biến còn hợp lệ, chưa kẹt, không quá cũ (trong 3 chu kỳ): khi độ ẩm đất tụt dưới \texttt{soil\_moisture\_critical\_low\_pct}, Gateway tự tưới zone tương ứng tối đa \texttt{irrigation\_max\_run\_s} (vẫn tôn trọng \texttt{min\_gap\_s} và \texttt{max\_total\_s\_per\_hour}); khi nhiệt độ vượt \texttt{temp\_critical\_high\_c}, Gateway tự bật quạt cho tới khi nhiệt độ hạ xuống dưới \texttt{temp\_critical\_high\_c - 2,0 \(^\circ\)C}. Mọi sự kiện failsafe được đẩy vào hàng đợi RAM để đồng bộ lên máy chủ sau đó và kích hoạt còi Buzzer cảnh báo tại chỗ.
+\end{enumerate}
+
+\subsection{Thiết kế giao thức MQTT và bảo mật Broker}
+\label{subsec:c3-mqtt}
+
+Toàn bộ bản tin MQTT của GreenHub được tổ chức dưới tiền tố không gian tên \texttt{gh/\{farm\_id\}/\{greenhouse\_id\}/} nhằm tách biệt tuyệt đối giữa các trang trại và từng nhà kính (Bảng~\ref{tab:mqtt-topics}).
+
+\begingroup
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{longtable}{|>{\raggedright\arraybackslash}p{0.20\textwidth}|>{\centering\arraybackslash}p{0.14\textwidth}|>{\centering\arraybackslash}p{0.06\textwidth}|>{\centering\arraybackslash}p{0.11\textwidth}|>{\raggedright\arraybackslash}p{0.42\textwidth}|}
+\caption{Thiết kế hệ thống topic MQTT dưới tiền tố \texttt{gh/\{farm\_id\}/\{greenhouse\_id\}/}}\label{tab:mqtt-topics}\\
+\hline
+\textbf{Hậu tố topic} & \textbf{Chiều truyền} & \textbf{QoS} & \textbf{Retained} & \textbf{Mục đích và các trường payload chính} \\
+\hline
+\endfirsthead
+\hline
+\textbf{Hậu tố topic} & \textbf{Chiều truyền} & \textbf{QoS} & \textbf{Retained} & \textbf{Mục đích và các trường payload chính} \\
+\hline
+\endhead
+\texttt{telemetry/\{zone\}} & GW \(\rightarrow\) Cloud & 1 & Không & Gửi \texttt{ts}, \texttt{zone}, \texttt{air\_t}, \texttt{air\_rh}, \texttt{soil\_m}, \texttt{soil\_raw}, \texttt{lux} (hoặc \texttt{null}), \texttt{batt}, \texttt{rssi}, \texttt{flags}, \texttt{seq}. \\
+\hline
+\texttt{status} & GW \(\rightarrow\) Cloud & 1 & Có (+LWT) & Nhịp tim mỗi \(30\;\text{s}\): \texttt{online}, \texttt{fw}, \texttt{rssi}, \texttt{uptime\_s}, \texttt{heap}, \texttt{queue\_len}, \texttt{cfg\_version}, \texttt{actuators}, \texttt{nodes}. Di chúc LWT: \texttt{\{"online":false\}}. \\
+\hline
+\texttt{event} & GW \(\rightarrow\) Cloud & 1 & Không & Báo sự kiện cục bộ: \texttt{boot}, \texttt{failsafe\_start}, \texttt{failsafe\_stop}, \texttt{actuator\_changed}, \texttt{sensor\_invalid}. \\
+\hline
+\texttt{discovery} & GW \(\rightarrow\) Cloud & 1 & Không & Báo nút cảm biến lạ chưa ghép: \texttt{ts}, \texttt{mac}, \texttt{fw}, \texttt{rssi}. \\
+\hline
+\texttt{cmd/\{actuator\}} & Cloud \(\rightarrow\) GW & 1 & Không & Lệnh điều khiển: \texttt{cmd\_id}, \texttt{actuator}, \texttt{action} (\texttt{on}/\texttt{off}), \texttt{duration\_s}, \texttt{expires\_at}, \texttt{source} (\texttt{auto}/\texttt{manual}). \\
+\hline
+\texttt{ack/\{cmd\_id\}} & GW \(\rightarrow\) Cloud & 1 & Không & Phản hồi lệnh: \texttt{cmd\_id}, \texttt{status} (\texttt{applied}/\texttt{rejected}/\texttt{expired}), \texttt{reason}, \texttt{applied\_at}, \texttt{side\_effects}, \texttt{state}. \\
+\hline
+\texttt{cfg} & Cloud \(\rightarrow\) GW & 1 & Có & Cấu hình có phiên bản \texttt{cfg\_version}, \texttt{offline\_failsafe\_after\_s}, ánh xạ \texttt{nodes} (MAC \(\leftrightarrow\) zone) và tham số \texttt{zones}. \\
+\hline
+\end{longtable}
+\endgroup
+
+Về bảo mật broker (\texttt{deploy/mosquitto/}), Mosquitto cấm hoàn toàn kết nối ẩn danh (\texttt{allow\_anonymous false}), chỉ mở duy nhất cổng ngoài \texttt{8883} bắt buộc \texttt{tls\_version tlsv1.2}, còn cổng \texttt{1883} chỉ tồn tại trong mạng nội bộ Docker dành riêng cho \texttt{worker} và tài khoản quản trị \texttt{api-admin}. Khi chủ trang trại gọi \texttt{POST /api/gateways}, mô-đun \texttt{platform/api/provisioning.py} giao tiếp với \texttt{\$CONTROL/dynamic-security/v1} để sinh tài khoản MQTT mới kèm mật khẩu ngẫu nhiên (chỉ hiển thị một lần duy nhất lúc tạo) và gắn vai trò ACL khóa cứng gateway vào đúng nhánh nhà kính của mình: chỉ được \textit{subscribe} \texttt{cmd/\#} cùng \texttt{cfg}, và chỉ được \textit{publish} vào \texttt{telemetry/\#}, \texttt{status}, \texttt{event}, \texttt{discovery} và \texttt{ack/\#}.
+
+\subsection{Thiết kế cơ sở dữ liệu (PostgreSQL và TimescaleDB)}
+\label{subsec:c3-database}
+
+Lược đồ cơ sở dữ liệu gồm 16 bảng được quản lý chặt chẽ qua các bản migration Alembic trong \texttt{platform/migrations/versions/}: \texttt{0001\_init\_extensions} (bật \texttt{pgcrypto} và \texttt{timescaledb}), \texttt{0002\_core\_schema} (tạo các bảng cốt lõi, ràng buộc khóa ngoại/CHECK/UNIQUE và chuyển \texttt{readings} thành TimescaleDB Hypertable phân vùng theo \texttt{ts}), \texttt{0003\_continuous\_aggregates} (khởi tạo hai Continuous Aggregates \texttt{readings\_1m} và \texttt{readings\_1h} chỉ lọc các bản ghi \texttt{quality = 'ok'}, thực thi ngoài transaction bằng \texttt{autocommit\_block()}), \texttt{0004\_yield\_ai\_and\_cycles} (thêm \texttt{zones.area\_m2}, \texttt{crop\_profiles.crop\_code}, bảng \texttt{crop\_cycles}, \texttt{yield\_samples}, cập nhật \texttt{ml\_models} và \texttt{predictions}), \texttt{0005\_crop\_cycle\_feedback} (bổ sung cột JSONB \texttt{crop\_cycles.feedback} lưu phản hồi thu hoạch thực tế), \texttt{0006\_remove\_mist\_actuator} (loại bỏ thiết bị tạo sương), \texttt{0007\_single\_owner\_role} (chuẩn hóa một vai trò \texttt{owner}) và \texttt{0008\_remove\_push\_and\_email\_escalation} (xóa hai bảng \texttt{push\_subscriptions}, \texttt{notification\_prefs} và cột \texttt{alerts.escalated\_at}). Hình~\ref{fig:greenhub-erd} minh họa mối quan hệ giữa 16 bảng trong hệ thống.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    font=\scriptsize,
+    ent/.style={draw=ghblue, fill=ghbluebg, rounded corners=2pt, minimum width=2.55cm, minimum height=0.72cm, align=center, line width=0.65pt},
+    entg/.style={draw=ghgreen, fill=ghgreenbg, rounded corners=2pt, minimum width=2.55cm, minimum height=0.72cm, align=center, line width=0.65pt},
+    enta/.style={draw=ghamber, fill=ghamberbg, rounded corners=2pt, minimum width=2.55cm, minimum height=0.72cm, align=center, line width=0.65pt},
+    entp/.style={draw=ghpurple, fill=ghpurplebg, rounded corners=2pt, minimum width=2.55cm, minimum height=0.72cm, align=center, line width=0.65pt},
+    rel/.style={-{Stealth[length=2mm]}, line width=0.65pt, draw=black!75},
+    lbl/.style={font=\tiny, fill=white, inner sep=1pt}
+]
+
+% Row 1: Tenant & Users
+\node[ent] (farms) at (0, 0) {\textbf{farms}\\(tenant gốc)};
+\node[ent] (users) at (4.0, 0) {\textbf{users}\\(quyền \texttt{owner})};
+
+% Row 2: Greenhouse & Devices
+\node[entg] (gh) at (0, -2.5) {\textbf{greenhouses}\\(cfg\_version)};
+\node[entg] (gw) at (-3.8, -1.8) {\textbf{gateways}\\(1--1 MQTT creds)};
+\node[entg] (dstate) at (-3.8, -3.2) {\textbf{device\_state}\\(shadow desired/rep)};
+\node[entg] (zones) at (4.0, -2.5) {\textbf{zones}\\(area\_m2, calib)};
+\node[entg] (nodes) at (8.0, -2.5) {\textbf{device\_nodes}\\(MAC \(\leftrightarrow\) zone)};
+
+% Row 3: Agronomic & Telemetry
+\node[entg] (profiles) at (-3.8, -5.1) {\textbf{crop\_profiles}\\(10 templates v2)};
+\node[entg] (readings) at (0, -5.1) {\textbf{readings}\\(Hypertable + 1m/1h)};
+\node[entp] (cycles) at (4.0, -5.1) {\textbf{crop\_cycles}\\(active/harvested)};
+\node[entp] (ysamp) at (8.0, -5.1) {\textbf{yield\_samples}\\(gộp đa nhà kính)};
+
+% Row 4: Operations & AI
+\node[enta] (cmds) at (-3.8, -7.4) {\textbf{commands}\\(pending..timeout)};
+\node[enta] (actlog) at (-0.8, -7.4) {\textbf{actuator\_logs}\\(lịch sử đóng ngắt)};
+\node[enta] (alerts) at (2.2, -7.4) {\textbf{alerts}\\(4 trạng thái)};
+\node[entp] (preds) at (5.3, -7.4) {\textbf{predictions}\\(forecast / rec)};
+\node[entp] (mlm) at (8.4, -7.4) {\textbf{ml\_models}\\(v1, v2 active)};
+
+% Relations
+\draw[rel] (farms) -- node[lbl, above] {1:N} (users);
+\draw[rel] (farms) -- node[lbl, left] {1:N} (gh);
+\draw[rel] (farms.west) -- ++(-1.5,0) |- node[lbl, pos=0.25, left] {1:N} (profiles.west);
+\draw[rel] (farms.north) -- ++(0,0.45) -| node[lbl, pos=0.25, above] {1:N (đóng góp)} ($(ysamp.east)+(0.8,0)$) -- (ysamp.east);
+
+\draw[rel] (gh.west) -- ++(-0.35,0) |- node[lbl, pos=0.7, above] {1:1} (gw.east);
+\draw[rel] (gh.west) -- ++(-0.35,0) |- node[lbl, pos=0.7, below] {1:1} (dstate.east);
+\draw[rel] (gh) -- node[lbl, above] {1:N} (zones);
+\draw[rel] (gh.north east) -- ++(0.2,0.5) -| node[lbl, pos=0.35, above] {1:N} (nodes.north);
+
+\draw[rel] (zones) -- node[lbl, above] {1:N} (nodes);
+\draw[rel] (zones.south west) -- node[lbl, above left] {1:N} (readings.north east);
+\draw[rel] (zones) -- node[lbl, right] {1:N} (cycles);
+
+\draw[rel] (profiles.north east) -- node[lbl, left] {1:N} (zones.south west);
+\draw[rel] (profiles.south) -- ++(0,-0.35) -| node[lbl, pos=0.25, below] {1:N} (cycles.south west);
+
+\draw[rel] (cycles) -- node[lbl, above] {1:0..1} (ysamp);
+\draw[rel] (cycles.south) -- node[lbl, right] {1:N} (preds.north);
+\draw[rel] (mlm) -- node[lbl, above] {1:N} (preds);
+
+\draw[rel] (gh.south west) -- ++(-0.6,-0.55) |- ++(-3.2,-2.95) -| node[lbl, pos=0.18, above] {1:N} (cmds.north);
+\draw[rel] (gh.south west) -- ++(-0.6,-0.55) |- ++(-3.2,-2.95) -| (actlog.north);
+\draw[rel] (gh.south west) -- ++(-0.6,-0.55) |- ++(-3.2,-2.95) -| (alerts.north);
+\draw[rel] (zones.south east) -- ++(0.35,-0.35) |- (2.2,-6.4) -- (alerts.north);
+\draw[rel] (zones.south east) -- ++(0.35,-0.35) |- (5.3,-6.4) -- (preds.north);
+
+\end{tikzpicture}%
+}
+\caption{Sơ đồ thực thể -- mối quan hệ (ERD) gồm 16 bảng trong cơ sở dữ liệu GreenHub}
+\label{fig:greenhub-erd}
+\end{figure}
+
+Bảng \texttt{crop\_profiles} lưu trữ sẵn 10 mẫu hồ sơ cây trồng chuẩn \texttt{schema\_version = 2} trong cột JSONB \texttt{parameters\_json}, tương ứng với 5 loại cây ứng viên nhân với 2 bộ thang thời gian \texttt{real} và \texttt{demo} (Bảng~\ref{tab:crop-profiles} và Bảng~\ref{tab:real-vs-demo}).
+
+\begingroup
+\scriptsize
+\sloppy
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{longtable}{|>{\raggedright\arraybackslash}p{0.26\textwidth}|>{\centering\arraybackslash}p{0.13\textwidth}|>{\centering\arraybackslash}p{0.13\textwidth}|>{\centering\arraybackslash}p{0.13\textwidth}|>{\centering\arraybackslash}p{0.13\textwidth}|>{\centering\arraybackslash}p{0.13\textwidth}|}
+\caption{Ngưỡng sinh học của 5 loại cây trồng mẫu trong \texttt{crop\_profiles} (\texttt{schema\_version = 2})}\label{tab:crop-profiles}\\
+\hline
+\textbf{Thuộc tính sinh học} & \textbf{Cà chua bi} (\texttt{tomato\_cherry}) & \textbf{Dâu tây} (\texttt{strawberry}) & \textbf{Xà lách} (\texttt{lettuce}) & \textbf{Dưa leo} (\texttt{cucumber}) & \textbf{Ớt chuông} (\texttt{bell\_pepper}) \\
+\hline
+\endfirsthead
+\hline
+\textbf{Thuộc tính sinh học} & \textbf{Cà chua bi} & \textbf{Dâu tây} & \textbf{Xà lách} & \textbf{Dưa leo} & \textbf{Ớt chuông} \\
+\hline
+\endhead
+\texttt{vpd.optimal} (kPa) & 0,8 -- 1,2 & 0,6 -- 0,9 & 0,6 -- 1,0 & 0,8 -- 1,2 & 0,8 -- 1,2 \\ \hline
+\texttt{temp\_c.optimal} (\(^\circ\)C) & 20 -- 28 & 18 -- 24 & 15 -- 22 & 22 -- 30 & 21 -- 28 \\ \hline
+\texttt{light.dli\_optimal} (\(\text{mol/m}^2/\text{ngày}\)) & 20 -- 30 & 15 -- 22 & 12 -- 17 & 20 -- 30 & 20 -- 30 \\ \hline
+\texttt{soil\_moisture\_pct} min--max (\%) & 60 -- 75 & 50 -- 65 & 60 -- 80 & 65 -- 80 & 60 -- 75 \\ \hline
+\texttt{cycle.days} (ngày) & 120 & 150 & 40 & 75 & 150 \\ \hline
+\texttt{yield.reference\_kg\_m2} (\(\text{kg/m}^2\)) & 10,0 & 4,0 & 3,0 & 15,0 & 8,0 \\ \hline
+\texttt{failsafe.temp\_critical\_high\_c} (\(^\circ\)C) & 35 & 30 & 30 & 38 & 35 \\ \hline
+\texttt{disease.rh\_gt} (\%) & 85 & 90 & 85 & 85 & 85 \\ \hline
+\end{longtable}
+\endgroup
+
+\begingroup
+\footnotesize
+\setlength{\tabcolsep}{3.5pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{longtable}{|>{\raggedright\arraybackslash}p{0.40\textwidth}|>{\raggedright\arraybackslash}p{0.26\textwidth}|>{\raggedright\arraybackslash}p{0.28\textwidth}|}
+\caption{So sánh bộ tham số thời gian giữa chế độ \texttt{real} và \texttt{demo}}\label{tab:real-vs-demo}\\
+\hline
+\textbf{Tham số thời gian} & \textbf{Bộ \texttt{real} (Nhà kính thực tế)} & \textbf{Bộ \texttt{demo} (Mô hình \(40 \times 30 \times 30\;\text{cm}\))} \\
+\hline
+\endfirsthead
+\hline
+\textbf{Tham số thời gian} & \textbf{Bộ \texttt{real}} & \textbf{Bộ \texttt{demo}} \\
+\hline
+\endhead
+\texttt{sample\_interval\_s} & 60 s & 10 s (Node phần cứng đo 5 s) \\ \hline
+\texttt{irrigation}: \texttt{max\_run\_s} / \texttt{min\_gap\_s} / \texttt{max\_total\_s\_per\_hour} / \texttt{soil\_settle\_s} & 300 s / 1800 s / 420 s / 300 s & 15 s / 90 s / 120 s / 30 s \\ \hline
+\texttt{fan}: \texttt{min\_on\_s} / \texttt{max\_on\_s} & 300 s / 1800 s & 60 s / 300 s \\ \hline
+\texttt{risk.vpd\_low\_duration\_min} / \texttt{disease.fungal\_minutes\_alert} & 60 phút / 360 phút & 3 phút / 5 phút \\ \hline
+\texttt{ai}: \texttt{recommend\_window\_h} / \texttt{min\_cycle\_hours} / \texttt{inference\_interval\_s} & 336 h / 72 h / 3600 s & 1 h / 0,5 h / 60 s \\ \hline
+\end{longtable}
+\endgroup
+
+\subsection{Thiết kế các module Backend Platform (\texttt{api} và \texttt{worker})}
+\label{subsec:c3-backend}
+
+\subsubsection{Công thức tính chỉ số vi khí hậu (\texttt{platform/core/vpd.py})}
+
+Từ bộ số đo nhiệt độ không khí \(T_{\text{khí}}\) (\(^\circ\text{C}\)), độ ẩm tương đối \(\text{RH}\) (\%) và độ rọi \(\text{lux}\), hệ thống tính toán áp suất hơi bão hòa theo công thức Magnus--Tetens, thâm hụt áp suất hơi VPD và tích phân ánh sáng DLI~\cite{monteithVpd}:
+
+\begin{equation}
+VP_{\text{sat}}(T) = 0{,}61078 \cdot \exp\left(\frac{17{,}27 \cdot T}{T + 237{,}3}\right) \quad [\text{kPa}]
+\end{equation}
+
+\begin{equation}
+VP_{\text{air}} = VP_{\text{sat}}(T_{\text{khí}}) \cdot \frac{\text{RH}}{100}, \qquad \text{VPD} = \max\Big(0,\; VP_{\text{sat}}(T_{\text{khí}} - \Delta T_{\text{lá}}) - VP_{\text{air}}\Big)
+\end{equation}
+
+\begin{equation}
+\text{PPFD} \approx \text{lux} \times 0{,}0185 \;\; [\mu\text{mol}\cdot\text{m}^{-2}\cdot\text{s}^{-1}], \qquad \text{DLI} = \frac{1}{10^6}\sum_i \text{PPFD}_i \cdot \Delta t_i \;\; [\text{mol}\cdot\text{m}^{-2}\cdot\text{ngày}^{-1}]
+\end{equation}
+
+Trong quá trình tích phân DLI, khoảng thời gian \(\Delta t_i\) giữa hai mẫu liên tiếp được chặn trên bằng tham số \texttt{max\_gap\_s} để tránh sai số phồng DLI khi cảm biến mất kết nối nhiều giờ. Để phục vụ bộ luật điều khiển quạt dùng chung cho nhiều vùng trồng, hệ thống chuẩn hóa hai chỉ số rủi ro về đoạn \([0, 1]\):
+
+\begin{equation}
+\text{risk}_{\text{vpd\_low}} = \text{clamp}\left(\frac{\text{vpd}_{\text{opt,min}} - \text{VPD}}{\text{vpd}_{\text{opt,min}} - \text{vpd}_{\text{low\_crit}}},\; 0,\; 1\right), \qquad \text{risk}_{\text{heat}} = \text{clamp}\left(\frac{T_{\text{khí}} - T_{\text{opt,max}}}{T_{\text{crit\_high}} - T_{\text{opt,max}}},\; 0,\; 1\right)
+\end{equation}
+
+\subsubsection{Kiểm định chất lượng dữ liệu theo luật (\texttt{platform/core/quality.py})}
+
+Mỗi bản tin telemetry đến \texttt{worker} đều đi qua bộ theo dõi \texttt{ZoneQualityTracker} (duy trì cửa sổ tối đa \(60\) mẫu trên RAM, được \texttt{warm\_up} từ cơ sở dữ liệu khi khởi động) và được gán đúng một nhãn \texttt{quality} theo thứ tự ưu tiên từ cao xuống thấp:
+
+\begin{enumerate}[leftmargin=*]
+    \item \texttt{dropout}: Cờ lỗi phần cứng \texttt{FLAG\_AHT\_ERR} hoặc \texttt{FLAG\_SOIL\_ERR} được bật (riêng \texttt{FLAG\_BH\_ERR} được miễn trừ nhằm tránh làm gián đoạn vòng tưới/thông gió khi chỉ hỏng cảm biến sáng) hoặc thiếu trường \texttt{air\_t}, \texttt{air\_rh}, \texttt{soil\_m}.
+    \item \texttt{out\_of\_range}: Giá trị vượt dải vật lý hợp lệ (\texttt{air\_t} \(\notin [-10, 60]\), \texttt{air\_rh} \(\notin [0, 100]\), \texttt{soil\_m} \(\notin [0, 100]\), \texttt{lux} \(\notin [0, 65535]\)) hoặc \texttt{soil\_raw} \(\notin [50, 4090]\) (dấu hiệu đặc trưng của đứt hoặc chập dây cảm biến điện dung ADC 12-bit).
+    \item \texttt{spike}: Khoảng cách thời gian tới mẫu trước đó \(\le 3 \times \text{sample\_interval\_s}\) nhưng biên độ thay đổi đột biến vượt ngưỡng \(|\Delta T| > 5\,^\circ\text{C}\), \(|\Delta \text{RH}| > 25\%\) hoặc \(|\Delta \text{soil}| > 20\%\).
+    \item \texttt{stuck}: Giá trị \texttt{soil\_raw} đứng yên tuyệt đối qua từ \(60\) chu kỳ liên tiếp trở lên, hoặc cặp (\texttt{air\_t}, \texttt{air\_rh}) không đổi qua từ \(30\) chu kỳ trở lên.
+    \item \texttt{ok}: Chỉ những mẫu đạt nhãn này mới được phép đi tiếp vào Rule Engine, Continuous Aggregates và phân hệ AI/ML. Song song đó, hàm \texttt{is\_neighbor\_divergent} đối chiếu chênh lệch nhiệt độ (\(> 8\,^\circ\text{C}\)) hoặc độ ẩm (\(> 35\%\)) giữa hai zone chung khối không khí để phát hiện cảm biến lệch chuẩn.
+\end{enumerate}
+
+\subsubsection{Bộ luật điều khiển Rule \& Control Engine (\texttt{platform/worker/rules.py})}
+
+Bộ điều khiển máy chủ áp dụng một chiến lược trễ (hysteresis) cố định duy nhất, kích hoạt ngay khi có telemetry \texttt{quality = 'ok'} và được rà soát lại mỗi \(5\;\text{giây}\):
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Tưới độc lập theo từng vùng (\texttt{pump\_1}, \texttt{pump\_2}):} Ở chế độ \texttt{auto}, khi \texttt{soil\_moisture < soil\_min}, hệ thống phát lệnh bật bơm với thời lượng trần \texttt{irrigation.max\_run\_s}, đồng thời chủ động gửi lệnh tắt sớm (\texttt{off}) ngay khi độ ẩm đất đạt \texttt{soil\_max}. Mọi lần tưới đều phải thỏa mãn ba điều kiện bảo vệ: khoảng nghỉ \texttt{min\_gap\_s}, hạn mức tổng thời gian chạy trong giờ \texttt{max\_total\_s\_per\_hour} và thời gian chờ nước thấm đều vào giá thể \texttt{soil\_settle\_s}.
+    \item \textbf{Quạt thông gió dùng chung toàn nhà kính (\texttt{fan}):} Đánh giá dựa trên vùng có chỉ số rủi ro cao nhất. Quạt được bật tối thiểu \texttt{fan.min\_on\_s} (và tự gia hạn nếu điều kiện chưa hết) khi xảy ra ít nhất một trong ba tình huống: \(\text{VPD} < \text{vpd.low\_crit}\) kéo dài ít nhất \texttt{risk.vpd\_low\_duration\_min}, đang có cảnh báo \texttt{DISEASE\_RISK} mở, hoặc \(T_{\text{khí}} > \text{temp\_c.optimal}[1]\). Hệ thống cũng kiểm tra tác dụng phụ: tuyệt đối không bật quạt nếu \(\text{VPD} > \text{vpd.high\_crit}\) vì thông gió lúc này sẽ làm không khí càng khô hơn. Quạt chỉ tắt khi \(\text{VPD} \ge \text{vpd.low\_off}\), nhiệt độ đã ổn định và đã chạy đủ thời lượng tối thiểu \texttt{fan.min\_on\_s}.
+    \item \textbf{Sinh cảnh báo theo luật:} Bộ luật tích lũy biến \texttt{fungal\_minutes} khi \(\text{RH} \ge \text{disease.rh\_gt}\) và nhiệt độ nằm trong khoảng \texttt{disease.temp\_range\_c} để mở cảnh báo \texttt{DISEASE\_RISK}; mở \texttt{HEAT\_STRESS} khi \(T_{\text{khí}} \ge \text{temp\_critical\_high\_c}\); mở \texttt{SOIL\_DRY} khi ẩm đất tụt dưới mức nguy cấp kéo dài; và mở \texttt{SENSOR\_FAULT} mỗi khi \texttt{quality} khác \texttt{ok}.
+\end{itemize}
+
+\subsubsection{Vòng đời Lệnh điều khiển và Cảnh báo}
+
+Quá trình thực thi lệnh từ máy chủ xuống thiết bị được quản lý chặt bằng máy trạng thái trong \texttt{platform/worker/commands.py} (Hình~\ref{fig:command-state-machine}), đảm bảo không bao giờ tự ý gửi lại lệnh \texttt{on} khi xảy ra quá hạn để tránh bơm hoặc quạt chạy lặp ngoài ý muốn.
+
+\begin{figure}[H]
+\centering
+\resizebox{0.96\textwidth}{!}{%
+\begin{tikzpicture}[
+    font=\footnotesize,
+    state/.style={draw=ghblue, fill=ghbluebg, rounded corners=6pt, minimum width=2.3cm, minimum height=0.85cm, align=center, line width=0.75pt},
+    endok/.style={draw=ghgreen, fill=ghgreenbg, rounded corners=6pt, minimum width=2.4cm, minimum height=0.85cm, align=center, line width=0.75pt},
+    enderr/.style={draw=ghamber, fill=ghamberbg, rounded corners=6pt, minimum width=2.4cm, minimum height=0.85cm, align=center, line width=0.75pt},
+    arr/.style={-{Stealth[length=2.2mm]}, line width=0.75pt}
+]
+\node[circle, fill=black, inner sep=2.2pt] (start) at (0, 0) {};
+\node[state] (pending) at (2.8, 0) {\textbf{pending}\\(Chờ phát)};
+\node[state] (sent) at (7.6, 0) {\textbf{sent}\\(Đã gửi QoS 1)};
+
+\node[endok] (applied) at (13.2, 2.0) {\textbf{applied}\\(Đã thực thi)};
+\node[enderr] (rejected) at (13.2, 0.7) {\textbf{rejected}\\(Bị từ chối)};
+\node[enderr] (expired) at (13.2, -0.7) {\textbf{expired}\\(Hết hạn tại GW)};
+\node[enderr] (timeout) at (7.6, -2.5) {\textbf{timeout}\\(Quá hạn 30 s)};
+
+\draw[arr] (start) -- node[above, font=\scriptsize] {Tạo lệnh} (pending);
+\draw[arr] (pending) -- node[above, font=\scriptsize, align=center] {Worker publish\\\texttt{cmd/\{actuator\}}} (sent);
+\draw[arr] (pending.south) |- node[pos=0.25, left, font=\scriptsize, align=right] {Quá \texttt{expires\_at}\\chưa kịp gửi} (timeout.west);
+\draw[arr] (sent.south) -- node[right, font=\scriptsize, align=left] {Quá 30 s không có ACK\\(không retry lệnh \texttt{on})} (timeout.north);
+
+\draw[arr] (sent.east) -- ++(0.6,0) |- node[pos=0.75, above, font=\scriptsize] {\texttt{ack(applied)} + ghi \texttt{actuator\_logs}} (applied.west);
+\draw[arr] (sent.east) -- ++(0.6,0) |- node[pos=0.75, above, font=\scriptsize] {\texttt{ack(rejected)}: min\_gap / max\_total / invalid} (rejected.west);
+\draw[arr] (sent.east) -- ++(0.6,0) |- node[pos=0.75, below, font=\scriptsize] {\texttt{ack(expired)}} (expired.west);
+
+\end{tikzpicture}%
+}
+\caption{Máy trạng thái vòng đời lệnh điều khiển trong \texttt{Command Service}}
+\label{fig:command-state-machine}
+\end{figure}
+
+Tương tự, dịch vụ cảnh báo (\texttt{platform/worker/alerts.py}) quản lý vòng đời 4 trạng thái \texttt{raised} \(\rightarrow\) \texttt{notified} \(\rightarrow\) \texttt{acknowledged} \(\rightarrow\) \texttt{resolved}. Để chặn phát sinh trùng cảnh báo ở cấp cơ sở dữ liệu, bảng \texttt{alerts} gắn chỉ mục duy nhất từng phần (\textit{partial unique index}) \texttt{alerts\_open\_dedupe} trên khóa \texttt{dedupe\_key = "\{alert\_type\}:\{zone\_id|greenhouse\_id\}"} với điều kiện \texttt{WHERE state <> 'resolved'}. Thông báo nhắc lại In-app qua WebSocket có thời gian nghỉ \texttt{alert\_cooldown\_min = 10} phút (ngừng nhắc ngay khi người dùng xác nhận \texttt{acknowledged}) và tự chuyển sang \texttt{resolved} khi chỉ số môi trường hồi phục theo ngưỡng trễ.
+
+\subsubsection{Hợp đồng REST API, WebSocket và luồng tương tác End-to-End}
+
+Chín nhóm router dưới tiền tố \texttt{/api} trong \texttt{platform/api/routers/} cung cấp giao diện thống nhất cho cả Web Console và công cụ giả lập:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Xác thực (\texttt{auth.py}):} \texttt{POST /api/auth/register}, \texttt{POST /api/auth/login}, \texttt{GET /api/me}.
+    \item \textbf{Nhà kính (\texttt{greenhouses.py}):} \texttt{GET/POST /api/greenhouses}, \texttt{GET /api/greenhouses/\{id\}}, \texttt{GET /api/greenhouses/\{id\}/config-sync}.
+    \item \textbf{Thiết bị (\texttt{devices.py}):} \texttt{POST /api/gateways}, \texttt{GET /api/gateways/\{id\}/status}, \texttt{GET /api/nodes}, \texttt{POST /api/nodes/\{mac\}/pair} (hỗ trợ cả ghép nút tự phát hiện lẫn nhập MAC thủ công), \texttt{PUT /api/zones/\{id\}/calibration}.
+    \item \textbf{Vùng trồng \& Hồ sơ cây (\texttt{zones.py}):} \texttt{GET/PUT /api/zones/\{id\}}, \texttt{GET /api/zones/\{id\}/readings?agg=raw|1m|1h}, \texttt{GET /api/zones/\{id\}/dli}, \texttt{GET /api/zones/\{id\}/predictions}, \texttt{GET /api/crop-profiles}, \texttt{GET/PUT /api/crop-profiles/\{id\}}.
+    \item \textbf{Vụ trồng (\texttt{cycles.py}):} \texttt{GET/POST /api/zones/\{id\}/cycles} (trả mã \texttt{409} nếu zone đã có vụ đang hoạt động), \texttt{POST /api/cycles/\{id\}/harvest} (ghi \texttt{yield\_kg} + \texttt{feedback} JSONB và phát sự kiện \texttt{cycle\_harvested}), \texttt{POST /api/cycles/\{id\}/abandon}.
+    \item \textbf{Lệnh \& Shadow (\texttt{commands.py}):} \texttt{POST /api/greenhouses/\{id\}/commands} (trả \texttt{409 gateway\_offline} khi gateway đang ngoại tuyến), \texttt{PUT /api/greenhouses/\{id\}/modes}, \texttt{GET /api/greenhouses/\{id\}/commands}.
+    \item \textbf{Cảnh báo (\texttt{alerts.py}):} \texttt{GET /api/alerts}, \texttt{POST /api/alerts/\{id\}/ack}.
+    \item \textbf{Gợi ý \& Mô hình AI (\texttt{recommendations.py}, \texttt{models.py}):} \texttt{GET /api/greenhouses/\{id\}/recommendations}, \texttt{POST /api/greenhouses/\{id\}/recommendations/refresh} (\texttt{202}), \texttt{GET /api/models}, \texttt{GET /api/models/active}, \texttt{GET /api/models/\{id\}} (dùng truy vấn SQL thuần, bảo toàn ngân sách RAM của \texttt{api}).
+    \item \textbf{Thời gian thực (\texttt{ws.py}):} \texttt{WS /ws?token=<JWT>} (và bí danh \texttt{/api/ws}), xác thực mã token lúc bắt tay và chỉ chuyển tiếp sự kiện thuộc \texttt{farm\_id} tương ứng.
+\end{itemize}
+
+Hình~\ref{fig:sequence-scenario-a} minh họa toàn bộ trình tự tương tác xuyên suốt sáu thành phần trong Kịch bản A: khi độ ẩm không khí tăng cao khiến VPD tụt xuống dưới ngưỡng nguy hiểm kéo dài, bộ luật máy chủ lập tức mở cảnh báo nguy cơ nấm bệnh (\texttt{DISEASE\_RISK}), phát lệnh bật quạt thông gió (\texttt{fan}), ghi nhận phản hồi thực thi từ Gateway và đẩy thông báo qua WebSocket tới người dùng.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    font=\scriptsize,
+    actor/.style={draw=ghblue, fill=ghbluebg, rounded corners=2pt, minimum width=2.2cm, minimum height=0.72cm, align=center, line width=0.65pt},
+    msg/.style={-{Stealth[length=2mm]}, line width=0.65pt},
+    ret/.style={-{Stealth[length=2mm]}, dashed, line width=0.65pt}
+]
+
+% Lifelines X positions
+\def\xU{0}
+\def\xA{2.8}
+\def\xD{5.6}
+\def\xW{8.6}
+\def\xM{11.6}
+\def\xG{14.4}
+
+\node[actor] (U) at (\xU, 0) {\textbf{Web PWA}\\(Người dùng)};
+\node[actor] (A) at (\xA, 0) {\textbf{API}\\(FastAPI)};
+\node[actor] (D) at (\xD, 0) {\textbf{PostgreSQL}\\TimescaleDB};
+\node[actor] (W) at (\xW, 0) {\textbf{Worker}\\Ingest/Rules};
+\node[actor] (M) at (\xM, 0) {\textbf{Mosquitto}\\TLS :8883};
+\node[actor] (G) at (\xG, 0) {\textbf{Gateway}\\ESP32};
+
+\foreach \x in {\xU,\xA,\xD,\xW,\xM,\xG} {
+    \draw[dashed, gray] (\x, -0.4) -- (\x, -8.6);
+}
+
+% Condition note
+\node[draw=ghamber, fill=ghamberbg, rounded corners=2pt, inner sep=4pt, text width=11.4cm, align=center] at (8.8, -1.05) {\textbf{RH tăng \(> 90\%\), VPD tụt \(< 0{,}4\;\text{kPa}\) kéo dài \(\ge \texttt{vpd\_low\_duration\_min}\)}};
+
+% Main flow
+\draw[msg] (\xG, -1.9) -- node[above, font=\tiny] {1. PUBLISH \texttt{telemetry/2} (RH=94\%, T=20\(^\circ\)C)} (\xM, -1.9);
+\draw[msg] (\xM, -2.55) -- node[above, font=\tiny] {2. \texttt{telemetry/2}} (\xW, -2.55);
+\draw[msg] (\xW, -3.2) -- node[above, font=\tiny] {3. Lưu \texttt{readings} (VPD=0,14; ok)} (\xD, -3.2);
+\node[draw=ghgreen, fill=ghgreenbg, rounded corners=2pt, inner sep=3pt, font=\tiny, align=center] at (\xW, -3.9) {4. RuleEngine: Mở \texttt{DISEASE\_RISK}, tạo lệnh bật \texttt{fan} (\texttt{fan.min\_on\_s})};
+\draw[msg] (\xW, -4.65) -- node[above, font=\tiny] {5. PUBLISH \texttt{cmd/fan} (\texttt{on}, QoS 1)} (\xM, -4.65);
+\draw[msg] (\xM, -5.25) -- node[above, font=\tiny] {6. \texttt{cmd/fan}} (\xG, -5.25);
+\draw[ret] (\xG, -5.9) -- node[above, font=\tiny] {7. Bật relay \texttt{fan} + PUBLISH \texttt{ack/\{id\}} (\texttt{applied})} (\xM, -5.9);
+\draw[ret] (\xM, -6.5) -- node[above, font=\tiny] {8. \texttt{ack/\{id\}}} (\xW, -6.5);
+\draw[msg] (\xW, -7.15) -- node[above, font=\tiny] {9. Cập nhật \texttt{commands}, shadow, \texttt{actuator\_logs}, \texttt{alerts} + NOTIFY} (\xD, -7.15);
+\draw[ret] (\xD, -7.75) -- node[above, font=\tiny] {10. \texttt{ws\_events} (\texttt{alert}, \texttt{command\_status})} (\xA, -7.75);
+\draw[ret] (\xA, -8.3) -- node[above, font=\tiny] {11. WS Toast + Badge chuông cảnh báo} (\xU, -8.3);
+
+\end{tikzpicture}%
+}
+\caption{Biểu đồ tuần tự Kịch bản A: Nguy cơ nấm bệnh, tự động thông gió và cảnh báo WebSocket}
+\label{fig:sequence-scenario-a}
+\end{figure}
+
+\subsection{Thiết kế phân hệ AI/ML: Dự báo năng suất và Gợi ý cây trồng}
+\label{subsec:c3-ml}
+
+\subsubsection{Định nghĩa bài toán, bộ đặc trưng và chuẩn hóa mục tiêu}
+
+Thay vì dàn trải nhiều mô hình phức tạp, GreenHub tập trung giải duy nhất một bài toán hồi quy toàn cục (\texttt{task = 'yield'}) bằng LightGBM học trên tập dữ liệu gộp từ nhiều nhà kính (\texttt{yield\_samples}). Đầu vào của mô hình gồm 17 đặc trưng: 16 đặc trưng số trích xuất từ chuỗi thời gian bởi \texttt{platform/core/climate\_features.py} (\texttt{feature\_version = 1}) và 1 biến phân loại \texttt{crop\_code} nhận một trong năm giá trị \{\texttt{bell\_pepper}, \texttt{cucumber}, \texttt{lettuce}, \texttt{strawberry}, \texttt{tomato\_cherry}\}:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Nhóm nhiệt độ (8 đặc trưng):} \texttt{t\_mean}, \texttt{t\_day\_mean} (khung 06:00--18:00 múi giờ \texttt{Asia/Ho\_Chi\_Minh}), \texttt{t\_night\_mean}, \texttt{t\_p95}, \texttt{t\_p05}, \texttt{frac\_t\_gt\_30} (tỷ lệ thời gian \(T > 30\,^\circ\text{C}\)), \texttt{frac\_t\_lt\_12} (\(T < 12\,^\circ\text{C}\)) và \texttt{gdd\_per\_day} tính bằng trung bình \(\max(T - 10, 0)\).
+    \item \textbf{Nhóm độ ẩm và VPD (5 đặc trưng):} \texttt{rh\_mean}, \texttt{vpd\_mean}, \texttt{vpd\_std}, \texttt{frac\_vpd\_low} (\(\text{VPD} < 0{,}4\;\text{kPa}\)) và \texttt{frac\_vpd\_high} (\(\text{VPD} > 1{,}6\;\text{kPa}\)).
+    \item \textbf{Nhóm ánh sáng (1 đặc trưng):} \texttt{dli\_mean}; nếu vùng trồng đang xét không gắn BH1750, hàm tự mượn dữ liệu \texttt{lux} từ vùng cùng nhà kính, và chỉ truyền \texttt{null} để LightGBM xử lý khuyết tự nhiên khi cả nhà kính đều không có cảm biến sáng.
+    \item \textbf{Nhóm độ ẩm đất (2 đặc trưng):} \texttt{soil\_mean} và \texttt{soil\_std}.
+\end{itemize}
+
+Do năng suất tham chiếu giữa năm loại cây chênh lệch tới năm lần (xà lách \(3{,}0\;\text{kg/m}^2\) so với dưa leo \(15{,}0\;\text{kg/m}^2\)), biến mục tiêu được chuẩn hóa về tỷ lệ năng suất tương đối nhằm đảm bảo học chung công bằng và xếp hạng nhất quán:
+
+\begin{equation}
+\text{relative\_yield} = \frac{\text{yield\_kg\_m2}}{\text{reference\_kg\_m2}(\text{crop\_code})}
+\end{equation}
+
+Khoảng tin cậy 80\% (\texttt{p10--p90}) được ước lượng phi tham số từ phân vị thứ 10 và thứ 90 của phần dư \((y_{\text{val}} - \hat{y}_{\text{val}})\) trên tập validation độc lập, sau đó nhân ngược lại với \texttt{reference\_kg\_m2} để quy đổi thành khoảng \(\text{kg/m}^2\) dễ hiểu cho người trồng.
+
+\subsubsection{Hai luồng suy luận trực tuyến từ cùng một mô hình}
+
+Trong tiến trình \texttt{worker} (\texttt{platform/worker/inference.py}), cùng một artifact LightGBM phục vụ đồng thời hai tính năng:
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Dự báo năng suất vụ đang trồng (\texttt{yield\_forecast}):} Áp dụng cho các zone có vụ ở trạng thái \texttt{active} đã đạt thời lượng tối thiểu \texttt{ai.min\_cycle\_hours} và độ phủ dữ liệu \texttt{coverage} \(\ge 0{,}7\). Hệ thống trích xuất đặc trưng trên khoảng \([\text{started\_at}, \text{now}]\) với độ ẩm đất đo thực tế, trả về \texttt{expected\_kg\_m2}, \texttt{relative\_yield}, khoảng tin cậy \([\text{low}, \text{high}]\) và cờ \texttt{low\_confidence} (bật khi cửa sổ \(< 24\;\text{giờ}\) hoặc có đặc trưng vượt biên \([\min, \max]\) của tập huấn luyện -- OOD). Nếu \texttt{relative\_yield} \(< 0{,}6\), hệ thống có thể phát cảnh báo mức thông tin \texttt{YIELD\_FORECAST\_LOW}.
+    \item \textbf{Gợi ý cây nên trồng (\texttt{crop\_recommendation}):} Tổng hợp dữ liệu khí hậu toàn nhà kính trong cửa sổ \texttt{recommend\_window\_h} gần nhất. Với từng cây ứng viên trong \texttt{ml\_models.crops}, mô-đun gán \texttt{soil\_mean} bằng trung điểm khoảng ẩm đất tối ưu của cây đó và \texttt{soil\_std} bằng giá trị trung vị tập huấn luyện rồi suy luận \texttt{relative\_yield}, xếp hạng giảm dần chọn \textbf{Top-3} kèm tối đa ba câu giải thích tiếng Việt do hàm \texttt{build\_recommendation\_reasons()} sinh ra bằng cách đối chiếu \texttt{t\_mean}, \texttt{vpd\_mean} và \texttt{dli\_mean} với vùng tối ưu của từng loài cây.
+\end{enumerate}
+
+\subsubsection{Chiến lược dữ liệu đa nguồn, chống rò rỉ và Cổng kích hoạt}
+
+Bảng \texttt{yield\_samples} gộp dữ liệu từ bốn nguồn tách biệt theo cột \texttt{source}: (1) \texttt{synthetic} sinh tất định theo \texttt{seed} từ \texttt{tools/simulator/growth.py} mô phỏng 6 vùng khí hậu Việt Nam (\texttt{dalat}, \texttt{hanoi\_winter}, \texttt{hanoi\_summer}, \texttt{hcm}, \texttt{mekong}, \texttt{central\_coast}) kết hợp 3 mức trang bị nhà kính (\texttt{basic}, \texttt{standard}, \texttt{full}) kèm nhãn chuẩn \texttt{meta.oracle\_relative\_yields} để đo chất lượng xếp hạng; (2) \texttt{public} chuyển đổi từ 22 buồng thực nghiệm thuộc 4 mùa giải \textit{WUR Autonomous Greenhouse Challenge}~\cite{wurChallengeDataset} qua \texttt{ml/wur\_adapter.py} (quy đổi \texttt{HumDef} sang \texttt{RH}, \texttt{PARin/Iglob} sang \texttt{lux} và chuẩn hóa theo buồng \texttt{Reference} từng mùa); (3) \texttt{sim} sinh tự động khi nhà kính giả lập trực tuyến kết thúc vụ; và (4) \texttt{real} thu từ các vụ trồng thật trên mô hình nhà kính mini (luôn được tách dòng riêng khi báo cáo metrics).
+
+Khi huấn luyện, dữ liệu được chia theo tỷ lệ \(70\%\) Train / \(15\%\) Validation / \(15\%\) Test bằng \texttt{GroupShuffleSplit} theo khóa \texttt{greenhouse\_key}, kèm kiểm tra khẳng định tuyệt đối không trùng nhà kính giữa các tập (\((\text{train\_gh} \cap \text{val\_gh}) = \emptyset\) và \((\text{train\_gh} \cap \text{test\_gh}) = \emptyset\)). Mỗi phiên bản mới phải đối chiếu với hai mô hình cơ sở -- \textbf{B0} (\texttt{CropMedianBaseline}: dự đoán theo trung vị từng cây) và \textbf{B1} (\texttt{RidgeYieldBaseline}: \texttt{SimpleImputer} + \texttt{StandardScaler} + \texttt{OneHotEncoder} + \texttt{Ridge(alpha=1.0)}) -- và chỉ được \textbf{Cổng kích hoạt (Activation Gate)} đánh dấu \texttt{is\_active = True} khi MAE trên tập test (\(\text{kg/m}^2\)) nhỏ hơn đồng thời cả B0, B1 và phiên bản đang hoạt động. Ngoài ra, hệ thống tính độ lệch phân phối đặc trưng (\textit{drift}) 7 ngày gần nhất so với \texttt{train\_stats} để giám sát sự ổn định của mô hình theo thời gian.
+
+\subsection{Thiết kế Web Console PWA và hệ thống thông báo 2 lớp}
+\label{subsec:c3-web-notify}
+
+Giao diện người dùng của GreenHub là ứng dụng web một trang (SPA) tiếng Việt gồm 9 trang chức năng trong \texttt{web/src/pages/} (Bảng~\ref{tab:web-pages}). Nhóm đã loại bỏ hoàn toàn tệp dữ liệu giả \texttt{mockData.ts}; mọi màn hình đều tải dữ liệu thực từ REST API và tự động làm mới ngay khi \texttt{WebSocketProvider} nhận được sự kiện từ máy chủ.
+
+\begingroup
+\scriptsize
+\sloppy
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.1}
+\begin{longtable}{|>{\centering\arraybackslash}p{0.05\textwidth}|>{\raggedright\arraybackslash}p{0.21\textwidth}|>{\raggedright\arraybackslash}p{0.19\textwidth}|>{\raggedright\arraybackslash}p{0.48\textwidth}|}
+\caption{Danh mục 9 trang chức năng của giao diện Web Console PWA}\label{tab:web-pages}\\
+\hline
+\textbf{STT} & \textbf{Trang (\texttt{Component})} & \textbf{Đường dẫn} & \textbf{Chức năng chính} \\
+\hline
+\endfirsthead
+\hline
+\textbf{STT} & \textbf{Trang} & \textbf{Đường dẫn} & \textbf{Chức năng chính} \\
+\hline
+\endhead
+1 & Đăng nhập (\texttt{LoginPage}) & \texttt{/login} & Xác thực email/mật khẩu, lưu JWT Bearer và điều hướng vào không gian trang trại. \\ \hline
+2 & Tổng quan Farm (\texttt{OverviewPage}) & \texttt{/} & Danh sách nhà kính (thật và giả lập thuộc farm), trạng thái online/offline, số cảnh báo mở và nút tạo nhà kính. \\ \hline
+3 & Điều khiển Nhà kính (\texttt{GreenhousePage}) & \texttt{/greenhouses/:id} & Bật/tắt 3 cơ cấu chấp hành (\texttt{pump\_1}, \texttt{pump\_2}, \texttt{fan}) kèm \texttt{duration\_s}, chuyển \texttt{Auto/Manual}, theo dõi tiến trình lệnh \texttt{pending \(\rightarrow\) applied/rejected}. \\ \hline
+4 & Chi tiết Zone (\texttt{ZoneDetailPage}) & \texttt{/zones/:id} & Biểu đồ realtime nhiệt độ, RH, VPD (tô vùng tối ưu), ẩm đất, lux, DLI; khung AI hiển thị năng suất dự kiến (\(\text{kg/m}^2\), khoảng \texttt{p10--p90}, cờ tin cậy) cùng biểu mẫu Bắt đầu vụ, Thu hoạch (kèm phản hồi chất lượng) và Hủy vụ. \\ \hline
+5 & Quản lý Thiết bị (\texttt{DevicesPage}) & \texttt{/devices} & Cấp phát gateway (hiển thị credential 1 lần), xem RSSI, \texttt{last\_seen}, tình trạng đồng bộ \texttt{cfg\_version}, ghép nút cảm biến (tự phát hiện hoặc nhập MAC tay) và hiệu chuẩn ẩm đất 2 điểm. \\ \hline
+6 & Hồ sơ cây trồng (\texttt{CropProfilesPage}) & \texttt{/crop-profiles} & Xem và hiệu chỉnh ngưỡng của 10 mẫu \texttt{schema\_version = 2} (\texttt{real}/\texttt{demo}); khi lưu tự tăng \texttt{cfg\_version} và đẩy xuống gateway. \\ \hline
+7 & Cảnh báo (\texttt{AlertsPage}) & \texttt{/alerts} & Lọc cảnh báo đang mở hoặc lịch sử, nút xác nhận (\texttt{Ack}) để ngừng nhắc lại. \\ \hline
+8 & Gợi ý cây trồng (\texttt{RecommendationsPage}) & \texttt{/recommendations} & Chọn nhà kính, xem tóm tắt khí hậu cửa sổ gần nhất, 3 thẻ Top cây gợi ý kèm \texttt{relative\_yield}, \(\text{kg/m}^2\), khoảng tin cậy, tối đa 3 lý do tiếng Việt, bảng đầy đủ 5 ứng viên và nút Làm mới. \\ \hline
+9 & Mô hình AI (\texttt{ModelsPage}) & \texttt{/models} & Theo dõi mô hình \texttt{yield} đang active, ngày huấn luyện, \texttt{source\_mix}, số nhà kính, so sánh MAE/RMSE/\(R^2\)/MAPE với B0 và B1, bảng MAE từng cây, \texttt{Top-1}/\texttt{NDCG@3} và giám sát drift 7 ngày. \\ \hline
+\end{longtable}
+\endgroup
+
+Để người vận hành kịp thời xử lý các sự cố ảnh hưởng trực tiếp đến cây trồng cả khi trực tuyến lẫn lúc mất kết nối mạng, GreenHub tổ chức hệ thống thông báo theo hai lớp bổ trợ lẫn nhau (\texttt{platform/worker/notify.py} và còi Buzzer tại Gateway) như trình bày tại Bảng~\ref{tab:notify-2-layers}.
+
+\begingroup
+\footnotesize
+\setlength{\tabcolsep}{3.5pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{longtable}{|>{\raggedright\arraybackslash}p{0.17\textwidth}|>{\raggedright\arraybackslash}p{0.23\textwidth}|>{\raggedright\arraybackslash}p{0.25\textwidth}|>{\raggedright\arraybackslash}p{0.28\textwidth}|}
+\caption{Kiến trúc hệ thống thông báo 2 lớp của GreenHub}\label{tab:notify-2-layers}\\
+\hline
+\textbf{Lớp thông báo} & \textbf{Phạm vi hoạt động} & \textbf{Công nghệ thực thi} & \textbf{Cơ chế đảm bảo tin cậy} \\
+\hline
+\endfirsthead
+\hline
+\textbf{Lớp thông báo} & \textbf{Phạm vi hoạt động} & \textbf{Công nghệ thực thi} & \textbf{Cơ chế đảm bảo tin cậy} \\
+\hline
+\endhead
+Lớp 1: In-app & Khi người dùng đang mở giao diện web & WebSocket \texttt{/ws} \(\rightarrow\) Toast, biểu tượng chuông, badge đếm cảnh báo mở và trang \texttt{/alerts} & Cập nhật tức thời qua kênh \texttt{ws\_events}; cooldown nhắc lại \(10\;\text{phút}\) nếu chưa Ack. \\ \hline
+Lớp 2: Tại chỗ & Khi mất kết nối máy chủ kéo dài hoặc kích hoạt Failsafe & Còi Buzzer gắn tại chân \texttt{GPIO23} của Gateway ESP32 & Vận hành hoàn toàn độc lập với Internet và máy chủ đám mây. \\ \hline
+\end{longtable}
+\endgroup
+
+\setcounter{secnumdepth}{2}

@@ -8,14 +8,11 @@ from unittest.mock import patch
 
 import pytest
 from fastapi import HTTPException
-from pywebpush import WebPushException
 
 from api.routers.alerts import acknowledge_alert, list_alerts
-from api.routers.push import get_notification_preferences, subscribe_push
-from core.models import Alert, Greenhouse, PushSubscription, User
-from core.schemas import PushSubscribeRequest, PushSubscriptionKeys
-from worker.alerts import escalate_alerts, raise_alert, resolve_alert
-from worker.notify import format_alert_body, get_alert_title, send_webpush_to_subscription
+from core.models import Alert, Greenhouse, User, Zone
+from worker.alerts import raise_alert, resolve_alert
+from worker.notify import format_alert_body, get_alert_title, send_alert_notifications
 
 
 def _run_coro(coro: Coroutine[Any, Any, Any]) -> Any:
@@ -155,6 +152,53 @@ def test_alert_deduplication_and_cooldown() -> None:
         assert len(notify_calls) == 2
 
 
+def test_alert_acknowledged_suppresses_cooldown_renotify() -> None:
+    gh_id = uuid.uuid4()
+    zone_id = uuid.uuid4()
+    dedupe_key = f"HEAT_STRESS:{zone_id}"
+    t0 = datetime(2026, 11, 8, 10, 0, 0, tzinfo=UTC)
+
+    acked_alert = Alert(
+        id=uuid.uuid4(),
+        greenhouse_id=gh_id,
+        zone_id=zone_id,
+        alert_type="HEAT_STRESS",
+        severity="critical",
+        dedupe_key=dedupe_key,
+        state="acknowledged",
+        created_at=t0,
+        notified_at=t0,
+        acknowledged_at=t0 + timedelta(minutes=1),
+    )
+
+    session = FakeAsyncSession(
+        execute_fn=lambda stmt: _FakeResult(acked_alert),
+        get_fn=_make_get_gh(gh_id),
+    )
+
+    notify_calls = []
+
+    async def fake_notify(*args, **kwargs):
+        notify_calls.append((args, kwargs))
+        return 1
+
+    with patch("worker.alerts.send_alert_notifications", side_effect=fake_notify):
+        alert, is_new = _run_coro(
+            raise_alert(
+                session,
+                gh_id,
+                "HEAT_STRESS",
+                "critical",
+                dedupe_key,
+                zone_id=zone_id,
+                now=t0 + timedelta(minutes=20),
+            )
+        )
+        assert is_new is False
+        assert alert.state == "acknowledged"
+        assert len(notify_calls) == 0
+
+
 def test_alert_resolve_and_reopen() -> None:
     gh_id = uuid.uuid4()
     zone_id = uuid.uuid4()
@@ -198,81 +242,62 @@ def test_alert_resolve_and_reopen() -> None:
         assert res2 is None
 
 
-def test_alert_escalation_after_timeout() -> None:
-    gh_id = uuid.uuid4()
-    now = datetime(2026, 11, 8, 11, 0, 0, tzinfo=UTC)
-
-    crit_alert = Alert(
-        id=uuid.uuid4(),
-        greenhouse_id=gh_id,
-        alert_type="HEAT_STRESS",
-        severity="critical",
-        dedupe_key="HEAT_STRESS:z1",
-        state="notified",
-        created_at=now - timedelta(minutes=10),
-        escalated_at=None,
-    )
-
-    session = FakeAsyncSession(
-        execute_fn=lambda stmt: _FakeResult([crit_alert]),
-        get_fn=_make_get_gh(gh_id),
-    )
-
-    notify_calls = []
-
-    async def fake_notify(*args, **kwargs):
-        notify_calls.append((args, kwargs))
-        return 1
-
-    with patch("worker.alerts.send_alert_notifications", side_effect=fake_notify):
-        escalated = _run_coro(escalate_alerts(session, now=now))
-        assert len(escalated) == 1
-        assert crit_alert.escalated_at == now
-        assert len(notify_calls) == 1
-        assert notify_calls[0][1].get("is_escalation") is True
-
-
-def test_dead_webpush_subscription_cleanup() -> None:
-    sub = PushSubscription(
-        id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
-        endpoint="https://push.example.com/dead_token",
-        p256dh="key",
-        auth="auth",
-    )
-
-    executed_stmts = []
-
-    session = FakeAsyncSession(
-        execute_fn=lambda stmt: executed_stmts.append(str(stmt)),
-    )
-
-    class _FakeResp:
-        status_code = 410
-
-    async def fake_to_thread(*args, **kwargs):
-        raise WebPushException("Subscription expired", response=_FakeResp())
-
-    with patch("asyncio.to_thread", side_effect=fake_to_thread):
-        success = _run_coro(
-            send_webpush_to_subscription(
-                session=session,
-                sub=sub,
-                payload_dict={"title": "Test"},
-                private_key="priv_key",
-                subject="mailto:test@greenhub.vn",
-                now=datetime.now(UTC),
-            )
-        )
-        assert success is False
-        assert len(executed_stmts) == 1
-        assert "DELETE FROM push_subscriptions" in executed_stmts[0]
-
-
-def test_alerts_and_push_api_endpoints() -> None:
+def test_send_alert_notifications_emits_ws_event() -> None:
     farm_id = uuid.uuid4()
     gh_id = uuid.uuid4()
-    user = User(id=uuid.uuid4(), farm_id=farm_id, email="u@greenhub.vn", role="operator")
+    zone_id = uuid.uuid4()
+    gh = Greenhouse(id=gh_id, farm_id=farm_id, name="Nhà kính Demo")
+    zone = Zone(id=zone_id, greenhouse_id=gh_id, zone_index=2, name="Luống Dâu tây")
+
+    alert = Alert(
+        id=uuid.uuid4(),
+        greenhouse_id=gh_id,
+        zone_id=zone_id,
+        alert_type="DISEASE_RISK",
+        severity="critical",
+        state="raised",
+        dedupe_key=f"DISEASE_RISK:{zone_id}",
+        payload={"vpd": 0.14, "air_rh": 94.0, "fungal_minutes": 6.0},
+        created_at=datetime(2026, 11, 20, 9, 0, 0, tzinfo=UTC),
+    )
+
+    def _get(model, pk):
+        if model == Greenhouse and pk == gh_id:
+            return gh
+        if model == Zone and pk == zone_id:
+            return zone
+        return None
+
+    session = FakeAsyncSession(get_fn=_get)
+    ws_events: list[tuple[str, dict[str, Any]]] = []
+
+    async def fake_pg_notify(_session, channel, payload):
+        ws_events.append((channel, payload))
+
+    with patch("worker.notify.pg_notify", side_effect=fake_pg_notify):
+        sent = _run_coro(send_alert_notifications(session, alert))
+
+    assert sent == 1
+    assert len(ws_events) == 1
+    channel, evt = ws_events[0]
+    assert channel == "ws_events"
+    assert evt["farm_id"] == str(farm_id)
+    assert evt["type"] == "alert"
+    data = evt["data"]
+    assert data["url"] == f"/zones/{zone_id}"
+    assert "Nguy cơ nấm bệnh" in data["title"]
+    assert "Nhà kính Demo - Luống Dâu tây" in data["body"]
+    assert "escalated_at" not in data
+
+    # Khi không tìm thấy Greenhouse -> trả 0 và không gửi sự kiện
+    missing_session = FakeAsyncSession(get_fn=lambda _m, _pk: None)
+    assert _run_coro(send_alert_notifications(missing_session, alert)) == 0
+
+
+def test_alerts_api_endpoints() -> None:
+    farm_id = uuid.uuid4()
+    gh_id = uuid.uuid4()
+    user = User(id=uuid.uuid4(), farm_id=farm_id, email="u@greenhub.vn", role="owner")
 
     test_alert = Alert(
         id=uuid.uuid4(),
@@ -295,9 +320,17 @@ def test_alerts_and_push_api_endpoints() -> None:
 
     # 2. acknowledge_alert
     session._execute_fn = lambda stmt: _FakeResult(test_alert)
-    acked = _run_coro(acknowledge_alert(alert_id=test_alert.id, user=user, session=session))
+    ws_ack_events: list[dict[str, Any]] = []
+
+    async def fake_ack_notify(_session, _channel, payload):
+        ws_ack_events.append(payload)
+
+    with patch("api.routers.alerts.pg_notify", side_effect=fake_ack_notify):
+        acked = _run_coro(acknowledge_alert(alert_id=test_alert.id, user=user, session=session))
     assert acked.state == "acknowledged"
     assert acked.acked_by == user.id
+    assert len(ws_ack_events) == 1
+    assert "escalated_at" not in ws_ack_events[0]["data"]
 
     # 3. acknowledge alert đã resolved -> 409
     resolved_alert = Alert(
@@ -320,26 +353,3 @@ def test_alerts_and_push_api_endpoints() -> None:
     body = format_alert_body(resolved_alert)
     assert "năng suất" in title.lower()
     assert "45%" in body or "năng suất" in body.lower()
-
-    # 4. push subscribe
-    class _FakeReq:
-        headers = {"user-agent": "Mozilla/5.0"}
-
-    session._execute_fn = lambda stmt: _FakeResult(None)
-    sub_res = _run_coro(
-        subscribe_push(
-            request=_FakeReq(),
-            body=PushSubscribeRequest(
-                endpoint="https://push.example.com/test",
-                keys=PushSubscriptionKeys(p256dh="p256", auth="auth_secret"),
-            ),
-            user=user,
-            session=session,
-        )
-    )
-    assert sub_res == {"status": "ok"}
-
-    # 5. notification prefs
-    pref = _run_coro(get_notification_preferences(user=user, session=session))
-    assert pref.user_id == user.id
-    assert pref.push_enabled is True

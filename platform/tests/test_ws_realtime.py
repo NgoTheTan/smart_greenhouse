@@ -37,7 +37,7 @@ def test_ws_authenticate_missing_or_invalid_token() -> None:
 def test_ws_authenticate_valid_token() -> None:
     user_id = uuid.uuid4()
     farm_id = uuid.uuid4()
-    token = create_access_token(user_id, farm_id, role="viewer")
+    token = create_access_token(user_id, farm_id, role="owner")
 
     ws_mock = AsyncMock()
     ws_mock.headers = {}
@@ -63,7 +63,7 @@ def test_ws_endpoint_rejects_unauthorized() -> None:
 def test_ws_endpoint_accepts_and_handles_ping() -> None:
     user_id = uuid.uuid4()
     farm_id = uuid.uuid4()
-    token = create_access_token(user_id, farm_id, role="operator")
+    token = create_access_token(user_id, farm_id, role="owner")
 
     ws_mock = AsyncMock()
     ws_mock.headers = {}

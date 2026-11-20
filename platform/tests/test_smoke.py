@@ -27,6 +27,9 @@ def test_api_app_routes():
     assert "/api/models" in paths
     assert "/api/models/active" in paths
     assert "/api/experiments" not in paths
+    assert "/api/push/public-key" not in paths
+    assert "/api/push/subscribe" not in paths
+    assert "/api/me/notification-prefs" not in paths
     assert not any("yield-samples" in p or "yield_samples" in p for p in paths)
 
 

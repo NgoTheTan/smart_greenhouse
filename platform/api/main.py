@@ -17,7 +17,6 @@ from api.routers import (
     devices,
     greenhouses,
     models,
-    push,
     recommendations,
     zones,
 )
@@ -67,7 +66,6 @@ app.include_router(devices.router, prefix="/api")
 app.include_router(zones.router, prefix="/api")
 app.include_router(commands.router, prefix="/api")
 app.include_router(alerts.router, prefix="/api")
-app.include_router(push.router, prefix="/api")
 app.include_router(models.router, prefix="/api")
 app.include_router(cycles.router, prefix="/api")
 app.include_router(recommendations.router, prefix="/api")

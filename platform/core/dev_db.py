@@ -164,13 +164,11 @@ async def init_dev_database(engine: AsyncEngine) -> None:
                 "pump_1": "auto",
                 "pump_2": "auto",
                 "fan": "auto",
-                "mist": "auto",
             },
             desired={
                 "pump_1": "auto",
                 "pump_2": "auto",
                 "fan": "auto",
-                "mist": "auto",
             },
             cfg_version_desired=1,
             cfg_version_reported=1,

@@ -1,8 +1,7 @@
-"""Dependencies xác thực JWT, kiểm tra vai trò và cô lập dữ liệu theo `farm_id` (spec 9, 12)."""
+"""Dependencies xác thực JWT (một vai trò duy nhất owner) và cô lập dữ liệu theo `farm_id`."""
 
 import uuid
-from collections.abc import Callable, Coroutine
-from typing import Annotated, Any
+from typing import Annotated
 
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -14,8 +13,6 @@ from core.models import User
 from core.security import decode_access_token
 
 _bearer = HTTPBearer(auto_error=False)
-
-ROLE_RANK = {"viewer": 1, "operator": 2, "owner": 3}
 
 
 async def get_current_user(
@@ -45,23 +42,5 @@ async def get_current_user(
     return user
 
 
-def require_min_role(
-    min_role: str,
-) -> Callable[..., Coroutine[Any, Any, User]]:
-    min_rank = ROLE_RANK[min_role]
-
-    async def _checker(user: Annotated[User, Depends(get_current_user)]) -> User:
-        if ROLE_RANK.get(user.role, 0) < min_rank:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Yêu cầu quyền tối thiểu '{min_role}'",
-            )
-        return user
-
-    return _checker
-
-
-CurrentViewer = Annotated[User, Depends(require_min_role("viewer"))]
-CurrentOperator = Annotated[User, Depends(require_min_role("operator"))]
-CurrentOwner = Annotated[User, Depends(require_min_role("owner"))]
+CurrentUser = Annotated[User, Depends(get_current_user)]
 DbSession = Annotated[AsyncSession, Depends(get_session)]

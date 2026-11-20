@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, formatApiError } from '../lib/api'
-import { useAuth } from '../lib/auth'
 import { Button, Card, Field } from '../components/ui'
 import type { CropParameters, CropProfile, Greenhouse, Zone } from '../lib/types'
 
 export default function CropProfilesPage() {
-  const { isOwner } = useAuth()
   const queryClient = useQueryClient()
 
   const profilesQuery = useQuery({
@@ -252,19 +250,17 @@ export default function CropProfilesPage() {
                         </option>
                       ))}
                     </select>
-                    {isOwner && (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        disabled={assignMutation.isPending}
-                        onClick={() =>
-                          assignMutation.mutate({ zoneId: assignZoneId, profileId: selectedProfile.id })
-                        }
-                      >
-                        Gán cho zone này
-                      </Button>
-                    )}
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={assignMutation.isPending}
+                      onClick={() =>
+                        assignMutation.mutate({ zoneId: assignZoneId, profileId: selectedProfile.id })
+                      }
+                    >
+                      Gán cho zone này
+                    </Button>
                   </div>
                   <div style={{ fontSize: '0.76rem', color: 'var(--text-muted, #626861)', marginTop: '0.35rem' }}>
                     Nếu zone đang có vụ active, hồ sơ của zone được cố định theo vụ.
@@ -650,15 +646,13 @@ export default function CropProfilesPage() {
                 >
                   Hoàn tác
                 </Button>
-                {isOwner && (
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    disabled={saveMutation.isPending}
-                  >
-                    {saveMutation.isPending ? 'Đang lưu...' : 'Lưu thay đổi'}
-                  </Button>
-                )}
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={saveMutation.isPending}
+                >
+                  {saveMutation.isPending ? 'Đang lưu...' : 'Lưu thay đổi'}
+                </Button>
               </div>
             </form>
           </Card>

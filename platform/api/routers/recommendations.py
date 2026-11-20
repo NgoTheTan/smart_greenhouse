@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, status
 from sqlalchemy import desc, select
 
-from api.deps import CurrentOperator, CurrentViewer, DbSession
+from api.deps import CurrentUser, DbSession
 from api.routers.greenhouses import get_owned_greenhouse
 from core.models import Prediction
 from core.pubsub import CHANNEL_WORKER, pg_notify
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/greenhouses", tags=["recommendations"])
 @router.get("/{gh_id}/recommendations", response_model=PredictionResponse | None)
 async def get_greenhouse_recommendations(
     gh_id: uuid.UUID,
-    user: CurrentViewer,
+    user: CurrentUser,
     session: DbSession,
 ) -> Prediction | None:
     """Lấy kết quả gợi ý cây trồng gần nhất của nhà kính (hoặc null nếu chưa có)."""
@@ -41,7 +41,7 @@ async def get_greenhouse_recommendations(
 )
 async def refresh_greenhouse_recommendations(
     gh_id: uuid.UUID,
-    user: CurrentOperator,
+    user: CurrentUser,
     session: DbSession,
 ) -> RefreshRecommendationResponse:
     """Yêu cầu worker tính lại ngay gợi ý cây trồng cho nhà kính."""

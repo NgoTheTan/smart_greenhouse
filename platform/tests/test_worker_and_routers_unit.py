@@ -1,4 +1,4 @@
-"""Unit tests cho RBAC, 409 gateway_offline, ghép MAC thủ công, ACK side_effects & manual expiry."""
+"""Unit tests cho xác thực JWT, 409 gateway_offline, ghép MAC thủ công, ACK & manual expiry."""
 
 import json
 import uuid
@@ -11,7 +11,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 
-from api.deps import get_current_user, require_min_role
+from api.deps import get_current_user
 from api.routers.commands import create_command
 from api.routers.devices import pair_node
 from core.models import (
@@ -63,22 +63,15 @@ class _FakeResult:
         return self._value if isinstance(self._value, list) else [self._value]
 
 
-def test_rbac_and_gateway_offline_409() -> None:
+def test_auth_and_gateway_offline_409() -> None:
     farm_id = uuid.uuid4()
     gh_id = uuid.uuid4()
-    viewer = User(
+    owner = User(
         id=uuid.uuid4(),
         farm_id=farm_id,
-        email="v@greenhub.vn",
+        email="owner@greenhub.vn",
         password_hash="x",
-        role="viewer",
-    )
-    operator = User(
-        id=uuid.uuid4(),
-        farm_id=farm_id,
-        email="op@greenhub.vn",
-        password_hash="x",
-        role="operator",
+        role="owner",
     )
     gh = Greenhouse(id=gh_id, farm_id=farm_id, name="GH 1", created_at=datetime.now(UTC))
     offline_gw = Gateway(
@@ -90,28 +83,44 @@ def test_rbac_and_gateway_offline_409() -> None:
     )
 
     session = AsyncMock()
-    session.get.side_effect = lambda _m, pk: {viewer.id: viewer, operator.id: operator}.get(pk)
+    session.get.side_effect = lambda _m, pk: owner if pk == owner.id else None
 
     # 1. Thiếu token -> 401
     with pytest.raises(HTTPException) as exc_unauth:
         _run_coro(get_current_user(None, session))
     assert exc_unauth.value.status_code == 401
 
-    # 2. Viewer truy cập quyền operator -> 403
-    v_tok = create_access_token(viewer.id, farm_id, "viewer")
-    v_user = _run_coro(
-        get_current_user(HTTPAuthorizationCredentials(scheme="Bearer", credentials=v_tok), session)
-    )
-    checker = require_min_role("operator")
-    with pytest.raises(HTTPException) as exc_forbid:
-        _run_coro(checker(v_user))
-    assert exc_forbid.value.status_code == 403
+    # 2. Token sai định dạng hoặc user không tồn tại trong DB -> 401
+    with pytest.raises(HTTPException) as exc_bad_tok:
+        _run_coro(
+            get_current_user(
+                HTTPAuthorizationCredentials(scheme="Bearer", credentials="not-a-jwt"), session
+            )
+        )
+    assert exc_bad_tok.value.status_code == 401
 
-    # 3. Operator gửi lệnh khi gateway offline -> 409 gateway_offline (spec 6.5 & 9)
+    ghost_tok = create_access_token(uuid.uuid4(), farm_id)
+    with pytest.raises(HTTPException) as exc_ghost:
+        _run_coro(
+            get_current_user(
+                HTTPAuthorizationCredentials(scheme="Bearer", credentials=ghost_tok), session
+            )
+        )
+    assert exc_ghost.value.status_code == 401
+
+    # 3. Token hợp lệ trả về duy nhất quyền owner
+    tok = create_access_token(owner.id, farm_id)
+    auth_user = _run_coro(
+        get_current_user(HTTPAuthorizationCredentials(scheme="Bearer", credentials=tok), session)
+    )
+    assert auth_user.id == owner.id
+    assert auth_user.role == "owner"
+
+    # 4. Gửi lệnh khi gateway offline -> 409 gateway_offline (spec 6.5 & 9)
     session.execute.side_effect = [_FakeResult(gh), _FakeResult(offline_gw)]
     req = CommandCreateRequest(actuator="fan", action="on", duration_s=30)
     with pytest.raises(HTTPException) as exc_offline:
-        _run_coro(create_command(gh_id, req, operator, session))
+        _run_coro(create_command(gh_id, req, auth_user, session))
     assert exc_offline.value.status_code == 409
     assert exc_offline.value.detail == "gateway_offline"
 
@@ -176,8 +185,8 @@ def test_handle_ack_records_side_effects_and_updates_shadow() -> None:
             "status": "applied",
             "reason": None,
             "applied_at": datetime.now(UTC).isoformat(),
-            "side_effects": ["mist_off"],
-            "state": {"pump_1": "off", "pump_2": "off", "fan": "on", "mist": "off"},
+            "side_effects": ["pump_1_off"],
+            "state": {"pump_1": "off", "pump_2": "off", "fan": "on"},
         }
     ).encode()
 
@@ -185,9 +194,9 @@ def test_handle_ack_records_side_effects_and_updates_shadow() -> None:
     assert ok is True
     assert cmd.status == "applied"
     assert state.reported["actuators"]["fan"] == "on"
-    assert state.reported["actuators"]["mist"] == "off"
+    assert state.reported["actuators"]["pump_1"] == "off"
     actuator_logs = [x for x in added_logs if isinstance(x, ActuatorLog)]
-    assert {(lg.actuator, lg.action) for lg in actuator_logs} == {("fan", "on"), ("mist", "off")}
+    assert {(lg.actuator, lg.action) for lg in actuator_logs} == {("fan", "on"), ("pump_1", "off")}
 
 
 def test_expire_manual_modes_resets_past_until() -> None:
@@ -199,7 +208,7 @@ def test_expire_manual_modes_resets_past_until() -> None:
         desired={
             "modes": {
                 "fan": {"mode": "manual", "until": past},
-                "mist": {"mode": "manual", "until": future},
+                "pump_1": {"mode": "manual", "until": future},
             }
         },
         cfg_version_desired=1,
@@ -211,7 +220,7 @@ def test_expire_manual_modes_resets_past_until() -> None:
     changed = _run_coro(expire_manual_modes(fake_session))
     assert changed == 1
     assert st.desired["modes"]["fan"] == {"mode": "auto", "until": None}
-    assert st.desired["modes"]["mist"]["mode"] == "manual"
+    assert st.desired["modes"]["pump_1"]["mode"] == "manual"
 
 
 def test_create_and_delete_zone_endpoints() -> None:
@@ -278,7 +287,7 @@ def test_acknowledge_all_alerts_endpoint() -> None:
 
     farm_id = uuid.uuid4()
     gh_id = uuid.uuid4()
-    user = User(id=uuid.uuid4(), farm_id=farm_id, email="op@gh.vn", role="operator")
+    user = User(id=uuid.uuid4(), farm_id=farm_id, email="owner@gh.vn", role="owner")
     a1 = Alert(
         id=uuid.uuid4(),
         greenhouse_id=gh_id,
@@ -306,5 +315,3 @@ def test_acknowledge_all_alerts_endpoint() -> None:
     assert a2.state == "acknowledged"
     assert a2.acked_by == user.id
     fake_session.commit.assert_awaited_once()
-
-

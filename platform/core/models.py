@@ -43,7 +43,7 @@ class Farm(Base):
 class User(Base):
     __tablename__ = "users"
     __table_args__ = (
-        CheckConstraint("role IN ('owner','operator','viewer')", name="ck_users_role"),
+        CheckConstraint("role = 'owner'", name="ck_users_role"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -57,7 +57,9 @@ class User(Base):
     )
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
-    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    role: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="owner", server_default=text("'owner'")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -331,49 +333,9 @@ class Alert(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     acked_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-
-class PushSubscription(Base):
-    __tablename__ = "push_subscriptions"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        server_default=text("gen_random_uuid()"),
-    )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
-    )
-    endpoint: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
-    p256dh: Mapped[str] = mapped_column(Text, nullable=False)
-    auth: Mapped[str] = mapped_column(Text, nullable=False)
-    user_agent: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-
-class NotificationPref(Base):
-    __tablename__ = "notification_prefs"
-
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True
-    )
-    push_enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default=text("true")
-    )
-    email_enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default=text("true")
-    )
-    min_severity: Mapped[str] = mapped_column(
-        String(10), nullable=False, default="warning", server_default=text("'warning'")
-    )
 
 
 class CropCycle(Base):
@@ -545,9 +507,7 @@ __all__ = [
     "Gateway",
     "Greenhouse",
     "MlModel",
-    "NotificationPref",
     "Prediction",
-    "PushSubscription",
     "Reading",
     "User",
     "YieldSample",

@@ -39,8 +39,7 @@ constexpr uint8_t PIN_BOOT_BTN = 0;
 constexpr uint8_t ACT_PUMP_1 = 0;
 constexpr uint8_t ACT_PUMP_2 = 1;
 constexpr uint8_t ACT_FAN = 2;
-constexpr uint8_t ACT_MIST = 3;
-constexpr uint8_t ACT_COUNT = 4;
+constexpr uint8_t ACT_COUNT = 3;
 
 constexpr uint8_t MAX_ZONES = 8;
 constexpr uint8_t MAX_NODES = 16;
@@ -59,14 +58,12 @@ const uint8_t RELAY_PINS[ACT_COUNT] = {
     PIN_RELAY_PUMP1,
     PIN_RELAY_PUMP2,
     PIN_RELAY_FAN,
-    PIN_RELAY_MIST,
 };
 
 const char* const ACTUATOR_NAMES[ACT_COUNT] = {
     "pump_1",
     "pump_2",
     "fan",
-    "mist",
 };
 
 // Bundle CA gồm GreenHub Dev CA (deploy/certs/ca.crt) + ISRG Root X1 (Let's Encrypt prod)
@@ -153,7 +150,6 @@ struct ZoneConfig {
   uint16_t irrigation_min_gap_s;
   uint16_t irrigation_max_total_s_per_hour;
   uint16_t fan_max_on_s;
-  uint16_t mist_max_on_s;
   float temp_critical_high_c;
   float soil_moisture_critical_low_pct;
 };
@@ -239,9 +235,9 @@ struct UnknownMacThrottle {
 UnknownMacThrottle g_unknown_throttle[MAX_NODES] = {};
 
 // Trạng thái relay & an toàn
-bool g_actuator_on[ACT_COUNT] = {false, false, false, false};
-bool g_has_off_deadline[ACT_COUNT] = {false, false, false, false};
-uint64_t g_off_deadline_ms[ACT_COUNT] = {0, 0, 0, 0};
+bool g_actuator_on[ACT_COUNT] = {false, false, false};
+bool g_has_off_deadline[ACT_COUNT] = {false, false, false};
+uint64_t g_off_deadline_ms[ACT_COUNT] = {0, 0, 0};
 bool g_has_last_pump_end[2] = {false, false};
 uint64_t g_last_pump_end_ms[2] = {0, 0};
 PumpRunRecord g_pump_hist[2][PUMP_HIST_CAP] = {};
@@ -529,7 +525,6 @@ void initDefaultZones() {
     g_zones[i].irrigation_min_gap_s = 90;
     g_zones[i].irrigation_max_total_s_per_hour = 120;
     g_zones[i].fan_max_on_s = 300;
-    g_zones[i].mist_max_on_s = 300;
     g_zones[i].temp_critical_high_c = 38.0f;
     g_zones[i].soil_moisture_critical_low_pct = 30.0f;
   }
@@ -651,7 +646,6 @@ bool applyCfgJson(const char* json_str, size_t len, bool save_to_nvs) {
         zc.irrigation_min_gap_s = lim["irrigation_min_gap_s"] | 90;
         zc.irrigation_max_total_s_per_hour = lim["irrigation_max_total_s_per_hour"] | 120;
         zc.fan_max_on_s = lim["fan_max_on_s"] | 300;
-        zc.mist_max_on_s = lim["mist_max_on_s"] | 300;
       }
 
       JsonObjectConst fs = z["failsafe"].as<JsonObjectConst>();
@@ -847,10 +841,10 @@ uint16_t getMaxRunForActuator(uint8_t act_idx) {
     const ZoneConfig* zc = findZoneByPump(act_idx);
     return zc ? zc->irrigation_max_run_s : 15;
   }
-  // Lấy max của zone 1 (hoặc zone đầu tiên tìm thấy) cho fan / mist
+  // Lấy max của zone 1 (hoặc zone đầu tiên tìm thấy) cho fan
   for (uint8_t i = 0; i < MAX_ZONES; ++i) {
     if (g_zones[i].in_use) {
-      return (act_idx == ACT_FAN) ? g_zones[i].fan_max_on_s : g_zones[i].mist_max_on_s;
+      return g_zones[i].fan_max_on_s;
     }
   }
   return 300;
@@ -956,17 +950,6 @@ void handleCommandPayload(const uint8_t* raw, unsigned int len) {
       (req_dur_l > 65535L) ? 65535U : static_cast<uint16_t>(req_dur_l);
 
   const char* side_effect = nullptr;
-
-  // Interlock Quạt - Máy tạo ẩm (spec 4.3)
-  if (act_idx == ACT_MIST && g_actuator_on[ACT_FAN]) {
-    publishAck(cmd_id, "rejected", "interlock", nullptr, nullptr);
-    return;
-  }
-  if (act_idx == ACT_FAN && g_actuator_on[ACT_MIST]) {
-    setRelayPin(ACT_MIST, false);
-    g_has_off_deadline[ACT_MIST] = false;
-    side_effect = "mist_off";
-  }
 
   if (act_idx == ACT_PUMP_1 || act_idx == ACT_PUMP_2) {
     const char* reject_reason = nullptr;
@@ -1492,13 +1475,6 @@ void tickFailsafeAndBuzzer() {
       if (zs.air_t > zc.temp_critical_high_c) {
         any_temp_high = true;
         all_temp_recovered = false;
-        if (g_actuator_on[ACT_MIST]) {
-          setRelayPin(ACT_MIST, false);
-          g_has_off_deadline[ACT_MIST] = false;
-          JsonDocument d;
-          d["trigger"] = "temp_high_interlock";
-          emitEvent("actuator_changed", zc.zone, "mist", "off", "failsafe", &d);
-        }
         if (!g_actuator_on[ACT_FAN]) {
           setRelayPin(ACT_FAN, true);
           g_has_off_deadline[ACT_FAN] = true;

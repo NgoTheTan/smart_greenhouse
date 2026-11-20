@@ -13,8 +13,8 @@
 
 	handle {
 		root * /srv
-		@sw path /sw.js /manifest.json
-		header @sw Cache-Control "no-cache"
+		@manifest path /manifest.json
+		header @manifest Cache-Control "no-cache"
 		try_files {path} /index.html
 		file_server
 	}

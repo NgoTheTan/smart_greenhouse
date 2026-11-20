@@ -15,7 +15,7 @@ Xây dựng pipeline AI/ML cho **bài toán duy nhất** của GreenHub (`task =
 - **Ngoài phạm vi (KHÔNG xây):**
   - Không dùng LLM, mạng nơ-ron sâu/lớn, học tăng cường (RL), phân loại bệnh từ ảnh, hay *federated learning* (lưu ý: huấn luyện **tập trung** trên dữ liệu gộp nhiều nhà kính là trong phạm vi).
   - Không dùng GPU khi huấn luyện hoặc suy luận.
-  - Mô hình AI **tuyệt đối không** điều khiển thiết bị chấp hành (`pump_1`, `pump_2`, `fan`, `mist`).
+  - Mô hình AI **tuyệt đối không** điều khiển thiết bị chấp hành (`pump_1`, `pump_2`, `fan`).
   - Không làm các bài toán dự báo rủi ro bằng ML hay học phản hồi cảnh báo; kiểm tra chất lượng dữ liệu là tầng tiền xử lý bằng luật xác định (xem `platform/core/FEATURE_MICROCLIMATE_AND_QUALITY.md`).
 
 ## 2. Trạng thái hiện thực trong repo

@@ -1,2 +1,1 @@
-"""Công cụ phụ trợ GreenHub (simulator, sinh khoá VAPID...)."""
-
+"""Công cụ phụ trợ GreenHub (simulator, khởi tạo dữ liệu mẫu, chứng chỉ TLS dev...)."""

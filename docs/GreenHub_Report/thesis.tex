@@ -1,0 +1,156 @@
+\documentclass[a4paper,12pt]{report}
+\usepackage[utf8]{vietnam}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{xspace}
+\usepackage[font=small]{caption}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage[left=3cm,right=2cm,top=2.5cm,bottom=3cm]{geometry}
+\usepackage{titlesec}
+\usepackage{scrextend}
+\usepackage{enumerate}
+\usepackage{enumitem}
+\usepackage{url}
+\usepackage[table]{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{calc,arrows.meta,positioning,shapes.geometric,fit,backgrounds}
+\usepackage{float}
+\usepackage{afterpage}
+\usepackage{multirow}
+\usepackage{sectsty}
+\usepackage{tocloft,calc}
+\usepackage{listings}
+\usepackage{makecell}
+\usepackage{longtable}
+\usepackage[sort&compress]{natbib}
+\usepackage{algorithm}
+\usepackage{subcaption}
+\usepackage[flushleft]{threeparttable}
+\usepackage{perpage}
+\MakePerPage{footnote}
+\usepackage[unicode,hidelinks]{hyperref}
+
+\def\changemargin#1#2{\list{}{\rightmargin#2\leftmargin#1}\item[]}
+\let\endchangemargin=\endlist
+
+\changefontsizes{12pt}
+\bibliographystyle{unsrt}
+
+\makeatletter
+\def\l@figure{\@dottedtocline{1}{0pt}{2.8em}}
+\def\l@table{\@dottedtocline{1}{0pt}{2.8em}}
+\renewcommand*{\ALG@name}{Thuật toán}
+\makeatother
+
+\sectionfont{\fontsize{14}{15}\selectfont}
+\subsectionfont{\fontsize{12}{15}\selectfont}
+
+\titleformat{\chapter}[display]
+{\normalfont\huge\bfseries}{\chaptertitlename\ \thechapter}{0pt}{\LARGE}
+\titlespacing*{\chapter}{0cm}{-\topskip}{0pt}[0pt]
+
+\renewcommand{\baselinestretch}{1.3}
+\renewcommand{\cftchappresnum}{Chương }
+\AtBeginDocument{\addtolength\cftchapnumwidth{\widthof{\bfseries Chương }}}
+\setlength{\parskip}{0.4em}
+\setlength{\parindent}{0pt}
+\setlength{\LTleft}{0pt}
+\setlength{\LTright}{\fill}
+\setlength{\LTcapwidth}{\textwidth}
+\setlength{\LTpre}{\baselineskip}
+\captionsetup[table]{justification=centering,singlelinecheck=true}
+\captionsetup[figure]{skip=\baselineskip,belowskip=0pt}
+\setlength{\intextsep}{\baselineskip}
+\setlength{\textfloatsep}{8pt plus 2pt minus 2pt}
+\setlength{\floatsep}{8pt plus 2pt minus 2pt}
+\newlength{\greenhubfigurepostskip}
+\setlength{\greenhubfigurepostskip}{0pt}
+\makeatletter
+\renewcommand\float@endH{\@endfloatbox\vskip\intextsep
+  \if@flstyle\setbox\@currbox\float@makebox\columnwidth\fi
+  \box\@currbox\vskip\greenhubfigurepostskip\relax}
+\makeatother
+
+\title{Hệ thống nền tảng IoT giám sát, điều khiển nhà kính thông minh và hỗ trợ quyết định canh tác GreenHub}
+\author{Nhóm thực hiện GreenHub}
+
+\newcommand{\argmax}{\arg\!\max}
+
+\definecolor{dkgreen}{rgb}{0,0.6,0}
+\definecolor{gray}{rgb}{0.4,0.4,0.4}
+\definecolor{mauve}{rgb}{0.58,0,0.82}
+\definecolor{darkblue}{rgb}{0.0,0.0,0.6}
+\definecolor{lightblue}{rgb}{0.0,0.0,0.9}
+\definecolor{cyan}{rgb}{0.0,0.6,0.6}
+\definecolor{darkred}{rgb}{0.6,0.0,0.0}
+\definecolor{bg_gray}{RGB}{242, 242, 235}
+\definecolor{ghgreen}{RGB}{27, 94, 58}
+\definecolor{ghgreenbg}{RGB}{236, 247, 240}
+\definecolor{ghblue}{RGB}{25, 82, 145}
+\definecolor{ghbluebg}{RGB}{235, 243, 252}
+\definecolor{ghamber}{RGB}{156, 93, 18}
+\definecolor{ghamberbg}{RGB}{254, 247, 232}
+\definecolor{ghpurple}{RGB}{98, 56, 138}
+\definecolor{ghpurplebg}{RGB}{244, 238, 252}
+
+\renewcommand{\lstlistingname}{Đoạn mã}
+\newcommand{\cev}[1]{\reflectbox{\ensuremath{\vec{\reflectbox{\ensuremath{#1}}}}}}
+
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  columns=fullflexible,
+  showstringspaces=false,
+  numbers=left,
+  numberstyle=\small\color{gray},
+  stepnumber=1,
+  numbersep=5pt,
+  backgroundcolor=\color{bg_gray},
+  showspaces=false,
+  showtabs=false,
+  frame=single,
+  rulecolor=\color{gray!40},
+  tabsize=2,
+  captionpos=b,
+  breaklines=true,
+  breakatwhitespace=false,
+  commentstyle=\color{dkgreen}\upshape,
+  keywordstyle=\color{darkblue}\bfseries,
+  stringstyle=\color{darkred}
+}
+
+\begin{document}
+\input{cover}\newpage\cleardoublepage
+
+% Tóm tắt tiếng Việt
+\input{chapters/abtract_vi}\newpage\cleardoublepage
+\addcontentsline{toc}{chapter}{Mục lục}
+\tableofcontents\newpage\cleardoublepage
+
+\newpage
+\addcontentsline{toc}{chapter}{\listfigurename}
+\listoffigures\cleardoublepage
+
+\newpage
+\addcontentsline{toc}{chapter}{\listtablename}
+\listoftables
+
+\newpage
+\input{chapters/glossary}\newpage\cleardoublepage
+
+\setcounter{page}{1}
+\pagenumbering{arabic}
+
+\input{chapters/c1/c1_introduction}\newpage\cleardoublepage
+\input{chapters/c2/c2_chapter}\newpage\cleardoublepage
+\input{chapters/c3/c3_chapter}\newpage\cleardoublepage
+\input{chapters/c4/c4_chapter}\newpage\cleardoublepage
+\input{chapters/conclusion}\newpage\cleardoublepage
+
+\phantomsection
+\addcontentsline{toc}{chapter}{Tài liệu tham khảo}
+\bibliography{references}\newpage\cleardoublepage
+\end{document}

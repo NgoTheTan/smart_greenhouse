@@ -1,9 +1,9 @@
 # Hướng dẫn Coding Assistant – `platform/api/`
 
-Thư mục này chứa tiến trình **FastAPI** (`api.main:app`): REST API dưới tiền tố `/api`, WebSocket `/ws`, xác thực JWT, RBAC, provisioning Mosquitto Dynamic Security.
+Thư mục này chứa tiến trình **FastAPI** (`api.main:app`): REST API dưới tiền tố `/api`, WebSocket `/ws`, xác thực JWT (một quyền duy nhất `owner`), cô lập đa tenant `farm_id`, provisioning Mosquitto Dynamic Security.
 
 - Tài liệu tính năng chi tiết trong thư mục này:
-  - [FEATURE_AUTH_RBAC_TENANCY.md](./FEATURE_AUTH_RBAC_TENANCY.md) — JWT, RBAC (`viewer`/`operator`/`owner`), cô lập đa tenant `farm_id`, `/auth`, `/greenhouses`, `/health`, quy tắc bảo vệ `yield_samples`.
+  - [FEATURE_AUTH_RBAC_TENANCY.md](./FEATURE_AUTH_RBAC_TENANCY.md) — JWT, một quyền người dùng duy nhất (`owner`), cô lập đa tenant `farm_id`, `/auth`, `/greenhouses`, `/health`, quy tắc bảo vệ `yield_samples`.
   - [FEATURE_PROVISIONING_AND_PAIRING.md](./FEATURE_PROVISIONING_AND_PAIRING.md) — Provisioning gateway, Mosquitto Dynamic Security ACL, discovery & ghép node, hiệu chuẩn ẩm đất.
   - [FEATURE_WEBSOCKET_REALTIME.md](./FEATURE_WEBSOCKET_REALTIME.md) — `WS /ws?token=`, PostgreSQL `LISTEN ws_events`, 7 loại sự kiện realtime (gồm `prediction` và `crop_cycle`).
   - [FEATURE_REST_API_CONTRACTS.md](./FEATURE_REST_API_CONTRACTS.md) — Toàn bộ hợp đồng REST API (M2 và cập nhật M3–M5: `cycles`, `recommendations`, `models`, `crop-profiles` v2).

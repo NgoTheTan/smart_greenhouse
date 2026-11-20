@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import desc, select
 
-from api.deps import CurrentOperator, CurrentViewer, DbSession
+from api.deps import CurrentUser, DbSession
 from core.models import Alert, Greenhouse
 from core.pubsub import CHANNEL_WS, pg_notify
 from core.schemas import AlertResponse
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/alerts", tags=["alerts"])
 
 @router.get("", response_model=list[AlertResponse])
 async def list_alerts(
-    user: CurrentViewer,
+    user: CurrentUser,
     session: DbSession,
     state: Annotated[
         str | None,
@@ -50,10 +50,10 @@ async def list_alerts(
 @router.post("/{alert_id}/ack", response_model=AlertResponse)
 async def acknowledge_alert(
     alert_id: uuid.UUID,
-    user: CurrentOperator,
+    user: CurrentUser,
     session: DbSession,
 ) -> Alert:
-    """Xác nhận đã tiếp nhận cảnh báo (ngừng leo thang và tắt chuông)."""
+    """Xác nhận đã tiếp nhận cảnh báo (ngừng nhắc lại và tắt chuông)."""
     stmt = (
         select(Alert)
         .join(Greenhouse, Alert.greenhouse_id == Greenhouse.id)
@@ -92,7 +92,6 @@ async def acknowledge_alert(
                     "payload": alert.payload,
                     "created_at": alert.created_at.isoformat(),
                     "notified_at": alert.notified_at.isoformat() if alert.notified_at else None,
-                    "escalated_at": alert.escalated_at.isoformat() if alert.escalated_at else None,
                     "acknowledged_at": alert.acknowledged_at.isoformat(),
                     "acked_by": str(user.id),
                     "resolved_at": alert.resolved_at.isoformat() if alert.resolved_at else None,
@@ -106,7 +105,7 @@ async def acknowledge_alert(
 
 @router.post("/ack-all", response_model=dict[str, int])
 async def acknowledge_all_alerts(
-    user: CurrentOperator,
+    user: CurrentUser,
     session: DbSession,
 ) -> dict[str, int]:
     """Xác nhận tất cả cảnh báo đang mở của farm."""

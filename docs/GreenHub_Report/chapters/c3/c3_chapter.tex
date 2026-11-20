@@ -1,0 +1,155 @@
+\chapter{Phân tích và thiết kế hệ thống GreenHub}
+\label{chap:analysis-design}
+
+Trên cơ sở bài toán thực tiễn và bộ công nghệ đã lựa chọn ở hai chương trước, chương này trình bày chi tiết quá trình phân tích yêu cầu và thiết kế kỹ thuật cho toàn bộ hệ thống GreenHub. Nội dung đi từ việc xác định yêu cầu chức năng, mô hình quyền người dùng và các ràng buộc phi chức năng, đến kiến trúc tổng thể cùng cơ chế phối hợp liên tiến trình, trước khi đi sâu vào thiết kế từng phân hệ: phần cứng -- firmware biên, giao thức MQTT, cơ sở dữ liệu chuỗi thời gian, dịch vụ backend, mô hình học máy và giao diện Web Console PWA.
+
+\section{Phân tích yêu cầu}
+\label{sec:c3-requirements}
+
+\subsection{Yêu cầu chức năng và mô hình quyền người dùng}
+\label{subsec:c3-func-req}
+
+GreenHub được thiết kế theo mô hình đa người dùng thuê bao (multi-tenant), trong đó mỗi trang trại (\texttt{farm}) là một miền dữ liệu độc lập. Hệ thống áp dụng một quyền người dùng duy nhất (\texttt{users.role = 'owner'}) giúp chủ trang trại trực tiếp đăng ký, vận hành và quản trị toàn bộ nhà kính thuộc trang trại của mình mà không làm phức tạp hóa quy trình sử dụng. Bảng~\ref{tab:owner-func-matrix} mô tả bốn nhóm chức năng cốt lõi tương ứng với quyền \texttt{owner}.
+
+\begingroup
+\footnotesize
+\setlength{\tabcolsep}{3.5pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{longtable}{|>{\raggedright\arraybackslash}p{0.22\textwidth}|>{\centering\arraybackslash}p{0.14\textwidth}|>{\raggedright\arraybackslash}p{0.57\textwidth}|}
+\caption{Bảng yêu cầu chức năng theo mô hình quyền \texttt{owner} của hệ thống GreenHub}\label{tab:owner-func-matrix}\\
+\hline
+\textbf{Nhóm chức năng} & \textbf{Quyền \texttt{owner}} & \textbf{Mô tả chi tiết} \\
+\hline
+\endfirsthead
+\hline
+\textbf{Nhóm chức năng} & \textbf{Quyền \texttt{owner}} & \textbf{Mô tả chi tiết} \\
+\hline
+\endhead
+Xác thực \& Tài khoản & Toàn quyền & Đăng ký tạo trang trại (\texttt{POST /api/auth/register}), đăng nhập nhận JWT (\texttt{POST /api/auth/login}), xem thông tin tài khoản (\texttt{GET /api/me}). \\
+\hline
+Giám sát thời gian thực & Toàn quyền & Xem danh sách nhà kính, biểu đồ telemetry (\texttt{raw}/\texttt{1m}/\texttt{1h}), chỉ số VPD, DLI, trạng thái thiết bị, cảnh báo, dự báo năng suất, gợi ý cây trồng, metadata mô hình AI và nhận luồng WebSocket \texttt{/ws}. \\
+\hline
+Vận hành \& Điều khiển & Toàn quyền & Gửi lệnh bật/tắt cơ cấu chấp hành kèm thời lượng, chuyển chế độ \texttt{auto}/\texttt{manual}, xác nhận (\texttt{ack}) cảnh báo, khởi tạo/thu hoạch/hủy vụ trồng (\texttt{crop\_cycles}), kích hoạt làm mới gợi ý cây trồng (\texttt{202 Accepted}). \\
+\hline
+Quản trị thiết bị \& Cấu hình & Toàn quyền & Tạo nhà kính mới, cấp phát gateway (sinh tài khoản MQTT + ACL động), ghép nút cảm biến (tự phát hiện hoặc nhập MAC thủ công), hiệu chuẩn ẩm đất 2 điểm, cập nhật thông tin vùng trồng và hiệu chỉnh \texttt{crop\_profiles} (tự động tăng \texttt{cfg\_version}). \\
+\hline
+\end{longtable}
+\endgroup
+
+\subsection{Yêu cầu phi chức năng}
+\label{subsec:c3-nonfunc-req}
+
+Bên cạnh các nghiệp vụ giám sát và điều khiển, một nền tảng IoT vận hành liên tục trong môi trường nhà kính cần thỏa mãn nghiêm ngặt bốn nhóm yêu cầu phi chức năng sau:
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Cô lập đa tenant chặt chẽ:} Mọi truy vấn REST API cũng như luồng phát sự kiện WebSocket đều bắt buộc lọc theo \texttt{current\_user.farm\_id}. Riêng bảng \texttt{yield\_samples} dùng để gom dữ liệu huấn luyện từ nhiều nhà kính tuyệt đối không có bất kỳ endpoint API nào cho phép đọc trực tiếp; nhóm đường dẫn \texttt{GET /api/models*} chỉ công bố metadata và các chỉ số đánh giá tổng hợp.
+    \item \textbf{Độ tin cậy và khả năng tự phục hồi (\textit{Resilience}):} Khi Gateway mất kết nối Wi-Fi hoặc MQTT, tối đa \(150\) bản tin telemetry và sự kiện gần nhất phải được giữ trong hàng đợi vòng trên RAM để gửi bù ngay khi đường truyền khôi phục. Nếu thời gian mất kết nối vượt ngưỡng \texttt{offline\_failsafe\_after\_s} (mặc định \(60\;\text{s}\)), Gateway tự chuyển sang chế độ Failsafe cục bộ và kích hoạt còi cảnh báo Buzzer. Ở phía máy chủ, mỗi khi tiến trình \texttt{worker} khởi động lại, hệ thống tự động nạp ấm (\texttt{warm\_up}) cửa sổ lịch sử cảm biến và lịch sử chạy relay gần đây từ cơ sở dữ liệu để duy trì liên tục khả năng phát hiện lỗi \texttt{stuck}/\texttt{spike} và ràng buộc bảo vệ bơm.
+    \item \textbf{Hiệu năng và kỷ luật ngân sách tài nguyên:} Tổng giới hạn bộ nhớ RAM của cả 5 container không được vượt quá \(1.792\;\text{MB}\) nhằm vận hành ổn định trên VPS \(2\;\text{GB}\) RAM kèm \(2\;\text{GB}\) swap. Tác vụ tính toán nặng về CPU như suy luận LightGBM phải được chuyển sang thread pool thông qua \texttt{asyncio.to\_thread} để không làm nghẽn vòng sự kiện chính của \texttt{worker}.
+    \item \textbf{An toàn điện và an toàn vật lý:} Toàn bộ mô hình phần cứng chỉ sử dụng nguồn điện áp thấp \(5\;\text{V DC}\). Mọi chân điều khiển relay phải được đặt về trạng thái tắt ngay từ những dòng lệnh đầu tiên khi khởi động (\texttt{digitalWrite(pin, HIGH)} trước khi cấu hình \texttt{pinMode(pin, OUTPUT)}), có diode \texttt{1N4007} dập xung cảm ứng ngược song song với động cơ bơm và tụ hóa \(1000\;\mu\text{F}\) lọc sụt áp trên đường nguồn chính.
+\end{itemize}
+
+\section{Kiến trúc tổng quan và cơ chế giao tiếp liên tiến trình}
+\label{sec:c3-architecture}
+
+\subsection{Kiến trúc tổng thể 4 tầng}
+\label{subsec:c3-overall-arch}
+
+Hình~\ref{fig:greenhub-architecture} mô tả bức tranh tổng thể về cách kết nối giữa các thành phần phần cứng, broker truyền thông, cụm nền tảng máy chủ, giao diện web và các công cụ bổ trợ trong GreenHub. Nhờ duy trì chuẩn giao tiếp thống nhất, cả thiết bị thật lẫn công cụ giả lập \texttt{tools/simulator} đều tương tác với backend thông qua cùng một giao diện cấp phát HTTP và kênh MQTT TLS cổng \texttt{8883}.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    font=\footnotesize,
+    node distance=0.6cm and 0.9cm,
+    box/.style={draw, rounded corners=3pt, align=center, inner sep=6pt, minimum height=1.05cm, line width=0.7pt},
+    devbox/.style={box, fill=ghgreenbg, draw=ghgreen},
+    connbox/.style={box, fill=ghamberbg, draw=ghamber},
+    corebox/.style={box, fill=ghbluebg, draw=ghblue},
+    appbox/.style={box, fill=ghpurplebg, draw=ghpurple},
+    dbbox/.style={cylinder, shape border rotate=90, aspect=0.22, draw=ghblue, fill=ghbluebg, align=center, inner sep=5pt, minimum height=1.25cm, line width=0.7pt},
+    groupbox/.style={draw, dashed, rounded corners=4pt, inner sep=9pt, line width=0.6pt},
+    arr/.style={-{Stealth[length=2.4mm]}, line width=0.75pt},
+    biarr/.style={{Stealth[length=2.2mm]}-{Stealth[length=2.2mm]}, line width=0.75pt}
+]
+
+% Tang 1: Thiet bi bien
+\node[devbox, text width=4.5cm] (n1) {\textbf{Node 1 -- Zone 1}\\ESP32: AHT20/SHT30/DHT11\\+ BH1750 + Soil ADC1};
+\node[devbox, text width=4.5cm, right=0.8cm of n1] (n2) {\textbf{Node 2 -- Zone 2}\\ESP32/ESP8266: Soil\\(+ tùy chọn cảm biến khí)};
+\node[devbox, text width=9.8cm, below=0.9cm of $(n1.south)!0.5!(n2.south)$] (gw) {\textbf{Gateway ESP32 + Tủ Relay 3 kênh + Buzzer}\\Lọc Median+EMA \(\cdot\) Hàng đợi RAM 150 \(\cdot\) Safety Engine \(\cdot\) Failsafe cục bộ};
+
+% Tang 2: Ket noi
+\node[connbox, text width=9.8cm, below=1.15cm of gw] (mq) {\textbf{Eclipse Mosquitto 2.0.20 (MQTT Broker)}\\Bắt buộc TLS 1.2+ cổng \texttt{:8883} \(\cdot\) LWT \(\cdot\) Dynamic Security ACL theo \texttt{farm\_id}};
+
+% Tang 3: Nen tang loi
+\node[corebox, text width=4.7cm, below=1.25cm of mq, xshift=-3.6cm] (api) {\textbf{Tiến trình \texttt{api} (FastAPI)}\\REST \texttt{/api/*} \(\cdot\) WS \texttt{/ws}\\JWT (\texttt{owner}) \(\cdot\) \texttt{farm\_id} \(\cdot\) Provisioning\\(\(\le 384\;\text{MB}\) RAM)};
+\node[corebox, text width=4.7cm, below=1.25cm of mq, xshift=3.6cm] (wk) {\textbf{Tiến trình \texttt{worker} (\texttt{aiomqtt})}\\Ingest \(\cdot\) Quality \(\cdot\) Rules \(\cdot\) Alerts\\Commands \(\cdot\) Notify \(\cdot\) AI Inference\\(\(\le 512\;\text{MB}\) RAM)};
+\node[dbbox, text width=4.8cm, below=1.25cm of $(api.south)!0.5!(wk.south)$] (db) {\textbf{PostgreSQL 16 + TimescaleDB}\\16 bảng \(\cdot\) Hypertable \texttt{readings}\\CAggr \texttt{1m/1h} \(\cdot\) \texttt{LISTEN/NOTIFY}};
+
+% Tang 4: Ung dung, cong cu & AI/ML
+\node[appbox, text width=4.3cm, below=1.25cm of db, xshift=-5.1cm] (caddy) {\textbf{Caddy 2.8 (HTTPS)}\\Static SPA + Reverse Proxy\\Let's Encrypt TLS};
+\node[appbox, text width=4.3cm, below=0.8cm of caddy] (web) {\textbf{Web Console PWA}\\React 18 + TypeScript\\9 trang \(\cdot\) WebSocket \texttt{/ws}};
+
+\node[appbox, text width=4.4cm, below=1.25cm of db] (sim) {\textbf{\texttt{tools/simulator}}\\Giả lập đa vùng khí hậu\\Thử tải 50--100 GW \(\cdot\) \texttt{synth-yield}};
+
+\node[appbox, text width=4.5cm, below=1.25cm of db, xshift=5.1cm] (ml) {\textbf{Pipeline \texttt{ml/} CLI}\\ \texttt{dataset.py} \(\cdot\) \texttt{train.py}\\ \texttt{evaluate.py} \(\cdot\) \texttt{wur\_adapter.py}};
+\node[appbox, text width=4.5cm, below=0.8cm of ml] (vol) {\textbf{Volume \texttt{/models/yield/}}\\Artifact \texttt{v1.joblib}, \texttt{v2.joblib}\\Cổng kích hoạt Activation Gate};
+
+% Group frames on background
+\begin{scope}[on background layer]
+    \node[groupbox, draw=ghgreen, fit=(n1)(n2)(gw), label={[font=\footnotesize\bfseries, text=ghgreen]above:Tầng 1: Thiết bị biên (Firmware tự xây dựng)}] {};
+    \node[groupbox, draw=ghamber, fit=(mq), label={[font=\footnotesize\bfseries, text=ghamber]right:Tầng 2: Kết nối}] {};
+    \node[groupbox, draw=ghblue, fit=(api)(wk)(db), label={[font=\footnotesize\bfseries, text=ghblue]right:Tầng 3: Nền tảng lõi}] {};
+    \node[groupbox, draw=ghpurple, fit=(caddy)(web)(sim)(ml)(vol), label={[font=\footnotesize\bfseries, text=ghpurple]below:Tầng 4: Ứng dụng Web, Công cụ giả lập và Phân hệ AI/ML}] {};
+\end{scope}
+
+% Arrows
+\draw[arr] (n1.south) -- node[left, font=\scriptsize] {ESP-NOW (20B)} (n1.south |- gw.north);
+\draw[arr] (n2.south) -- node[right, font=\scriptsize] {ESP-NOW (20B)} (n2.south |- gw.north);
+\draw[biarr] (gw.south) -- node[right, font=\scriptsize] {MQTT over TLS \texttt{:8883}} (mq.north);
+
+\draw[arr] (api.north) -- node[left, font=\scriptsize, align=right] {DynSec Control\\(\texttt{:1883} nội bộ)} (api.north |- mq.south);
+\draw[biarr] (wk.north) -- node[right, font=\scriptsize, align=left] {MQTT \texttt{gh/\#}\\(\texttt{:1883} nội bộ)} (wk.north |- mq.south);
+
+\draw[biarr] (api.south) |- node[pos=0.25, left, font=\scriptsize, align=right] {SQL Async +\\\texttt{LISTEN ws\_events}} (db.west);
+\draw[biarr] (wk.south) |- node[pos=0.25, right, font=\scriptsize, align=left] {SQL Async +\\\texttt{LISTEN worker\_events}\\+ Poll bù 5 s} (db.east);
+
+\draw[biarr] (caddy.north) |- node[pos=0.25, left, font=\scriptsize] {Proxy \texttt{/api}, \texttt{/ws}} ($(api.west)+(-0.6,0)$) -- (api.west);
+\draw[biarr] (caddy.south) -- node[right, font=\scriptsize] {HTTPS / WSS} (web.north);
+
+\draw[arr] (sim.west) -- ++(-0.3,0) |- node[pos=0.72, above, font=\scriptsize] {HTTP Provisioning} ($(api.west)+(-1.1,-0.35)$) -- ($(api.west)+(0,-0.35)$);
+\draw[biarr] (sim.north) -- ++(0,0.35) -| node[pos=0.75, left, font=\scriptsize, align=right] {MQTT TLS\\\texttt{:8883}} ($(mq.west)+(-0.9,0)$) -- (mq.west);
+
+\draw[biarr] (ml.north) |- node[pos=0.25, right, font=\scriptsize] {Đọc/ghi \texttt{yield\_samples}} (db.east);
+\draw[arr] (ml.south) -- node[right, font=\scriptsize] {Xuất model} (vol.north);
+\draw[arr] (vol.east) -- ++(0.65,0) |- node[pos=0.25, right, font=\scriptsize, align=left] {Nạp artifact\\suy luận} (wk.east);
+
+\end{tikzpicture}%
+}
+\caption{Kiến trúc tổng thể 4 tầng End-to-End của hệ thống GreenHub}
+\label{fig:greenhub-architecture}
+\end{figure}
+
+\subsection{Cơ chế phối hợp liên tiến trình qua PostgreSQL LISTEN/NOTIFY}
+\label{subsec:c3-ipc}
+
+Nhằm giữ gọn hạ tầng mà vẫn đảm bảo phản hồi tức thời, hai tiến trình \texttt{api} và \texttt{worker} trao đổi sự kiện bất đồng bộ thông qua mô-đun \texttt{platform/core/pubsub.py} dựa trên cơ chế \texttt{LISTEN/NOTIFY} gốc của PostgreSQL với hai kênh riêng biệt:
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Kênh \texttt{worker\_events} (từ \texttt{api} hoặc \texttt{ml/train.py} sang \texttt{worker}):} Mang năm loại thông điệp kích hoạt nhanh gồm \texttt{command\_created} (worker lập tức phát lệnh \texttt{cmd/\{actuator\}} xuống Mosquitto), \texttt{cfg\_updated} (tạo JSON cấu hình mới từ cơ sở dữ liệu và phát dạng \texttt{retained}), \texttt{cycle\_harvested} (trích xuất đặc trưng khí hậu cả vụ để tạo bản ghi \texttt{yield\_samples}), \texttt{recommend} (chạy lại suy luận gợi ý cây trồng khi người dùng nhấn nút ``Làm mới'' trên web) và \texttt{model\_activated} (nạp ngay tệp \texttt{.joblib} của phiên bản mô hình vừa vượt qua cổng kích hoạt).
+    \item \textbf{Kênh \texttt{ws\_events} (từ \texttt{worker} sang \texttt{api}):} Chuyển tiếp bảy nhóm sự kiện thời gian thực gồm \texttt{telemetry}, \texttt{alert}, \texttt{command\_status}, \texttt{device\_status}, \texttt{prediction}, \texttt{crop\_cycle} và \texttt{config\_sync}, luôn gắn kèm \texttt{farm\_id} để \texttt{api/ws.py} phân phát đúng tới các kết nối WebSocket thuộc trang trại tương ứng.
+\end{itemize}
+
+Vì \texttt{LISTEN/NOTIFY} không lưu hàng đợi bền vững nếu một tiến trình đang khởi động lại đúng thời điểm phát thông báo, \texttt{APScheduler} bên trong \texttt{worker/scheduler.py} duy trì song song ba vòng quét bù định kỳ:
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Chu kỳ \(5\;\text{giây}\) (\texttt{worker\_tick\_5s}):} Kiểm tra các lệnh quá hạn (\texttt{timeout}), chấm dứt trạng thái \texttt{manual} khi hết thời gian giữ tay, gọi \texttt{rule\_engine.tick\_5s}, phát bù những lệnh còn ở trạng thái \texttt{pending} và đồng bộ lại các nhà kính có \texttt{cfg\_version\_desired > cfg\_version\_reported}.
+    \item \textbf{Chu kỳ \(60\;\text{giây}\) (\texttt{worker\_inference\_60s}):} Chạy suy luận định kỳ \texttt{yield\_forecast} và \texttt{crop\_recommendation} theo cấu hình \texttt{ai.inference\_interval\_s}.
+    \item \textbf{Chu kỳ \(10\;\text{phút}\) (\texttt{worker\_model\_sync\_10m}):} Rà soát nạp bù phiên bản mô hình \texttt{active} mới và tạo bù bản ghi \texttt{yield\_samples} cho các vụ đã thu hoạch nếu trước đó bị lỡ sự kiện \texttt{NOTIFY}.
+\end{enumerate}
+
+\input{chapters/c3/c3_detailed_design}
+
+\section{Tổng kết chương}
+\label{sec:c3-summary}
+
+Trong Chương 3, nhóm chúng em đã trình bày đầy đủ quá trình phân tích và thiết kế hệ thống GreenHub từ góc nhìn tổng thể tới từng chi tiết hiện thực. Xuất phát từ yêu cầu chức năng theo mô hình quyền \texttt{owner} đa tenant và các ràng buộc phi chức năng về an toàn, phục hồi và giới hạn bộ nhớ, hệ thống được định hình theo kiến trúc 4 tầng chặt chẽ với cơ chế liên lạc \texttt{LISTEN/NOTIFY} kết hợp vòng quét bù định kỳ. Từng phân hệ cốt lõi -- từ sơ đồ chân GPIO cho tủ relay 3 kênh, khung gói tin nhị phân ESP-NOW, bộ lọc Median--EMA và lớp an toàn tại Gateway, hệ thống topic MQTT kèm Dynamic Security ACL, lược đồ 16 bảng TimescaleDB, các công thức nông học VPD/DLI, bộ luật hysteresis kèm chống tác dụng phụ VPD, mô hình học máy LightGBM đến Web Console PWA 9 trang và hệ thống cảnh báo 2 lớp -- đều đã được đặc tả rõ ràng. Toàn bộ thiết kế này là cơ sở trực tiếp để nhóm tiến hành cài đặt, kiểm thử và triển khai trong Chương 4.

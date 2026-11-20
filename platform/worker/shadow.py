@@ -71,7 +71,6 @@ async def build_gateway_cfg(
         params = profile.parameters_json if profile is not None else DEFAULT_DEMO_PARAMS
         irr = params.get("irrigation", DEFAULT_DEMO_PARAMS["irrigation"])
         fan = params.get("fan", DEFAULT_DEMO_PARAMS["fan"])
-        mist = params.get("mist", DEFAULT_DEMO_PARAMS["mist"])
         fs = params.get("failsafe", DEFAULT_DEMO_PARAMS["failsafe"])
         pump_ch = zone.pump_channel or zone.zone_index
 
@@ -89,7 +88,6 @@ async def build_gateway_cfg(
                     irrigation_min_gap_s=int(irr["min_gap_s"]),
                     irrigation_max_total_s_per_hour=int(irr["max_total_s_per_hour"]),
                     fan_max_on_s=int(fan["max_on_s"]),
-                    mist_max_on_s=int(mist["max_on_s"]),
                 ),
                 failsafe=CfgFailsafe(
                     temp_critical_high_c=float(fs["temp_critical_high_c"]),

@@ -25,7 +25,7 @@ Cung cấp kênh WebSocket đẩy sự kiện thời gian thực từ `worker` v
 - **URL:** `ws(s)://<host>/ws?token=<JWT_ACCESS_TOKEN>` (qua Caddy HTTPS sẽ là `wss://<domain>/ws?token=...`).
 - **Quy trình handshake:**
   1. Đọc query param `token` (trước hoặc ngay khi accept). Nếu thiếu hoặc `decode_access_token(token)` lỗi (hết hạn/chữ ký sai) hoặc không tìm thấy `User` trong DB → đóng kết nối với mã `1008` (Policy Violation).
-  2. Lấy `farm_id = str(user.farm_id)` (lưu ý mọi role `viewer`, `operator`, `owner` đều được phép xem realtime của farm mình).
+  2. Lấy `farm_id = str(user.farm_id)` (người dùng `owner` nhận toàn bộ luồng sự kiện realtime thuộc farm mình).
   3. Đăng ký `WebSocket` vào nhóm kết nối theo `farm_id` (`dict[str, set[WebSocket]]`, bảo vệ bằng `asyncio.Lock`).
   4. Duy trì vòng nhận keepalive `ping`/`pong` (mỗi 25–30 s để Caddy/proxy không timeout kết nối rảnh); khi `WebSocketDisconnect` hoặc lỗi gửi → gỡ kết nối khỏi set.
 
@@ -77,7 +77,7 @@ Cung cấp kênh WebSocket đẩy sự kiện thời gian thực từ `worker` v
          "rssi": -60,
          "cfg_version_reported": 3,
          "cfg_version_desired": 3,
-         "actuators": {"pump_1": "off", "pump_2": "off", "fan": "on", "mist": "off"}
+         "actuators": {"pump_1": "off", "pump_2": "off", "fan": "on"}
        }
      }
      ```
@@ -119,8 +119,8 @@ Cung cấp kênh WebSocket đẩy sự kiện thời gian thực từ `worker` v
        "action": "on",
        "status": "applied",
        "reason": null,
-       "side_effects": ["mist_off"],
-       "state": {"pump_1": "off", "pump_2": "off", "fan": "on", "mist": "off"}
+       "side_effects": [],
+       "state": {"pump_1": "off", "pump_2": "off", "fan": "on"}
      }
    }
    ```

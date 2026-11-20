@@ -6,15 +6,15 @@
 ## 1. Phạm vi hệ thống (Bắt buộc tuân thủ)
 
 - **Trong phạm vi (MUST xây dựng):**
-  - 1 nhà kính mini thật: 2 zone, 2 sensor node ESP32, 1 gateway ESP32 + relay 4 kênh (`pump_1`, `pump_2`, `fan`, `mist`) + buzzer.
+  - 1 nhà kính mini thật: 2 zone, 2 sensor node ESP32, 1 gateway ESP32 + 3 kênh relay (`pump_1`, `pump_2`, `fan`) + buzzer.
   - Nhiều farm/nhà kính giả lập qua `tools/simulator` (đi qua đúng luồng HTTP provisioning + MQTT TLS).
   - Backend monolith 2 tiến trình (`api` và `worker`) trên Python 3.12 + FastAPI + PostgreSQL/TimescaleDB + Mosquitto 2.x.
-  - Web console React 18 + Vite + TypeScript (PWA + Web Push, giao diện tiếng Việt, responsive laptop & điện thoại).
+  - Web console React 18 + Vite + TypeScript (9 trang, giao diện tiếng Việt, responsive laptop & điện thoại, manifest PWA).
   - AI/ML **một bài toán duy nhất**: dự đoán năng suất cây trồng (`yield`) từ dữ liệu khí hậu gộp từ nhiều nhà kính và gợi ý cây nên trồng (`crop_recommendation`); CLI huấn luyện offline `ml/train.py`, nhập/xuất dữ liệu `ml/dataset.py`, đánh giá `ml/evaluate.py`.
   - Kiểm tra chất lượng dữ liệu bằng luật và Rule & Control Engine một chiến lược cố định (hysteresis).
   - Triển khai Docker Compose cho laptop (`dev`) và **một VPS Linux** (`prod`).
 - **Ngoài phạm vi (TUYỆT ĐỐI KHÔNG thêm):**
-  - Telegram bot, FCM/Firebase, app di động native.
+  - Web Push (VAPID / Service Worker), Email leo thang (SMTP), Telegram bot, FCM/Firebase, app di động native.
   - LLM, bảng `farm_activities`, học tăng cường (RL), phân loại bệnh từ ảnh, *federated learning* (lưu ý: huấn luyện **tập trung** trên dữ liệu gộp nhiều nhà kính là trong phạm vi).
   - Điều khiển thích nghi bằng ML (`adaptive`), dự báo rủi ro bằng ML (`risk_forecast`), thí nghiệm fixed vs adaptive, feedback cảnh báo.
   - PostgreSQL Row-Level Security (cô lập tenant thực hiện ở tầng ứng dụng theo `farm_id`; `yield_samples` không bao giờ lộ qua API).
@@ -42,20 +42,19 @@
 | Crop Profile Templates, Data Model & Security Core | `platform/core/` | [FEATURE_CROP_PROFILES_AND_DATA_MODEL.md](platform/core/FEATURE_CROP_PROFILES_AND_DATA_MODEL.md) |
 | Vi khí hậu (VPD, PPFD, DLI), Chất lượng dữ liệu & Đặc trưng khí hậu | `platform/core/` | [FEATURE_MICROCLIMATE_AND_QUALITY.md](platform/core/FEATURE_MICROCLIMATE_AND_QUALITY.md) |
 | CSDL PostgreSQL + TimescaleDB & Continuous Aggregates | `platform/migrations/` | [FEATURE_DATABASE_TIMESCALEDB.md](platform/migrations/FEATURE_DATABASE_TIMESCALEDB.md) |
-| Xác thực JWT, RBAC & Cô lập đa Tenant | `platform/api/` | [FEATURE_AUTH_RBAC_TENANCY.md](platform/api/FEATURE_AUTH_RBAC_TENANCY.md) |
+| Xác thực JWT, Một quyền duy nhất (`owner`) & Cô lập đa Tenant | `platform/api/` | [FEATURE_AUTH_RBAC_TENANCY.md](platform/api/FEATURE_AUTH_RBAC_TENANCY.md) |
 | Provisioning Gateway, Discovery & Ghép Node | `platform/api/` | [FEATURE_PROVISIONING_AND_PAIRING.md](platform/api/FEATURE_PROVISIONING_AND_PAIRING.md) |
 | Realtime WebSocket (`/ws`) | `platform/api/` | [FEATURE_WEBSOCKET_REALTIME.md](platform/api/FEATURE_WEBSOCKET_REALTIME.md) |
 | Đặc tả đầy đủ hợp đồng REST API (`/api/*`) | `platform/api/` | [FEATURE_REST_API_CONTRACTS.md](platform/api/FEATURE_REST_API_CONTRACTS.md) |
 | Worker Ingestion (Telemetry, Status, Discovery, Event) | `platform/worker/` | [FEATURE_INGESTION_PIPELINE.md](platform/worker/FEATURE_INGESTION_PIPELINE.md) |
 | Device Shadow & Đồng bộ cấu hình `cfg` có phiên bản | `platform/worker/` | [FEATURE_DEVICE_SHADOW_CONFIG.md](platform/worker/FEATURE_DEVICE_SHADOW_CONFIG.md) |
 | Command Service, ACK, Timeout & Hết hạn Manual | `platform/worker/` | [FEATURE_COMMAND_LIFECYCLE.md](platform/worker/FEATURE_COMMAND_LIFECYCLE.md) |
-| Rule & Control Engine (Hysteresis, Interlock, Risk) | `platform/worker/` | [FEATURE_RULE_CONTROL_ENGINE.md](platform/worker/FEATURE_RULE_CONTROL_ENGINE.md) |
-| Alert Service & Notification 4 lớp (WS, Push, Email, Buzzer) | `platform/worker/` | [FEATURE_ALERTS_AND_NOTIFICATIONS.md](platform/worker/FEATURE_ALERTS_AND_NOTIFICATIONS.md) |
+| Rule & Control Engine (Hysteresis, Risk) | `platform/worker/` | [FEATURE_RULE_CONTROL_ENGINE.md](platform/worker/FEATURE_RULE_CONTROL_ENGINE.md) |
+| Alert Service & Notification 2 lớp (WS, Buzzer) | `platform/worker/` | [FEATURE_ALERTS_AND_NOTIFICATIONS.md](platform/worker/FEATURE_ALERTS_AND_NOTIFICATIONS.md) |
 | AI Runtime Inference & Scheduler trong Worker | `platform/worker/` | [FEATURE_AI_RUNTIME_INFERENCE.md](platform/worker/FEATURE_AI_RUNTIME_INFERENCE.md) |
 | Kiểm thử đơn vị, tích hợp & Tiêu chí Demo (A–E) | `platform/tests/` | [FEATURE_TESTING_AND_ACCEPTANCE.md](platform/tests/FEATURE_TESTING_AND_ACCEPTANCE.md) |
 | Pipeline AI/ML Dự đoán năng suất & Gợi ý cây trồng | `ml/` | [FEATURE_AI_YIELD_AND_RECOMMENDATION.md](ml/FEATURE_AI_YIELD_AND_RECOMMENDATION.md) |
-| Web Console React 18 (10 trang & Biểu đồ trực tiếp) | `web/` | [FEATURE_WEB_CONSOLE_UI.md](web/FEATURE_WEB_CONSOLE_UI.md) |
-| PWA & Web Push (Service Worker, VAPID, iOS) | `web/` | [FEATURE_PWA_AND_WEB_PUSH.md](web/FEATURE_PWA_AND_WEB_PUSH.md) |
+| Web Console React 18 (9 trang & Biểu đồ trực tiếp) | `web/` | [FEATURE_WEB_CONSOLE_UI.md](web/FEATURE_WEB_CONSOLE_UI.md) |
 | Simulator TLS, Sinh dữ liệu tổng hợp & Thử tải | `tools/simulator/` | [FEATURE_SIMULATOR_AND_LOAD_TEST.md](tools/simulator/FEATURE_SIMULATOR_AND_LOAD_TEST.md) |
 | MQTT Broker Mosquitto, TLS & Dynamic Security ACL | `deploy/mosquitto/` | [FEATURE_MQTT_BROKER_SECURITY.md](deploy/mosquitto/FEATURE_MQTT_BROKER_SECURITY.md) |
 | Triển khai Docker Compose, Caddy, VPS & Bảo mật | `deploy/` | [FEATURE_DEPLOYMENT_AND_SECURITY.md](deploy/FEATURE_DEPLOYMENT_AND_SECURITY.md) |

@@ -4,7 +4,7 @@
 
 ## 1. Mục tiêu & Phạm vi
 
-Quản lý lược đồ cơ sở dữ liệu PostgreSQL + TimescaleDB bằng Alembic: lưu trữ cấu trúc đa tenant (`farms`, `users`, `greenhouses`), thiết bị (`gateways`, `device_nodes`, `device_state`), chuỗi thời gian (`readings` hypertable + `readings_1m`, `readings_1h`), vận hành điều khiển (`commands`, `actuator_logs`), cảnh báo/thông báo (`alerts`, `push_subscriptions`, `notification_prefs`), và vòng đời vụ trồng / AI năng suất (`crop_cycles`, `yield_samples`, `ml_models`, `predictions`).
+Quản lý lược đồ cơ sở dữ liệu PostgreSQL + TimescaleDB bằng Alembic: lưu trữ cấu trúc đa tenant (`farms`, `users`, `greenhouses`), thiết bị (`gateways`, `device_nodes`, `device_state`), chuỗi thời gian (`readings` hypertable + `readings_1m`, `readings_1h`), vận hành điều khiển (`commands`, `actuator_logs`), cảnh báo (`alerts`), và vòng đời vụ trồng / AI năng suất (`crop_cycles`, `yield_samples`, `ml_models`, `predictions`).
 
 - **Ngoài phạm vi:** Không bật PostgreSQL Row-Level Security (RLS là MAY; cô lập tenant thực hiện bằng `WHERE farm_id = ...` ở tầng API và tuyệt đối không mở endpoint đọc `yield_samples`); không tạo bảng `farm_activities` (ngoài phạm vi spec 2.2); không dùng dịch vụ CSDL cloud managed (chạy container trên VPS).
 
@@ -41,13 +41,19 @@ Các bước trong `upgrade()` để chuyển đổi sạch từ schema M2 sang 
 8. **Cập nhật bảng `predictions`:**
    - Chuyển sang cấu trúc mới (drop & recreate bảng `predictions` nếu chưa có dữ liệu cần giữ, hoặc migrate tương đương): khóa chính `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`, cột `ts`, `task CHECK (task IN ('yield_forecast','crop_recommendation'))`, `greenhouse_id NOT NULL`, `zone_id` (nullable), `crop_cycle_id` (nullable), `model_id`, `value`, `score`, `details`, `CHECK (task <> 'yield_forecast' OR zone_id IS NOT NULL)`, và index `(greenhouse_id, task, ts DESC)`.
 
-### 2.3 Tuỳ chọn có thể thêm sau (MAY)
+### 2.3 Các migration cập nhật sau M5 (`0005` – `0008`)
+- `20261119_0005_crop_cycle_feedback.py` (`rev 0005`): bổ sung cột `feedback` JSONB cho `crop_cycles`.
+- `20261120_0006_remove_mist_actuator.py` (`rev 0006`): xoá khoá `'mist'` khỏi `crop_profiles.parameters_json` và `device_state`.
+- `20261120_0007_single_owner_role.py` (`rev 0007`): chuẩn hoá `users.role` về một vai trò duy nhất `'owner'` (`CHECK (role = 'owner')`, `DEFAULT 'owner'`).
+- `20261120_0008_remove_push_and_email_escalation.py` (`rev 0008`): xoá hai bảng `push_subscriptions`, `notification_prefs` và cột `alerts.escalated_at` khi loại bỏ cơ chế Web Push và Email leo thang.
+
+### 2.4 Tuỳ chọn có thể thêm sau (MAY)
 - Compression policy cho `readings` cũ hơn 7 ngày (`timescaledb.compress`, `compress_segmentby='zone_id'`).
 
-## 3. Chi tiết Schema đích (18 bảng & Ràng buộc)
+## 3. Chi tiết Schema đích (16 bảng & Ràng buộc)
 
 1. **`farms`**: `id` UUID PK, `name` VARCHAR(100) NOT NULL, `created_at` TIMESTAMPTZ.
-2. **`users`**: `id` UUID PK, `farm_id` FK→`farms.id`, `email` UNIQUE NOT NULL, `password_hash` TEXT NOT NULL, `role` CHECK `('owner','operator','viewer')`, `created_at`.
+2. **`users`**: `id` UUID PK, `farm_id` FK→`farms.id`, `email` UNIQUE NOT NULL, `password_hash` TEXT NOT NULL, `role` CHECK `('owner')` DEFAULT `'owner'`, `created_at`.
 3. **`greenhouses`**: `id` UUID PK, `farm_id` FK→`farms.id`, `name`, `location`, `created_at`.
 4. **`gateways`**: `id` UUID PK, `greenhouse_id` UNIQUE FK→`greenhouses.id` (1-1), `mqtt_username` UNIQUE NOT NULL, `is_simulated` BOOL default `false`, `provisioned_at`, `online` BOOL default `false`, `last_seen`, `fw_version`, `rssi`.
 5. **`crop_profiles`**: `id` UUID PK, `farm_id` FK→`farms.id` (`NULL` = template hệ thống), `crop_code` VARCHAR(40) NOT NULL (`tomato_cherry | strawberry | lettuce | cucumber | bell_pepper`), `crop_name` NOT NULL, `variety`, `schema_version` INT default `2`, `parameters_json` JSONB NOT NULL.
@@ -60,21 +66,19 @@ Các bước trong `upgrade()` để chuyển đổi sạch từ schema M2 sang 
 10. **`actuator_logs`**: `id` UUID PK, `greenhouse_id` FK, `actuator`, `action`, `source` CHECK `('auto','manual','failsafe')`, `cmd_id` UUID, `duration_s`, `reason`, `created_at`. Index: `(greenhouse_id, created_at DESC)`.
 11. **`device_state`**: `greenhouse_id` PK FK→`greenhouses.id`, `reported` JSONB, `desired` JSONB (chứa `modes`), `cfg_version_desired` INT, `cfg_version_reported` INT, `updated_at`.
 12. **`alerts`**:
-    - `id` UUID PK, `greenhouse_id` FK, `zone_id` FK (nullable cho alert cấp gateway như `DEVICE_OFFLINE`), `alert_type` VARCHAR(50), `severity` CHECK `('info','warning','critical')`, `state` CHECK `('raised','notified','acknowledged','resolved')`, `dedupe_key` VARCHAR(120), `payload` JSONB, `created_at`, `notified_at`, `escalated_at`, `acknowledged_at`, `acked_by` FK→`users.id`, `resolved_at`.
+    - `id` UUID PK, `greenhouse_id` FK, `zone_id` FK (nullable cho alert cấp gateway như `DEVICE_OFFLINE`), `alert_type` VARCHAR(50), `severity` CHECK `('info','warning','critical')`, `state` CHECK `('raised','notified','acknowledged','resolved')`, `dedupe_key` VARCHAR(120), `payload` JSONB, `created_at`, `notified_at`, `acknowledged_at`, `acked_by` FK→`users.id`, `resolved_at`.
     - **Index đặc biệt:** `CREATE UNIQUE INDEX alerts_open_dedupe ON alerts (dedupe_key) WHERE state <> 'resolved'` → đảm bảo tại một thời điểm chỉ có tối đa 1 alert đang mở cho mỗi `dedupe_key` (`"{type}:{zone_id|greenhouse_id}"`).
-13. **`push_subscriptions`**: `id` UUID PK, `user_id` FK, `endpoint` UNIQUE TEXT, `p256dh`, `auth`, `user_agent`, `created_at`, `last_used_at`.
-14. **`notification_prefs`**: `user_id` PK FK→`users.id`, `push_enabled` (`true`), `email_enabled` (`true`), `min_severity` (`'warning'`).
-15. **`crop_cycles`** *(vụ trồng – dữ liệu theo tenant)*:
+13. **`crop_cycles`** *(vụ trồng – dữ liệu theo tenant)*:
     - `id` UUID PK, `zone_id` FK→`zones.id` NOT NULL, `crop_profile_id` FK→`crop_profiles.id` NOT NULL, `started_at` TIMESTAMPTZ NOT NULL, `harvested_at` TIMESTAMPTZ, `area_m2` REAL NOT NULL `CHECK (area_m2 > 0)`, `yield_kg` REAL `CHECK (yield_kg >= 0)`, `status` VARCHAR(10) NOT NULL DEFAULT `'active'` `CHECK (status IN ('active','harvested','abandoned'))`, `notes` TEXT, `created_by` FK→`users.id`, `created_at` TIMESTAMPTZ NOT NULL.
     - **Index đặc biệt:** `CREATE UNIQUE INDEX crop_cycles_one_active ON crop_cycles (zone_id) WHERE status = 'active'` → mỗi zone tại một thời điểm chỉ có tối đa 1 vụ đang trồng.
-16. **`yield_samples`** *(tập mẫu huấn luyện gộp từ nhiều nhà kính)*:
+14. **`yield_samples`** *(tập mẫu huấn luyện gộp từ nhiều nhà kính)*:
     - `id` UUID PK, `source` VARCHAR(10) NOT NULL `CHECK (source IN ('real','sim','synthetic','public'))`, `greenhouse_key` VARCHAR(100) NOT NULL (UUID nhà kính platform hoặc mã ngoài như `'syn-0042'`), `farm_id` FK→`farms.id` (nullable với dữ liệu ngoài platform), `crop_cycle_id` UNIQUE FK→`crop_cycles.id`, `crop_code` VARCHAR(40) NOT NULL, `started_at` TIMESTAMPTZ, `ended_at` TIMESTAMPTZ, `cycle_days` REAL, `feature_version` INT NOT NULL, `features` JSONB NOT NULL, `coverage` REAL, `yield_kg_m2` REAL NOT NULL `CHECK (yield_kg_m2 >= 0)`, `meta` JSONB, `created_at` TIMESTAMPTZ NOT NULL.
     - Index: `(crop_code)`, `(greenhouse_key)`.
     - **Bảo mật cô lập tenant:** `yield_samples` **không bao giờ** được trả qua API.
-17. **`ml_models`** *(mô hình toàn cục)*:
+15. **`ml_models`** *(mô hình toàn cục)*:
     - `id` UUID PK, `task` VARCHAR(30) NOT NULL DEFAULT `'yield'`, `version` INT NOT NULL, `feature_version` INT NOT NULL, `artifact_path` TEXT NOT NULL, `trained_at` TIMESTAMPTZ NOT NULL, `n_samples` INT, `n_greenhouses` INT, `source_mix` JSONB (`{"synthetic":n,"sim":m,"real":k,"public":p}`), `crops` JSONB (`[{"crop_code":"lettuce","n":412,"reference_kg_m2":3.0}]`), `metrics` JSONB (trên test nhà kính chưa thấy + theo cây + theo `source` + `top1`/`ndcg3` + `train_stats`), `baseline_metrics` JSONB (`{"B0":{...},"B1":{...}}`), `is_active` BOOL NOT NULL DEFAULT `false`, `notes` TEXT.
     - Ràng buộc: `UNIQUE (task, version)`.
-18. **`predictions`**:
+16. **`predictions`**:
     - `id` UUID PK, `ts` TIMESTAMPTZ NOT NULL, `task` VARCHAR(30) NOT NULL `CHECK (task IN ('yield_forecast','crop_recommendation'))`, `greenhouse_id` FK→`greenhouses.id` NOT NULL, `zone_id` FK→`zones.id` (chỉ `yield_forecast`), `crop_cycle_id` FK→`crop_cycles.id` (chỉ `yield_forecast`), `model_id` FK→`ml_models.id`, `value` REAL (`kg/m²` dự kiến với `yield_forecast`), `score` REAL (`relative_yield` với `yield_forecast` / điểm top-1 với `crop_recommendation`), `details` JSONB.
     - Ràng buộc: `CHECK (task <> 'yield_forecast' OR zone_id IS NOT NULL)`.
     - Index: `(greenhouse_id, task, ts DESC)`.

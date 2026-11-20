@@ -5,8 +5,7 @@ import { useAuth } from '../lib/auth'
 import type { TokenResponse } from '../lib/types'
 
 const DEV_ACCOUNTS = [
-  { label: 'Chủ farm 1: owner@greenhub.vn', email: 'owner@greenhub.vn' },
-  { label: 'Chủ farm 2: owner2@greenhub.vn', email: 'owner2@greenhub.vn' },
+  { label: 'Tài khoản mẫu (owner@greenhub.vn)', email: 'owner@greenhub.vn' },
 ]
 
 export default function LoginPage() {

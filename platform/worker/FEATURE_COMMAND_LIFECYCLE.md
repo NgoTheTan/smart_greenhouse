@@ -4,7 +4,7 @@
 
 ## 1. Mục tiêu & Phạm vi
 
-Đảm bảo mọi lệnh điều khiển actuator (`pump_1`, `pump_2`, `fan`, `mist`) xuất phát từ người dùng (`source='manual'` qua API) hoặc Rule Engine (`source='auto'`) đều được theo dõi trọn vòng đời với kiểm soát hết hạn (`expires_at`), không gửi lại lệnh `on` đã quá hạn, ghi nhận đầy đủ `actuator_logs` (bao gồm cả tác dụng phụ interlock), và tự động hết hạn chế độ `manual` khi tới `until`.
+Đảm bảo mọi lệnh điều khiển actuator (`pump_1`, `pump_2`, `fan`) xuất phát từ người dùng (`source='manual'` qua API) hoặc Rule Engine (`source='auto'`) đều được theo dõi trọn vòng đời với kiểm soát hết hạn (`expires_at`), không gửi lại lệnh `on` đã quá hạn, ghi nhận đầy đủ `actuator_logs`, và tự động hết hạn chế độ `manual` khi tới `until`.
 
 ## 2. Trạng thái hiện thực trong repo
 
@@ -56,8 +56,7 @@
 4. Cập nhật `DeviceState.reported["actuators"]` theo `payload.state` (nếu có).
 5. Nếu `payload.status == "applied"`:
    - Ghi 1 dòng `ActuatorLog(greenhouse_id, actuator=cmd.actuator, action=cmd.action, source=cmd.source, cmd_id=cmd.id, duration_s=cmd.duration_s, reason=cmd.reason)`.
-   - Duyệt `payload.side_effects` (ví dụ `["mist_off"]`): giải mã bằng `_parse_side_effect()` (`("mist", "off")`) và ghi thêm dòng `ActuatorLog(..., source=cmd.source, cmd_id=cmd.id, duration_s=None, reason="side_effect:mist_off")`.
-   - *(M3 cần lưu ý)*: nếu xảy ra `mist_off` khi quạt tự bật vì rủi ro, Rule Engine đồng thời đặt khóa `mist.lockout_s` (xem `FEATURE_RULE_CONTROL_ENGINE.md`).
+   - Duyệt `payload.side_effects` (nếu có): giải mã bằng `_parse_side_effect()` và ghi thêm dòng `ActuatorLog(..., source=cmd.source, cmd_id=cmd.id, duration_s=None, reason=f"side_effect:{effect}")`.
 6. Gọi `pg_notify(CHANNEL_WS, ...)` phát sự kiện `command_status` kèm `side_effects` và `state`.
 
 ## 5. Chế độ `auto` / `manual` & Hết hạn (`expire_manual_modes`)
@@ -65,12 +64,12 @@
 - Lưu tại `device_state.desired["modes"][actuator] = {"mode": "auto"|"manual", "until": "<ISO8601>|null"}`.
 - Khi người dùng gọi `PUT /api/greenhouses/{id}/modes`: cập nhật mode cho actuator đó.
 - Mỗi 5 s trong `scheduler.py`, `expire_manual_modes(session)` quét tất cả `DeviceState`: nếu `mode == "manual"` và `until` hợp lệ thỏa `until <= now`, tự động reset thành `{"mode": "auto", "until": None}`.
-- Ghi chú quan hệ với Rule Engine: khi actuator ở `manual` còn hiệu lực, Rule Engine không gửi lệnh bình thường cho actuator đó, **NGOẠI TRỪ** ép tắt `mist` khi quạt tự bật vì rủi ro (an toàn thắng thủ công).
+- Ghi chú quan hệ với Rule Engine: khi actuator ở `manual` còn hiệu lực, Rule Engine không gửi lệnh bình thường cho actuator đó.
 
 ## 6. Kiểm tra & Xác nhận
 
 - Unit tests (`platform/tests/test_worker_and_routers_unit.py`):
-  - `test_rbac_and_gateway_offline_409`
+  - `test_auth_and_gateway_offline_409`
   - `test_handle_ack_records_side_effects_and_updates_shadow`
   - `test_expire_manual_modes_resets_past_until`
-- Integration test (`test_m2_end_to_end_pipeline`): gửi `mist on` rồi `fan on`, xác nhận `cmd` thành `applied` và `reported.actuators == {"fan": "on", "mist": "off"}`.
+- Integration test (`test_m2_end_to_end_pipeline`): gửi `mist on` bị từ chối `422`, gửi `fan on` xác nhận `cmd` thành `applied` và `reported.actuators["fan"] == "on"`.

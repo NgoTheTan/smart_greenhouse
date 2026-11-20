@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 
-from api.deps import CurrentOperator, CurrentViewer, DbSession
+from api.deps import CurrentUser, DbSession
 from api.routers.greenhouses import get_owned_greenhouse
 from core.config import get_settings
 from core.models import Command, Gateway
@@ -27,7 +27,7 @@ router = APIRouter(prefix="/greenhouses", tags=["commands"])
 async def create_command(
     gh_id: uuid.UUID,
     body: CommandCreateRequest,
-    user: CurrentOperator,
+    user: CurrentUser,
     session: DbSession,
 ) -> Command:
     await get_owned_greenhouse(session, gh_id, user.farm_id)
@@ -71,7 +71,7 @@ async def create_command(
 @router.get("/{gh_id}/commands", response_model=list[CommandResponse])
 async def list_commands(
     gh_id: uuid.UUID,
-    user: CurrentViewer,
+    user: CurrentUser,
     session: DbSession,
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
 ) -> list[Command]:
@@ -91,7 +91,7 @@ async def list_commands(
 async def update_actuator_mode(
     gh_id: uuid.UUID,
     body: ActuatorModeUpdateRequest,
-    user: CurrentOperator,
+    user: CurrentUser,
     session: DbSession,
 ) -> dict:
     await get_owned_greenhouse(session, gh_id, user.farm_id)

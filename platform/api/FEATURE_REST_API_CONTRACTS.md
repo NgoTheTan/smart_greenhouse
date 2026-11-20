@@ -7,48 +7,37 @@
 Tổng hợp đầy đủ hợp đồng giao tiếp HTTP REST dưới tiền tố `/api` (OpenAPI tại `/api/docs`), bao gồm các endpoint nền tảng (M2) và các endpoint vận hành/AI (M3–M5) để backend (`platform/api/`) và frontend (`web/`) khớp nhau tuyệt đối.
 
 - **Quy tắc bất biến:**
-  - Mọi endpoint (trừ `/api/health`, `/api/auth/login`) yêu cầu JWT Bearer token và kiểm tra RBAC (`viewer` / `operator` / `owner`).
+  - Mọi endpoint (trừ `/api/health`, `/api/auth/login`, `/api/auth/register`) yêu cầu JWT Bearer token với một quyền người dùng duy nhất (`owner`).
   - Cô lập tenant ở tầng ứng dụng theo `user.farm_id`. Bảng `yield_samples` chứa dữ liệu gộp đa nhà kính cho huấn luyện toàn cục nên **tuyệt đối không** có endpoint đọc trực tiếp `yield_samples`.
   - Tiến trình `api` **KHÔNG** import `joblib`, `pandas`, `scikit-learn`, `lightgbm` (bảo vệ ngân sách RAM ≤ 384 MB trên VPS 2 GB). Mọi truy vấn ở `/models`, `/predictions`, `/recommendations` chỉ dùng SQL thuần/SQLAlchemy trên `ml_models` và `predictions`.
 
 ## 2. Bảng tổng hợp Endpoint
 
-| Nhóm | Endpoint | Vai trò tối thiểu | Trạng thái | File router |
+| Nhóm | Endpoint | Quyền | Trạng thái | File router |
 |---|---|---|---|---|
 | System | `GET /api/health` | Công khai | **Đã xong** | `api/main.py` |
-| Auth | `POST /api/auth/login` | Công khai | **Đã xong** | `api/routers/auth.py` |
-| Auth | `GET /api/me` | `viewer` | **Đã xong** | `api/routers/auth.py` |
-| Farm/GH | `GET /api/greenhouses`, `GET /api/greenhouses/{id}` | `viewer` | **Đã xong** | `api/routers/greenhouses.py` |
-| Farm/GH | `POST /api/greenhouses` | `owner` | **Đã xong** | `api/routers/greenhouses.py` |
-| Config Sync | `GET /api/greenhouses/{id}/config-sync` | `viewer` | **Đã xong** | `api/routers/greenhouses.py` |
-| Thiết bị | `POST /api/gateways` | `owner` | **Đã xong** | `api/routers/devices.py` |
-| Thiết bị | `GET /api/gateways/{id}/status` | `viewer` | **Đã xong** | `api/routers/devices.py` |
-| Thiết bị | `GET /api/nodes?status=` | `owner` | **Đã xong** | `api/routers/devices.py` |
-| Thiết bị | `POST /api/nodes/{mac}/pair` | `owner` | **Đã xong** | `api/routers/devices.py` |
-| Thiết bị | `PUT /api/zones/{id}/calibration` | `owner` | **Đã xong** | `api/routers/devices.py` |
-| Zone | `GET /api/zones/{id}`, `PUT /api/zones/{id}` | `viewer` / `owner` | **Cần cập nhật (`name`, `crop_profile_id`, `area_m2`)** | `api/routers/zones.py` |
-| Dữ liệu | `GET /api/zones/{id}/readings?from&to&agg=raw\|1m\|1h` | `viewer` | **Đã xong** | `api/routers/zones.py` |
-| Dữ liệu | `GET /api/zones/{id}/dli?date=` | `viewer` | **Đã xong** | `api/routers/zones.py` |
-| Crop Profile | `GET /api/crop-profiles`, `GET /api/crop-profiles/{id}`, `PUT /api/crop-profiles/{id}` | `viewer` / `owner` | **Cần cập nhật (`schema_version=2`, `crop_code`)** | `api/routers/zones.py` |
-| Vụ trồng | `GET /api/zones/{id}/cycles` | `viewer` | **Cần làm (M4–M5)** | `api/routers/cycles.py` |
-| Vụ trồng | `POST /api/zones/{id}/cycles`, `POST /api/cycles/{id}/harvest`, `POST /api/cycles/{id}/abandon` | `operator` | **Cần làm (M4–M5)** | `api/routers/cycles.py` |
-| Điều khiển | `POST /api/greenhouses/{id}/commands`, `PUT /api/greenhouses/{id}/modes` | `operator` | **Đã xong** | `api/routers/commands.py` |
-| Điều khiển | `GET /api/greenhouses/{id}/commands` | `viewer` | **Đã xong** | `api/routers/commands.py` |
-| Cảnh báo | `GET /api/alerts?state=` | `viewer` | **Cần cập nhật (chỉ giữ trường vòng đời cảnh báo)** | `api/routers/alerts.py` |
-| Cảnh báo | `POST /api/alerts/{id}/ack` | `operator` | **Đã xong / giữ nguyên** | `api/routers/alerts.py` |
-| Push & Prefs | `GET /api/push/public-key`, `POST /api/push/subscribe`, `DELETE /api/push/subscribe`, `GET/PUT /api/me/notification-prefs` | `viewer` | **Đã xong** | `api/routers/push.py` |
-| Dự báo AI | `GET /api/zones/{id}/predictions?task=yield_forecast&from&to` | `viewer` | **Cần cập nhật (M5)** | `api/routers/models.py` |
-| Gợi ý AI | `GET /api/greenhouses/{id}/recommendations` | `viewer` | **Cần làm (M5)** | `api/routers/recommendations.py` |
-| Gợi ý AI | `POST /api/greenhouses/{id}/recommendations/refresh` | `operator` | **Cần làm (M5)** | `api/routers/recommendations.py` |
-| Mô hình ML | `GET /api/models`, `GET /api/models/active`, `GET /api/models/{id}` | `viewer` | **Cần cập nhật (M5)** | `api/routers/models.py` |
+| Auth | `POST /api/auth/login`, `POST /api/auth/register` | Công khai | **Đã xong** | `api/routers/auth.py` |
+| Auth | `GET /api/me` | `owner` | **Đã xong** | `api/routers/auth.py` |
+| Farm/GH | `GET /api/greenhouses`, `GET /api/greenhouses/{id}`, `POST /api/greenhouses` | `owner` | **Đã xong** | `api/routers/greenhouses.py` |
+| Config Sync | `GET /api/greenhouses/{id}/config-sync` | `owner` | **Đã xong** | `api/routers/greenhouses.py` |
+| Thiết bị | `POST /api/gateways`, `GET /api/gateways/{id}/status`, `GET /api/nodes?status=`, `POST /api/nodes/{mac}/pair`, `PUT /api/zones/{id}/calibration` | `owner` | **Đã xong** | `api/routers/devices.py` |
+| Zone | `GET /api/zones/{id}`, `PUT /api/zones/{id}` | `owner` | **Đã xong** | `api/routers/zones.py` |
+| Dữ liệu | `GET /api/zones/{id}/readings?from&to&agg=raw\|1m\|1h`, `GET /api/zones/{id}/dli?date=` | `owner` | **Đã xong** | `api/routers/zones.py` |
+| Crop Profile | `GET /api/crop-profiles`, `GET /api/crop-profiles/{id}`, `PUT /api/crop-profiles/{id}` | `owner` | **Đã xong** | `api/routers/zones.py` |
+| Vụ trồng | `GET /api/zones/{id}/cycles`, `POST /api/zones/{id}/cycles`, `POST /api/cycles/{id}/harvest`, `POST /api/cycles/{id}/abandon` | `owner` | **Đã xong** | `api/routers/cycles.py` |
+| Điều khiển | `POST /api/greenhouses/{id}/commands`, `PUT /api/greenhouses/{id}/modes`, `GET /api/greenhouses/{id}/commands` | `owner` | **Đã xong** | `api/routers/commands.py` |
+| Cảnh báo | `GET /api/alerts?state=`, `POST /api/alerts/{id}/ack` | `owner` | **Đã xong** | `api/routers/alerts.py` |
+| Dự báo AI | `GET /api/zones/{id}/predictions?task=yield_forecast&from&to` | `owner` | **Đã xong** | `api/routers/models.py` |
+| Gợi ý AI | `GET /api/greenhouses/{id}/recommendations`, `POST /api/greenhouses/{id}/recommendations/refresh` | `owner` | **Đã xong** | `api/routers/recommendations.py` |
+| Mô hình ML | `GET /api/models`, `GET /api/models/active`, `GET /api/models/{id}` | `owner` | **Đã xong** | `api/routers/models.py` |
 
-*(Gợi ý bổ sung tiện cho Web Console: `GET /api/greenhouses/{id}/actuator-logs` để vẽ lớp phủ lịch sử hoạt động bơm/quạt/tạo ẩm trên biểu đồ trang Zone.)*
+*(Gợi ý bổ sung tiện cho Web Console: `GET /api/greenhouses/{id}/actuator-logs` để vẽ lớp phủ lịch sử hoạt động bơm/quạt trên biểu đồ trang Zone.)*
 
 ## 3. Chi tiết Hợp đồng Endpoint (M3–M5 & Cập nhật)
 
 ### 3.1 Zone & Crop Profiles (`api/routers/zones.py`)
 
-#### `PUT /api/zones/{zone_id}` (`CurrentOwner`)
+#### `PUT /api/zones/{zone_id}` (`CurrentUser`)
 - Kiểm tra `zone_id` thuộc `user.farm_id` (`404` nếu không tìm thấy).
 - **Request JSON:** nhận `name`, `crop_profile_id`, `area_m2`:
   ```json
@@ -78,14 +67,14 @@ Tổng hợp đầy đủ hợp đồng giao tiếp HTTP REST dưới tiền t�
   }
   ```
 
-#### `GET /api/crop-profiles` (`CurrentViewer`)
+#### `GET /api/crop-profiles` (`CurrentUser`)
 - Trả về toàn bộ template hệ thống (`farm_id IS NULL`, gồm 10 bản cho 5 cây × `real`/`demo`) cộng với các profile riêng của farm (`farm_id == user.farm_id`).
 - **Response `200 OK`:** danh sách `CropProfileResponse` (kèm `crop_code`, `schema_version = 2`).
 
-#### `GET /api/crop-profiles/{profile_id}` (`CurrentViewer`)
+#### `GET /api/crop-profiles/{profile_id}` (`CurrentUser`)
 - Kiểm tra `farm_id IS NULL` hoặc `farm_id == user.farm_id` (`404` nếu thuộc farm khác hoặc không tồn tại).
 
-#### `PUT /api/crop-profiles/{profile_id}` (`CurrentOwner`)
+#### `PUT /api/crop-profiles/{profile_id}` (`CurrentUser`)
 - Validate `parameters_json` theo `CropParameters` (`schema_version = 2`: bắt buộc có `light.dli_optimal`, `cycle.days`, `yield.reference_kg_m2`, `ai.{recommend_window_h, min_cycle_hours, inference_interval_s, min_coverage}`; sai schema → `422 Unprocessable Entity`).
 - **Quy tắc clone template hệ thống:** nếu bản ghi gốc có `farm_id IS NULL`, không sửa bản hệ thống mà tạo bản sao mới gắn `farm_id = user.farm_id` (giữ `crop_code` hoặc cập nhật nếu truyền hợp lệ trong danh sách 5 `crop_code`), chuyển các `zones` của farm đang trỏ vào template cũ sang bản mới, rồi tăng `cfg_version_desired` và phát `pg_notify` `cfg_updated`.
 - **Request JSON mẫu:**
@@ -103,7 +92,6 @@ Tổng hợp đầy đủ hợp đồng giao tiếp HTTP REST dưới tiền t�
       "disease": {"rh_gt": 85.0, "temp_range_c": [15.0, 25.0], "fungal_minutes_alert": 5},
       "irrigation": {"max_run_s": 15, "min_gap_s": 90, "max_total_s_per_hour": 120, "soil_settle_s": 30},
       "fan": {"min_on_s": 60, "max_on_s": 300},
-      "mist": {"max_on_s": 300, "lockout_s": 120},
       "risk": {"vpd_low_duration_min": 3},
       "cycle": {"days": 40},
       "yield": {"reference_kg_m2": 3.0},
@@ -130,7 +118,7 @@ Tổng hợp đầy đủ hợp đồng giao tiếp HTTP REST dưới tiền t�
 
 ### 3.2 Vụ trồng (`api/routers/cycles.py`)
 
-#### `GET /api/zones/{zone_id}/cycles` (`CurrentViewer`)
+#### `GET /api/zones/{zone_id}/cycles` (`CurrentUser`)
 - Kiểm tra `zone_id` thuộc `user.farm_id` (`404` nếu không tìm thấy).
 - Query tuỳ chọn: `status ∈ {'active', 'harvested', 'abandoned'}`, `limit` (mặc định `50`, `1..200`). Sắp xếp `started_at DESC`.
 - **Response `200 OK`:**
@@ -155,7 +143,7 @@ Tổng hợp đầy đủ hợp đồng giao tiếp HTTP REST dưới tiền t�
   ]
   ```
 
-#### `POST /api/zones/{zone_id}/cycles` (`CurrentOperator`)
+#### `POST /api/zones/{zone_id}/cycles` (`CurrentUser`)
 - Kiểm tra `zone_id` thuộc `user.farm_id` (`404` nếu không tìm thấy).
 - Kiểm tra `zone_id` chưa có vụ trồng nào đang `status = 'active'` (ràng buộc `crop_cycles_one_active`). Nếu đã có → trả `409 Conflict` (`{"detail": "zone_already_has_active_cycle"}`).
 - **Request JSON:**
@@ -175,9 +163,9 @@ Tổng hợp đầy đủ hợp đồng giao tiếp HTTP REST dưới tiền t�
   3. Tự động cập nhật `zones.crop_profile_id = body.crop_profile_id` (và `zones.planting_date = started_at.date()`), tăng `cfg_version_desired` (`bump_cfg_version`) và gửi `pg_notify(CHANNEL_WORKER, {"type": "cfg_updated", "greenhouse_id": str(gh.id)})` trước commit.
   4. Phát `pg_notify(CHANNEL_WS, {"farm_id": str(user.farm_id), "type": "crop_cycle", "data": {...}})` sự kiện `event="started"`.
 - **Response `201 Created`:** trả `CropCycleResponse` như mẫu trên (`harvested_at: null`, `yield_kg: null`, `yield_kg_m2: null`, `status: "active"`).
-- **Mã lỗi:** `401`, `403` (viewer), `404` (zone hoặc crop_profile không thuộc farm), `409` (zone đã có vụ active), `422` (thiếu/sai `area_m2`).
+- **Mã lỗi:** `401`, `404` (zone hoặc crop_profile không thuộc farm), `409` (zone đã có vụ active), `422` (thiếu/sai `area_m2`).
 
-#### `POST /api/cycles/{cycle_id}/harvest` (`CurrentOperator`)
+#### `POST /api/cycles/{cycle_id}/harvest` (`CurrentUser`)
 - Kiểm tra `cycle_id` thuộc `user.farm_id` qua `CropCycle → Zone → Greenhouse` (`404` nếu không tìm thấy).
 - Nếu `cycle.status != 'active'` → `409 Conflict` (`{"detail": "cycle_not_active"}`).
 - **Request JSON:**
@@ -196,7 +184,7 @@ Tổng hợp đầy đủ hợp đồng giao tiếp HTTP REST dưới tiền t�
 - **Response `200 OK`:** trả `CropCycleResponse` đã cập nhật.
 - **Mã lỗi:** `401`, `403`, `404`, `409` (vụ không ở trạng thái `active`), `422` (`yield_kg < 0` hoặc `harvested_at < started_at`).
 
-#### `POST /api/cycles/{cycle_id}/abandon` (`CurrentOperator`)
+#### `POST /api/cycles/{cycle_id}/abandon` (`CurrentUser`)
 - Kiểm tra `cycle_id` thuộc `user.farm_id` (`404` nếu không tìm thấy).
 - Nếu `cycle.status != 'active'` → `409 Conflict` (`{"detail": "cycle_not_active"}`).
 - **Request JSON (tuỳ chọn body rỗng `{}`):**
@@ -212,30 +200,20 @@ Tổng hợp đầy đủ hợp đồng giao tiếp HTTP REST dưới tiền t�
 
 ### 3.3 Cảnh báo (`api/routers/alerts.py`)
 
-- **`GET /api/alerts?state=&greenhouse_id=&limit=100`** (`CurrentViewer`):
+- **`GET /api/alerts?state=&greenhouse_id=&limit=100`** (`CurrentUser`):
   - Lọc bắt buộc theo `Greenhouse.farm_id == user.farm_id`.
   - Lọc tuỳ chọn `state ∈ {'raised','notified','acknowledged','resolved'}` hoặc `open` (`state != 'resolved'`), `greenhouse_id`. Sắp xếp `created_at DESC`.
-  - Trả về các trường `AlertResponse`: `id, greenhouse_id, zone_id, alert_type, severity, state, dedupe_key, payload, created_at, notified_at, escalated_at, acknowledged_at, acked_by, resolved_at`.
-- **`POST /api/alerts/{alert_id}/ack`** (`CurrentOperator`):
+  - Trả về các trường `AlertResponse`: `id, greenhouse_id, zone_id, alert_type, severity, state, dedupe_key, payload, created_at, notified_at, acknowledged_at, acked_by, resolved_at`.
+- **`POST /api/alerts/{alert_id}/ack`** (`CurrentUser`):
   - Kiểm tra alert thuộc `user.farm_id` (`404` nếu không tìm thấy).
   - Nếu `state == 'resolved'` → `409 Conflict`. Nếu `raised`/`notified` → chuyển `state = 'acknowledged'`, `acknowledged_at = now()`, `acked_by = user.id`.
   - Phát `pg_notify(CHANNEL_WS, ...)` sự kiện `alert`.
 
 ---
 
-### 3.4 Web Push & Tuỳ chọn thông báo (`api/routers/push.py`)
+### 3.4 Dự báo năng suất (`api/routers/models.py`)
 
-- **`GET /api/push/public-key`** (`CurrentViewer`): trả `{"public_key": Settings.vapid_public_key}` (`503` nếu chưa cấu hình).
-- **`POST /api/push/subscribe`** (`CurrentViewer`): nhận `{"endpoint": "https://...", "keys": {"p256dh": "...", "auth": "..."}}` (kèm `User-Agent`), upsert theo `endpoint`, trả `201`/`200`.
-- **`DELETE /api/push/subscribe`** (`CurrentViewer`): nhận `{"endpoint": "..."}` (body hoặc query param), xóa subscription thuộc `user.id`.
-- **`GET /api/me/notification-prefs`** & **`PUT /api/me/notification-prefs`** (`CurrentViewer`):
-  - `PUT` body: `{"push_enabled": bool, "email_enabled": bool, "min_severity": "info" | "warning" | "critical"}`.
-
----
-
-### 3.5 Dự báo năng suất (`api/routers/models.py`)
-
-- **`GET /api/zones/{zone_id}/predictions?task=yield_forecast&from=&to=&limit=100`** (`CurrentViewer`):
+- **`GET /api/zones/{zone_id}/predictions?task=yield_forecast&from=&to=&limit=100`** (`CurrentUser`):
   - Kiểm tra `zone_id` thuộc `user.farm_id` (`404` nếu không tìm thấy).
   - Query:
     - `task`: mặc định `"yield_forecast"` (chỉ hỗ trợ `"yield_forecast"` ở endpoint cấp zone; truyền giá trị khác → `422`).
@@ -277,9 +255,9 @@ Tổng hợp đầy đủ hợp đồng giao tiếp HTTP REST dưới tiền t�
 
 ---
 
-### 3.6 Gợi ý cây trồng (`api/routers/recommendations.py`)
+### 3.5 Gợi ý cây trồng (`api/routers/recommendations.py`)
 
-#### `GET /api/greenhouses/{greenhouse_id}/recommendations` (`CurrentViewer`)
+#### `GET /api/greenhouses/{greenhouse_id}/recommendations` (`CurrentUser`)
 - Kiểm tra `greenhouse_id` thuộc `user.farm_id` (`404` nếu không tìm thấy).
 - Truy vấn bản ghi mới nhất (`ts DESC LIMIT 1`) trong `predictions` có `greenhouse_id == id` và `task == 'crop_recommendation'`.
 - Nếu nhà kính chưa từng có bản ghi gợi ý (hoặc chưa có mô hình active) → trả `200 OK` với `null` (UI hiển thị trạng thái chờ/"Chưa có mô hình").
@@ -371,7 +349,7 @@ Tổng hợp đầy đủ hợp đồng giao tiếp HTTP REST dưới tiền t�
   }
   ```
 
-#### `POST /api/greenhouses/{greenhouse_id}/recommendations/refresh` (`CurrentOperator`)
+#### `POST /api/greenhouses/{greenhouse_id}/recommendations/refresh` (`CurrentUser`)
 - Kiểm tra `greenhouse_id` thuộc `user.farm_id` (`404` nếu không tìm thấy).
 - Không nhận body bắt buộc (`{}` hoặc rỗng).
 - Gửi `pg_notify(CHANNEL_WORKER, {"type": "recommend", "greenhouse_id": str(gh.id)})` (lưu ý dùng `COMMIT` trước khi client nhận `202` để worker đọc được trạng thái mới nhất). Worker tính lại gợi ý và phát kết quả qua WebSocket `prediction` (`task="crop_recommendation"`).
@@ -382,18 +360,18 @@ Tổng hợp đầy đủ hợp đồng giao tiếp HTTP REST dưới tiền t�
     "greenhouse_id": "22222222-2222-4222-8222-222222222222"
   }
   ```
-- **Mã lỗi:** `401`, `403` (viewer), `404` (greenhouse không thuộc farm).
+- **Mã lỗi:** `401`, `404` (greenhouse không thuộc farm).
 
 ---
 
-### 3.7 Mô hình AI (`api/routers/models.py`)
+### 3.6 Mô hình AI (`api/routers/models.py`)
 
 - **Mô hình toàn cục & Cô lập tenant:**
   - Toàn hệ thống chỉ có mô hình toàn cục `task = 'yield'`, huấn luyện offline từ `yield_samples` gộp đa nhà kính.
   - Đã **bỏ** query `?zone_id=`. Các endpoint `/models*` chỉ trả metadata và số liệu tổng hợp, **tuyệt đối không** trả bất kỳ bản ghi `yield_samples` nào.
   - Kích hoạt mô hình được thực hiện bởi CLI `ml/train.py` theo Activation Gate; không mở endpoint kích hoạt thủ công qua API.
 
-#### `GET /api/models` (`CurrentViewer`)
+#### `GET /api/models` (`CurrentUser`)
 - Trả danh sách các phiên bản `ml_models` (`ORDER BY version DESC`).
 - **Response `200 OK`:**
   ```json
@@ -430,7 +408,7 @@ Tổng hợp đầy đủ hợp đồng giao tiếp HTTP REST dưới tiền t�
   ]
   ```
 
-#### `GET /api/models/active` (`CurrentViewer`)
+#### `GET /api/models/active` (`CurrentUser`)
 - Trả mô hình có `is_active = true` (hoặc `null` nếu chưa có mô hình nào được kích hoạt), **kèm** trường `feature_drift` trong 7 ngày gần nhất.
 - **Cách tính `feature_drift` (thuần SQL/Python, không import ML, cô lập tenant):**
   - Lấy `train_stats` (mean, std của từng đặc trưng trên tập train toàn cục) lưu sẵn trong `ml_models.metrics.train_stats` khi `ml/train.py` huấn luyện.
@@ -464,13 +442,13 @@ Tổng hợp đầy đủ hợp đồng giao tiếp HTTP REST dưới tiền t�
   }
   ```
 
-#### `GET /api/models/{model_id}` (`CurrentViewer`)
+#### `GET /api/models/{model_id}` (`CurrentUser`)
 - Trả chi tiết 1 mô hình theo `model_id` (`404` nếu không tồn tại), cùng schema như `GET /api/models/active` (bao gồm `feature_drift` 7 ngày tính trên `predictions` thuộc `user.farm_id`).
 
 ## 4. Mã lỗi HTTP chuẩn (MUST)
 
 - `401 Unauthorized`: thiếu/sai/hết hạn JWT hoặc sai mật khẩu login.
-- `403 Forbidden`: sai vai trò RBAC (`viewer` gọi endpoint `operator`/`owner`, hoặc `operator` gọi endpoint `owner`), hoặc ghép MAC thuộc farm khác.
+- `403 Forbidden`: ghép MAC thuộc farm khác.
 - `404 Not Found`: tài nguyên không tồn tại hoặc thuộc farm khác (`greenhouse_id`, `zone_id`, `cycle_id`, `alert_id`, `crop_profile_id`, `model_id`).
 - `409 Conflict`:
   - `detail="gateway_offline"` khi gọi `POST /api/greenhouses/{id}/commands` lúc gateway offline (spec mục 6.5 & 9).
@@ -479,4 +457,3 @@ Tổng hợp đầy đủ hợp đồng giao tiếp HTTP REST dưới tiền t�
   - Vụ trồng không ở trạng thái `active` khi gọi `POST /api/cycles/{id}/harvest` hoặc `POST /api/cycles/{id}/abandon`.
   - Alert đã `resolved` khi gọi `POST /api/alerts/{id}/ack`.
 - `422 Unprocessable Entity`: sai schema Pydantic (thiếu `duration_s` khi `action='on'`, sai MAC, `soil_dry_raw == soil_wet_raw`, `parameters_json` không hợp lệ `schema_version = 2`, `area_m2 <= 0` hoặc thiếu `area_m2` khi tạo vụ, `yield_kg < 0`, `harvested_at < started_at`, `task` không hợp lệ).
-- `503 Service Unavailable`: `GET /api/push/public-key` khi server chưa cấu hình khóa VAPID.
