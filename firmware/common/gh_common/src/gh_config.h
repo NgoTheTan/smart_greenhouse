@@ -5,23 +5,16 @@
 
 namespace gh {
 
-// Kênh Wi-Fi quét khi tìm gateway (spec 4.2)
-constexpr uint8_t WIFI_CH_MIN = 1;
-constexpr uint8_t WIFI_CH_MAX = 13;
-constexpr uint8_t SEND_FAIL_RESCAN = 5;        // N lần gửi lỗi liên tiếp -> quét lại kênh
-constexpr uint32_t HELLO_UNPAIRED_MS = 30000;  // HELLO định kỳ khi chưa ghép
-constexpr uint32_t CFG_RX_WINDOW_MS = 200;     // Cửa sổ chờ CfgPkt sau khi gửi ESP-NOW
-constexpr uint32_t SCAN_CH_WAIT_MS = 150;      // Thời gian chờ HELLO_ACK mỗi kênh Wi-Fi
+// Cấu hình Wi-Fi & UDP dùng chung giữa Sensor Node (client) và Gateway (server)
+constexpr char WIFI_SSID[] = "Greenhouse-IOT";
+constexpr char WIFI_PASS[] = "12345678";
+constexpr uint16_t UDP_PORT = 4210;
 
-// Chu kỳ đo & hiệu chuẩn ẩm đất mặc định
+// Chu kỳ đo & hiệu chuẩn ẩm đất mặc định (cảm biến xuất ~1.9V khi khô -> ADC 12-bit ESP32 ≈ 2230)
 constexpr uint16_t SENSOR_MEASURE_INTERVAL_S = 5;  // Chu kỳ đo cảm biến tại biên (5 giây)
-#ifdef DEMO_MODE
 constexpr uint16_t DEFAULT_SAMPLE_INTERVAL_S = 5;
-#else
-constexpr uint16_t DEFAULT_SAMPLE_INTERVAL_S = 60;
-#endif
-constexpr uint16_t DEFAULT_SOIL_DRY_RAW = 2900;
-constexpr uint16_t DEFAULT_SOIL_WET_RAW = 1300;
+constexpr uint16_t DEFAULT_SOIL_DRY_RAW = 2230;
+constexpr uint16_t DEFAULT_SOIL_WET_RAW = 1000;
 
 // Dải vật lý hợp lệ & ngưỡng spike (spec 8.2 A1, khớp platform/core/quality.py)
 constexpr float AIR_T_MIN = -10.0f, AIR_T_MAX = 60.0f;
@@ -54,4 +47,3 @@ inline uint8_t soilPct(uint16_t raw, uint16_t dryRaw, uint16_t wetRaw) {
 }
 
 }  // namespace gh
-

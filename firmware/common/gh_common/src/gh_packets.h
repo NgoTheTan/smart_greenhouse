@@ -1,5 +1,4 @@
-// GreenHub - gói tin ESP-NOW (spec mục 4.4)
-// Nhị phân, little-endian, packed, <= 250 byte.
+// GreenHub - cấu trúc dữ liệu telemetry & cờ lỗi dùng chung giữa node và gateway
 #pragma once
 #include <stdint.h>
 
@@ -15,12 +14,10 @@
 
 enum PktType : uint8_t {
   PKT_TELEMETRY = 1,
-  PKT_HELLO = 2,
-  PKT_HELLO_ACK = 3,
   PKT_CFG = 4,
 };
 
-// bit trong TelemetryPkt.flags
+// bit trong TelemetryPkt.flags (khớp platform/core/quality.py)
 enum TelemetryFlag : uint8_t {
   FLAG_AHT_ERR = 1 << 0,
   FLAG_SOIL_ERR = 1 << 1,
@@ -41,16 +38,6 @@ struct __attribute__((packed)) TelemetryPkt {
   uint8_t fw_major, fw_minor;
 };
 
-struct __attribute__((packed)) HelloPkt {
-  uint8_t type;
-  uint8_t fw_major, fw_minor;
-};
-
-struct __attribute__((packed)) HelloAckPkt {
-  uint8_t type;
-  uint8_t channel;
-};
-
 struct __attribute__((packed)) CfgPkt {
   uint8_t type;  // PKT_CFG
   uint8_t zone;
@@ -59,11 +46,3 @@ struct __attribute__((packed)) CfgPkt {
   uint16_t soil_wet_raw;
   uint16_t cfg_version;
 };
-
-static_assert(sizeof(TelemetryPkt) == 20, "TelemetryPkt size mismatch");
-static_assert(sizeof(HelloPkt) == 3, "HelloPkt size mismatch");
-static_assert(sizeof(HelloAckPkt) == 2, "HelloAckPkt size mismatch");
-static_assert(sizeof(CfgPkt) == 10, "CfgPkt size mismatch");
-static_assert(sizeof(TelemetryPkt) <= 250, "ESP-NOW payload limit");
-static_assert(sizeof(CfgPkt) <= 250, "ESP-NOW payload limit");
-

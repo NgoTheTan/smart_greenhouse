@@ -1,19 +1,18 @@
 // GreenHub - Firmware Gateway ESP32 (M1)
 // Đặc tả: firmware/gateway/FEATURE_GATEWAY_AND_FAILSAFE.md
-// Luồng: initRelaysOff -> NVS/WiFiManager -> Wi-Fi STA -> NTP -> ESP-NOW + MQTT TLS
-// -> Command & Safety Engine (ack) -> cfg sync -> Heartbeat status 30 s -> Failsafe + Buzzer.
+// Luồng: initActuatorsOff -> NVS/WiFiManager (Wi-Fi "Greenhouse-IOT" / "12345678") -> Wi-Fi STA -> NTP
+// -> Wi-Fi UDP JSON Server + MQTT TLS -> Command & Safety Engine (ack) -> cfg sync
+// -> Heartbeat status 30 s -> Failsafe + Buzzer.
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <ArduinoOTA.h>
 #include <Preferences.h>
 #include <PubSubClient.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <WiFiManager.h>
-#include <esp_arduino_version.h>
-#include <esp_idf_version.h>
-#include <esp_now.h>
-#include <esp_wifi.h>
+#include <WiFiUdp.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,11 +38,11 @@ constexpr uint8_t PIN_BOOT_BTN = 0;
 constexpr uint8_t ACT_PUMP_1 = 0;
 constexpr uint8_t ACT_PUMP_2 = 1;
 constexpr uint8_t ACT_FAN = 2;
-constexpr uint8_t ACT_COUNT = 3;
+constexpr uint8_t ACT_LIGHT = 3;
+constexpr uint8_t ACT_COUNT = 4;
 
 constexpr uint8_t MAX_ZONES = 8;
 constexpr uint8_t MAX_NODES = 16;
-constexpr uint8_t ESPNOW_RX_QUEUE_SIZE = 16;
 constexpr uint8_t SEEN_CMD_CAP = 50;
 constexpr uint8_t PUMP_HIST_CAP = 48;
 constexpr uint32_t HEARTBEAT_INTERVAL_MS = 30000;
@@ -54,16 +53,18 @@ constexpr uint8_t STUCK_AIR_CYCLES = 30;
 constexpr uint8_t FILTER_WIN = 3;
 constexpr float FILTER_EMA_ALPHA = 0.5f;
 
-const uint8_t RELAY_PINS[ACT_COUNT] = {
-    PIN_RELAY_PUMP1,
-    PIN_RELAY_PUMP2,
-    PIN_RELAY_FAN,
+const uint8_t ACTUATOR_PINS[ACT_COUNT] = {
+    PIN_PUMP1,
+    PIN_PUMP2,
+    PIN_FAN,
+    PIN_LIGHT,
 };
 
 const char* const ACTUATOR_NAMES[ACT_COUNT] = {
     "pump_1",
     "pump_2",
     "fan",
+    "light",
 };
 
 // Bundle CA gồm GreenHub Dev CA (deploy/certs/ca.crt) + ISRG Root X1 (Let's Encrypt prod)
@@ -205,13 +206,6 @@ struct MqttQueueItem {
   char payload[320];
 };
 
-struct EspNowRxFrame {
-  uint8_t mac[6];
-  int8_t rssi;
-  uint8_t len;
-  uint8_t data[250];
-};
-
 // Biến toàn cục trạng thái Gateway
 ProvisionConfig g_prov = {"", 8883, "", "", "", ""};
 char g_topic_prefix[96] = {0};
@@ -234,10 +228,10 @@ struct UnknownMacThrottle {
 };
 UnknownMacThrottle g_unknown_throttle[MAX_NODES] = {};
 
-// Trạng thái relay & an toàn
-bool g_actuator_on[ACT_COUNT] = {false, false, false};
-bool g_has_off_deadline[ACT_COUNT] = {false, false, false};
-uint64_t g_off_deadline_ms[ACT_COUNT] = {0, 0, 0};
+// Trạng thái thiết bị chấp hành (transistor 8050) & an toàn
+bool g_actuator_on[ACT_COUNT] = {false, false, false, false};
+bool g_has_off_deadline[ACT_COUNT] = {false, false, false, false};
+uint64_t g_off_deadline_ms[ACT_COUNT] = {0, 0, 0, 0};
 bool g_has_last_pump_end[2] = {false, false};
 uint64_t g_last_pump_end_ms[2] = {0, 0};
 PumpRunRecord g_pump_hist[2][PUMP_HIST_CAP] = {};
@@ -252,11 +246,9 @@ MqttQueueItem g_mqtt_queue[MQTT_QUEUE_SIZE] = {};
 uint16_t g_queue_head = 0;
 uint16_t g_queue_count = 0;
 
-// Hàng đợi nhận ESP-NOW từ callback Wi-Fi sang loop()
-portMUX_TYPE g_rx_mux = portMUX_INITIALIZER_UNLOCKED;
-EspNowRxFrame g_rx_queue[ESPNOW_RX_QUEUE_SIZE] = {};
-uint8_t g_rx_head = 0;
-uint8_t g_rx_count = 0;
+// Socket Wi-Fi UDP JSON lắng nghe các Sensor Node trên cổng gh::UDP_PORT
+WiFiUDP g_udp;
+bool g_udp_started = false;
 
 // Trạng thái kết nối MQTT & Failsafe & Buzzer
 bool g_boot_event_sent = false;
@@ -287,21 +279,21 @@ uint64_t millis64() {
 
 uint32_t uptimeSeconds() { return static_cast<uint32_t>(millis64() / 1000ULL); }
 
-void initRelaysOff() {
-  // Relay kích mức thấp: ghi HIGH TRƯỚC pinMode để không nháy relay khi boot
+void initActuatorsOff() {
+  // Đệm transistor 8050 kích mức HIGH: ghi LOW TRƯỚC pinMode để tắt tuyệt đối khi boot
   for (uint8_t i = 0; i < ACT_COUNT; ++i) {
-    digitalWrite(RELAY_PINS[i], HIGH);
-    pinMode(RELAY_PINS[i], OUTPUT);
+    digitalWrite(ACTUATOR_PINS[i], LOW);
+    pinMode(ACTUATOR_PINS[i], OUTPUT);
     g_actuator_on[i] = false;
     g_has_off_deadline[i] = false;
   }
 }
 
-void setRelayPin(uint8_t act_idx, bool turn_on) {
+void setActuatorPin(uint8_t act_idx, bool turn_on) {
   if (act_idx >= ACT_COUNT) {
     return;
   }
-  digitalWrite(RELAY_PINS[act_idx], turn_on ? LOW : HIGH);
+  digitalWrite(ACTUATOR_PINS[act_idx], turn_on ? HIGH : LOW);
   g_actuator_on[act_idx] = turn_on;
 }
 
@@ -564,6 +556,16 @@ NodeMapEntry* findNodeByMac(const uint8_t mac[6]) {
   return nullptr;
 }
 
+NodeMapEntry* findNodeByZone(uint8_t zone_idx) {
+  if (zone_idx == 0) return nullptr;
+  for (uint8_t i = 0; i < MAX_NODES; ++i) {
+    if (g_nodes[i].in_use && g_nodes[i].zone == zone_idx) {
+      return &g_nodes[i];
+    }
+  }
+  return nullptr;
+}
+
 bool applyCfgJson(const char* json_str, size_t len, bool save_to_nvs) {
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, json_str, len);
@@ -677,44 +679,37 @@ bool applyCfgJson(const char* json_str, size_t len, bool save_to_nvs) {
   return ver_changed;
 }
 
-bool ensureEspNowPeer(const uint8_t mac[6]) {
-  if (esp_now_is_peer_exist(mac)) {
-    return true;
+bool sendUdpJsonTo(IPAddress dst_ip, uint16_t dst_port, const JsonDocument& doc) {
+  if (!g_udp_started || static_cast<uint32_t>(dst_ip) == 0 || dst_port == 0) {
+    return false;
   }
-  esp_now_peer_info_t peer = {};
-  memcpy(peer.peer_addr, mac, 6);
-  peer.channel = 0;  // 0 = dùng đúng kênh hiện tại của Wi-Fi STA
-  peer.encrypt = false;
-  if (esp_now_add_peer(&peer) == ESP_OK) {
-    return true;
+  char buf[384];
+  const size_t len = serializeJson(doc, buf, sizeof(buf));
+  if (len == 0 || len >= sizeof(buf)) {
+    return false;
   }
-  // Nếu bảng peer đầy, xóa peer không thuộc danh sách ghép và thử lại
-  for (uint8_t i = 0; i < MAX_NODES; ++i) {
-    if (g_unknown_throttle[i].in_use && !findNodeByMac(g_unknown_throttle[i].mac)) {
-      esp_now_del_peer(g_unknown_throttle[i].mac);
-      g_unknown_throttle[i].in_use = false;
-      if (esp_now_add_peer(&peer) == ESP_OK) {
-        return true;
-      }
-    }
+  if (g_udp.beginPacket(dst_ip, dst_port) == 0) {
+    return false;
   }
-  return false;
+  const size_t written = g_udp.write(reinterpret_cast<const uint8_t*>(buf), len);
+  const int ok = g_udp.endPacket();
+  return written == len && ok == 1;
 }
 
-void sendCfgPktToNode(const uint8_t mac[6], const NodeMapEntry* node) {
+void sendCfgJsonToNode(IPAddress dst_ip, uint16_t dst_port, const NodeMapEntry* node) {
   if (!node || node->zone == 0) return;
   const ZoneConfig* zc = findZoneConfig(node->zone);
-  CfgPkt pkt = {};
-  pkt.type = PKT_CFG;
-  pkt.zone = node->zone;
-  pkt.sample_interval_s = gh::SENSOR_MEASURE_INTERVAL_S;
-  pkt.soil_dry_raw = zc ? zc->soil_dry_raw : gh::DEFAULT_SOIL_DRY_RAW;
-  pkt.soil_wet_raw = zc ? zc->soil_wet_raw : gh::DEFAULT_SOIL_WET_RAW;
-  pkt.cfg_version = static_cast<uint16_t>(g_cfg_version & 0xFFFFu);
 
-  if (ensureEspNowPeer(mac)) {
-    esp_now_send(mac, reinterpret_cast<const uint8_t*>(&pkt), sizeof(pkt));
-  }
+  JsonDocument doc;
+  doc["type"] = "cfg";
+  doc["mac"] = node->mac_str;
+  doc["zone"] = node->zone;
+  doc["sample_interval_s"] = gh::SENSOR_MEASURE_INTERVAL_S;
+  doc["soil_dry_raw"] = zc ? zc->soil_dry_raw : gh::DEFAULT_SOIL_DRY_RAW;
+  doc["soil_wet_raw"] = zc ? zc->soil_wet_raw : gh::DEFAULT_SOIL_WET_RAW;
+  doc["cfg_version"] = static_cast<uint16_t>(g_cfg_version & 0xFFFFu);
+
+  sendUdpJsonTo(dst_ip, dst_port, doc);
 }
 
 void publishDiscovery(const uint8_t mac[6], int8_t rssi, uint8_t fw_maj, uint8_t fw_min) {
@@ -878,7 +873,7 @@ bool tryTurnOnPump(uint8_t pump_idx, uint16_t req_dur_s, const char** out_reject
   }
 
   recordPumpRun(pump_idx, now_s, eff);
-  setRelayPin(pump_idx, true);
+  setActuatorPin(pump_idx, true);
   g_has_off_deadline[pump_idx] = true;
   g_off_deadline_ms[pump_idx] = now_ms + static_cast<uint64_t>(eff) * 1000ULL;
   *out_eff_dur = eff;
@@ -926,7 +921,7 @@ void handleCommandPayload(const uint8_t* raw, unsigned int len) {
 
   if (is_off) {
     const bool was_on = g_actuator_on[act_idx];
-    setRelayPin(act_idx, false);
+    setActuatorPin(act_idx, false);
     g_has_off_deadline[act_idx] = false;
     if (was_on && (act_idx == ACT_PUMP_1 || act_idx == ACT_PUMP_2)) {
       g_has_last_pump_end[act_idx] = true;
@@ -961,7 +956,7 @@ void handleCommandPayload(const uint8_t* raw, unsigned int len) {
   } else {
     const uint16_t max_run = getMaxRunForActuator(static_cast<uint8_t>(act_idx));
     const uint16_t eff_dur = (req_dur > max_run) ? max_run : req_dur;
-    setRelayPin(static_cast<uint8_t>(act_idx), true);
+    setActuatorPin(static_cast<uint8_t>(act_idx), true);
     g_has_off_deadline[act_idx] = true;
     g_off_deadline_ms[act_idx] = now_ms + static_cast<uint64_t>(eff_dur) * 1000ULL;
   }
@@ -977,7 +972,7 @@ void tickActuatorDeadlines() {
     if (g_has_off_deadline[i] && now_ms >= g_off_deadline_ms[i]) {
       g_has_off_deadline[i] = false;
       if (g_actuator_on[i]) {
-        setRelayPin(i, false);
+        setActuatorPin(i, false);
         any_changed = true;
         if (i == ACT_PUMP_1 || i == ACT_PUMP_2) {
           g_has_last_pump_end[i] = true;
@@ -993,24 +988,8 @@ void tickActuatorDeadlines() {
 }
 
 // ============================================================================
-// Xử lý gói ESP-NOW (chạy trong loop() sau khi tách khỏi callback Wi-Fi)
+// Xử lý gói Wi-Fi UDP JSON từ các Sensor Node (chạy trong loop())
 // ============================================================================
-
-void processEspNowHello(const uint8_t mac[6], int8_t rssi, const HelloPkt& pkt) {
-  HelloAckPkt ack = {PKT_HELLO_ACK, static_cast<uint8_t>(WiFi.channel())};
-  if (ensureEspNowPeer(mac)) {
-    esp_now_send(mac, reinterpret_cast<const uint8_t*>(&ack), sizeof(ack));
-  }
-
-  NodeMapEntry* node = findNodeByMac(mac);
-  if (node) {
-    node->has_seen = true;
-    node->last_seen_ms = millis64();
-    sendCfgPktToNode(mac, node);
-  } else {
-    publishDiscovery(mac, rssi, pkt.fw_major, pkt.fw_minor);
-  }
-}
 
 template <typename T>
 T medianWin(const T* arr, uint8_t count) {
@@ -1270,27 +1249,39 @@ bool findSharedAirSample(uint8_t exclude_zone, float* out_air_t, float* out_air_
   return true;
 }
 
-void processEspNowTelemetry(const uint8_t mac[6], int8_t rssi, const TelemetryPkt& pkt) {
-  NodeMapEntry* node = findNodeByMac(mac);
-  if (!node) {
+void processUdpTelemetry(const uint8_t mac[6], bool has_mac, IPAddress remote_ip,
+                         uint16_t remote_port, int8_t rssi, const TelemetryPkt& pkt) {
+  NodeMapEntry* node = has_mac ? findNodeByMac(mac) : nullptr;
+  if (!node && pkt.zone > 0) {
+    node = findNodeByZone(pkt.zone);
+  }
+  if (!node && !has_mac && pkt.zone == 0) {
+    publishDiscovery(mac, rssi, pkt.fw_major, pkt.fw_minor);
+    return;
+  }
+  if (!node && has_mac && pkt.zone == 0) {
     publishDiscovery(mac, rssi, pkt.fw_major, pkt.fw_minor);
     return;
   }
 
-  // Luôn gửi lại CfgPkt trong cửa sổ 200 ms để đồng bộ zone/interval/hiệu chuẩn
-  sendCfgPktToNode(mac, node);
-
-  node->has_seen = true;
-  node->last_seen_ms = millis64();
-
-  // Khử trùng gói tin lặp seq liên tiếp
-  if (node->has_last_seq && node->last_seq == pkt.seq) {
-    return;
+  uint8_t zone_idx = node ? node->zone : pkt.zone;
+  if (zone_idx == 0 || zone_idx > MAX_ZONES) {
+    zone_idx = 1;
   }
-  node->has_last_seq = true;
-  node->last_seq = pkt.seq;
 
-  const uint8_t zone_idx = node->zone;
+  if (node) {
+    sendCfgJsonToNode(remote_ip, remote_port, node);
+    node->has_seen = true;
+    node->last_seen_ms = millis64();
+    if (pkt.seq != 0) {
+      if (node->has_last_seq && node->last_seq == pkt.seq) {
+        return;
+      }
+      node->has_last_seq = true;
+      node->last_seq = pkt.seq;
+    }
+  }
+
   const bool no_air_sensor =
       (pkt.air_t_x100 == GH_AIR_T_NONE || pkt.air_rh_x100 == GH_AIR_RH_NONE);
 
@@ -1338,60 +1329,100 @@ void processEspNowTelemetry(const uint8_t mac[6], int8_t rssi, const TelemetryPk
   }
 }
 
-void pushEspNowRx(const uint8_t* mac, int8_t rssi, const uint8_t* data, int len) {
-  if (!mac || !data || len <= 0 || len > 250) return;
-  portENTER_CRITICAL_ISR(&g_rx_mux);
-  if (g_rx_count < ESPNOW_RX_QUEUE_SIZE) {
-    const uint8_t slot = (g_rx_head + g_rx_count) % ESPNOW_RX_QUEUE_SIZE;
-    memcpy(g_rx_queue[slot].mac, mac, 6);
-    g_rx_queue[slot].rssi = rssi;
-    g_rx_queue[slot].len = static_cast<uint8_t>(len);
-    memcpy(g_rx_queue[slot].data, data, static_cast<size_t>(len));
-    ++g_rx_count;
-  }
-  portEXIT_CRITICAL_ISR(&g_rx_mux);
-}
-
-void drainEspNowRxQueue() {
-  while (true) {
-    EspNowRxFrame frame = {};
-    bool has_frame = false;
-    portENTER_CRITICAL(&g_rx_mux);
-    if (g_rx_count > 0) {
-      frame = g_rx_queue[g_rx_head];
-      g_rx_head = (g_rx_head + 1) % ESPNOW_RX_QUEUE_SIZE;
-      --g_rx_count;
-      has_frame = true;
+void pollUdpPackets() {
+  if (!g_udp_started) {
+    if (WiFi.status() == WL_CONNECTED) {
+      g_udp_started = (g_udp.begin(gh::UDP_PORT) != 0);
     }
-    portEXIT_CRITICAL(&g_rx_mux);
+    if (!g_udp_started) return;
+  }
 
-    if (!has_frame) break;
-    if (frame.len < 1) continue;
+  int pkt_size = g_udp.parsePacket();
+  while (pkt_size > 0) {
+    char rx_buf[512];
+    const int read_len =
+        g_udp.read(rx_buf, (pkt_size < static_cast<int>(sizeof(rx_buf) - 1))
+                               ? pkt_size
+                               : static_cast<int>(sizeof(rx_buf) - 1));
+    if (read_len > 0) {
+      rx_buf[read_len] = '\0';
+      const IPAddress remote_ip = g_udp.remoteIP();
+      const uint16_t remote_port = g_udp.remotePort();
 
-    const uint8_t pkt_type = frame.data[0];
-    if (pkt_type == PKT_HELLO && frame.len == sizeof(HelloPkt)) {
-      HelloPkt pkt = {};
-      memcpy(&pkt, frame.data, sizeof(pkt));
-      processEspNowHello(frame.mac, frame.rssi, pkt);
-    } else if (pkt_type == PKT_TELEMETRY && frame.len == sizeof(TelemetryPkt)) {
-      TelemetryPkt pkt = {};
-      memcpy(&pkt, frame.data, sizeof(pkt));
-      processEspNowTelemetry(frame.mac, frame.rssi, pkt);
+      JsonDocument doc;
+      if (deserializeJson(doc, rx_buf, read_len) == DeserializationError::Ok) {
+        const char* mac_str = doc["mac"] | "";
+        uint8_t mac[6] = {0};
+        const bool has_mac = parseMacString(mac_str, mac);
+        const char* type_str = doc["type"] | "";
+        const uint8_t type_num = doc["type"] | 0;
+        const int rssi_val = doc["rssi"] | -70;
+        const int8_t rssi = static_cast<int8_t>(rssi_val);
+
+        uint8_t inferred_zone = 0;
+        if (strncmp(type_str, "node", 4) == 0 && type_str[4] >= '1' && type_str[4] <= '8') {
+          inferred_zone = static_cast<uint8_t>(type_str[4] - '0');
+        }
+
+        if (inferred_zone > 0 || type_str[0] == '\0' ||
+            strcmp(type_str, "telemetry") == 0 || type_num == PKT_TELEMETRY) {
+          TelemetryPkt tpkt = {};
+          tpkt.type = PKT_TELEMETRY;
+          tpkt.zone = doc["zone"] | inferred_zone;
+          if (tpkt.zone == 0 && inferred_zone > 0) {
+            tpkt.zone = inferred_zone;
+          }
+          tpkt.seq = doc["seq"] | 0;
+
+          if (!doc["air_t_x100"].isNull()) {
+            tpkt.air_t_x100 = doc["air_t_x100"] | GH_AIR_T_NONE;
+          } else if (doc["air_t"].isNull()) {
+            tpkt.air_t_x100 = GH_AIR_T_NONE;
+          } else {
+            tpkt.air_t_x100 = static_cast<int16_t>(
+                lroundf(doc["air_t"].as<float>() * 100.0f));
+          }
+
+          if (!doc["air_rh_x100"].isNull()) {
+            tpkt.air_rh_x100 = doc["air_rh_x100"] | GH_AIR_RH_NONE;
+          } else if (doc["air_rh"].isNull()) {
+            tpkt.air_rh_x100 = GH_AIR_RH_NONE;
+          } else {
+            tpkt.air_rh_x100 = static_cast<uint16_t>(
+                lroundf(doc["air_rh"].as<float>() * 100.0f));
+          }
+
+          tpkt.soil_pct = !doc["soil_pct"].isNull()
+                              ? static_cast<uint8_t>(doc["soil_pct"] | 0)
+                              : static_cast<uint8_t>(doc["soil_m"] | 0);
+          if (!doc["soil_raw"].isNull()) {
+            tpkt.soil_raw = doc["soil_raw"] | 0;
+          } else {
+            const ZoneConfig* zc = findZoneConfig(tpkt.zone > 0 ? tpkt.zone : 1);
+            const long dry_r = zc ? zc->soil_dry_raw : gh::DEFAULT_SOIL_DRY_RAW;
+            const long wet_r = zc ? zc->soil_wet_raw : gh::DEFAULT_SOIL_WET_RAW;
+            long calc_raw = dry_r - (static_cast<long>(tpkt.soil_pct) * (dry_r - wet_r)) / 100L;
+            if (calc_raw < gh::SOIL_RAW_MIN) calc_raw = gh::SOIL_RAW_MIN;
+            if (calc_raw > gh::SOIL_RAW_MAX) calc_raw = gh::SOIL_RAW_MAX;
+            tpkt.soil_raw = static_cast<uint16_t>(calc_raw);
+          }
+          tpkt.flags = doc["flags"] | 0;
+          if (doc["lux"].isNull()) {
+            tpkt.lux = GH_LUX_NONE;
+          } else {
+            tpkt.lux = doc["lux"] | GH_LUX_NONE;
+          }
+          tpkt.vbat_mv = 0;
+          tpkt.fw_major = GH_FW_MAJOR;
+          tpkt.fw_minor = GH_FW_MINOR;
+
+          processUdpTelemetry(mac, has_mac, remote_ip, remote_port, rssi, tpkt);
+        }
+      }
     }
+    pkt_size = g_udp.parsePacket();
   }
 }
-
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
-void onEspNowRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len) {
-  if (!info) return;
-  const int8_t rssi = info->rx_ctrl ? static_cast<int8_t>(info->rx_ctrl->rssi) : -70;
-  pushEspNowRx(info->src_addr, rssi, data, len);
-}
-#else
-void onEspNowRecv(const uint8_t* mac, const uint8_t* data, int len) {
-  pushEspNowRx(mac, -70, data, len);
-}
-#endif
 
 // ============================================================================
 // Failsafe cục bộ & Buzzer khi mất MQTT quá lâu (spec 4.3, mục 8.2)
@@ -1476,7 +1507,7 @@ void tickFailsafeAndBuzzer() {
         any_temp_high = true;
         all_temp_recovered = false;
         if (!g_actuator_on[ACT_FAN]) {
-          setRelayPin(ACT_FAN, true);
+          setActuatorPin(ACT_FAN, true);
           g_has_off_deadline[ACT_FAN] = true;
           g_off_deadline_ms[ACT_FAN] =
               now_ms + static_cast<uint64_t>(zc.fan_max_on_s) * 1000ULL;
@@ -1500,7 +1531,7 @@ void tickFailsafeAndBuzzer() {
 
   if (g_failsafe_fan_active && !any_temp_high && all_temp_recovered) {
     if (g_actuator_on[ACT_FAN]) {
-      setRelayPin(ACT_FAN, false);
+      setActuatorPin(ACT_FAN, false);
       g_has_off_deadline[ACT_FAN] = false;
       JsonDocument d;
       d["trigger"] = "temp_recovered";
@@ -1575,60 +1606,87 @@ void saveProvisionToNvs() {
 }
 
 void connectWifiAndPortal(bool force_portal) {
-  WiFiManager wm;
-  wm.setConfigPortalTimeout(180);
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
 
-  char port_buf[8];
-  snprintf(port_buf, sizeof(port_buf), "%u", g_prov.mqtt_port);
-
-  WiFiManagerParameter p_host("mqtt_host", "MQTT Host (domain/IP)", g_prov.mqtt_host, 64);
-  WiFiManagerParameter p_port("mqtt_port", "MQTT Port", port_buf, 6);
-  WiFiManagerParameter p_user("mqtt_user", "MQTT Username", g_prov.mqtt_user, 64);
-  WiFiManagerParameter p_pass("mqtt_pass", "MQTT Password", g_prov.mqtt_pass, 64);
-  WiFiManagerParameter p_farm("farm_id", "Farm UUID", g_prov.farm_id, 40);
-  WiFiManagerParameter p_gh("gh_id", "Greenhouse UUID", g_prov.gh_id, 40);
-
-  wm.addParameter(&p_host);
-  wm.addParameter(&p_port);
-  wm.addParameter(&p_user);
-  wm.addParameter(&p_pass);
-  wm.addParameter(&p_farm);
-  wm.addParameter(&p_gh);
-
-  uint8_t mac[6];
-  WiFi.macAddress(mac);
-  char ap_name[32];
-  snprintf(ap_name, sizeof(ap_name), "GreenHub-GW-%02X%02X", mac[4], mac[5]);
-
-  bool connected = false;
-  if (force_portal || !hasValidProvisionConfig()) {
-    Serial.printf("[gw] Starting Captive Portal %s\n", ap_name);
-    connected = wm.startConfigPortal(ap_name);
-  } else {
-    connected = wm.autoConnect(ap_name);
+  if (!force_portal) {
+    Serial.printf("[gw] Connecting to Wi-Fi SSID \"%s\"...\n", gh::WIFI_SSID);
+    WiFi.begin(gh::WIFI_SSID, gh::WIFI_PASS);
+    const unsigned long start_ms = millis();
+    while (WiFi.status() != WL_CONNECTED && (millis() - start_ms) < 15000UL) {
+      delay(250);
+    }
   }
 
-  snprintf(g_prov.mqtt_host, sizeof(g_prov.mqtt_host), "%s", p_host.getValue());
-  const long parsed_port = strtol(p_port.getValue(), nullptr, 10);
-  g_prov.mqtt_port = (parsed_port > 0 && parsed_port <= 65535L)
-                         ? static_cast<uint16_t>(parsed_port)
-                         : 8883;
-  snprintf(g_prov.mqtt_user, sizeof(g_prov.mqtt_user), "%s", p_user.getValue());
-  snprintf(g_prov.mqtt_pass, sizeof(g_prov.mqtt_pass), "%s", p_pass.getValue());
-  snprintf(g_prov.farm_id, sizeof(g_prov.farm_id), "%s", p_farm.getValue());
-  snprintf(g_prov.gh_id, sizeof(g_prov.gh_id), "%s", p_gh.getValue());
+  if (force_portal || !hasValidProvisionConfig() || WiFi.status() != WL_CONNECTED) {
+    WiFiManager wm;
+    wm.setConfigPortalTimeout(180);
+    wm.preloadWiFi(gh::WIFI_SSID, gh::WIFI_PASS);
 
-  if (hasValidProvisionConfig()) {
-    saveProvisionToNvs();
-  }
-  if (!connected && !hasValidProvisionConfig()) {
-    Serial.println("[gw] Portal timeout without config, restarting...");
-    delay(1000);
-    ESP.restart();
+    char port_buf[8];
+    snprintf(port_buf, sizeof(port_buf), "%u", g_prov.mqtt_port);
+
+    WiFiManagerParameter p_host("mqtt_host", "MQTT Host (domain/IP)", g_prov.mqtt_host, 64);
+    WiFiManagerParameter p_port("mqtt_port", "MQTT Port", port_buf, 6);
+    WiFiManagerParameter p_user("mqtt_user", "MQTT Username", g_prov.mqtt_user, 64);
+    WiFiManagerParameter p_pass("mqtt_pass", "MQTT Password", g_prov.mqtt_pass, 64);
+    WiFiManagerParameter p_farm("farm_id", "Farm UUID", g_prov.farm_id, 40);
+    WiFiManagerParameter p_gh("gh_id", "Greenhouse UUID", g_prov.gh_id, 40);
+
+    wm.addParameter(&p_host);
+    wm.addParameter(&p_port);
+    wm.addParameter(&p_user);
+    wm.addParameter(&p_pass);
+    wm.addParameter(&p_farm);
+    wm.addParameter(&p_gh);
+
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
+    char ap_name[32];
+    snprintf(ap_name, sizeof(ap_name), "GreenHub-GW-%02X%02X", mac[4], mac[5]);
+
+    bool connected = false;
+    if (force_portal || !hasValidProvisionConfig()) {
+      Serial.printf("[gw] Starting Captive Portal %s\n", ap_name);
+      connected = wm.startConfigPortal(ap_name);
+    } else {
+      connected = wm.autoConnect(ap_name);
+    }
+
+    snprintf(g_prov.mqtt_host, sizeof(g_prov.mqtt_host), "%s", p_host.getValue());
+    const long parsed_port = strtol(p_port.getValue(), nullptr, 10);
+    g_prov.mqtt_port = (parsed_port > 0 && parsed_port <= 65535L)
+                           ? static_cast<uint16_t>(parsed_port)
+                           : 8883;
+    snprintf(g_prov.mqtt_user, sizeof(g_prov.mqtt_user), "%s", p_user.getValue());
+    snprintf(g_prov.mqtt_pass, sizeof(g_prov.mqtt_pass), "%s", p_pass.getValue());
+    snprintf(g_prov.farm_id, sizeof(g_prov.farm_id), "%s", p_farm.getValue());
+    snprintf(g_prov.gh_id, sizeof(g_prov.gh_id), "%s", p_gh.getValue());
+
+    if (hasValidProvisionConfig()) {
+      saveProvisionToNvs();
+    }
+    if (!connected && !hasValidProvisionConfig()) {
+      Serial.println("[gw] Portal timeout without config, restarting...");
+      delay(1000);
+      ESP.restart();
+    }
   }
 
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
+  if (WiFi.status() != WL_CONNECTED || WiFi.SSID() != gh::WIFI_SSID) {
+    Serial.printf("[gw] Ensuring connection to Wi-Fi SSID \"%s\"...\n", gh::WIFI_SSID);
+    WiFi.begin(gh::WIFI_SSID, gh::WIFI_PASS);
+    const unsigned long start_ms = millis();
+    while (WiFi.status() != WL_CONNECTED && (millis() - start_ms) < 15000UL) {
+      delay(250);
+    }
+  }
+  Serial.printf("[gw] Wi-Fi connected: SSID=%s IP=%s RSSI=%d dBm\n",
+                WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(),
+                static_cast<int>(WiFi.RSSI()));
+
   snprintf(g_topic_prefix, sizeof(g_topic_prefix), "gh/%s/%s", g_prov.farm_id,
            g_prov.gh_id);
 }
@@ -1765,7 +1823,7 @@ bool shouldForcePortalOnBoot() {
 }  // namespace
 
 void setup() {
-  initRelaysOff();
+  initActuatorsOff();
   pinMode(PIN_BUZZER, OUTPUT);
   digitalWrite(PIN_BUZZER, LOW);
   pinMode(PIN_LED, OUTPUT);
@@ -1784,12 +1842,26 @@ void setup() {
   connectWifiAndPortal(force_portal);
   syncNtpWait();
 
-  if (esp_now_init() != ESP_OK) {
-    Serial.println("[gw] esp_now_init failed, restarting...");
-    delay(2000);
-    ESP.restart();
+  g_udp_started = (g_udp.begin(gh::UDP_PORT) != 0);
+  if (g_udp_started) {
+    Serial.printf("[gw] UDP JSON server listening on port %u\n", gh::UDP_PORT);
+  } else {
+    Serial.printf("[gw] Failed to start UDP server on port %u\n", gh::UDP_PORT);
   }
-  esp_now_register_recv_cb(onEspNowRecv);
+
+  ArduinoOTA.setHostname("gateway");
+  ArduinoOTA.onStart([]() {
+    initActuatorsOff();
+    Serial.println("[gw] OTA Update Start");
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\n[gw] OTA Update End");
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("[gw] OTA Error[%u]\n", error);
+  });
+  ArduinoOTA.begin();
+  Serial.println("[gw] ArduinoOTA ready (hostname: gateway.local)");
 
   g_tls_client.setCACert(GH_CA_CERT_BUNDLE_PEM);
   g_mqtt.setBufferSize(MQTT_MAX_PACKET_SIZE);
@@ -1805,7 +1877,8 @@ void setup() {
 }
 
 void loop() {
-  drainEspNowRxQueue();
+  ArduinoOTA.handle();
+  pollUdpPackets();
   tickActuatorDeadlines();
   tickMqttConnection();
   tickFailsafeAndBuzzer();
