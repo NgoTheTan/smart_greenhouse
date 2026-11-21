@@ -5,7 +5,7 @@
 // Tích hợp:
 //   - Kết nối Wi-Fi "Greenhouse-IOT" (pass "12345678") cùng mạng với Node 1 & Gateway
 //   - Đọc ADC1 12-bit trên GPIO0 (không xung đột Wi-Fi RF như ESP8266), lấy median 5 mẫu
-//   - Gửi gói UDP JSON {"type":"node2","zone":2,"soil_pct":...} mỗi 5 giây
+//   - Gửi gói UDP JSON {"type":"node2","zone":2,"seq":...,"mac":...,"soil_pct":...,"soil_raw":...} mỗi 5 giây
 //   - Hỗ trợ nạp code không dây qua ArduinoOTA (hostname: node2.local)
 
 #include <Arduino.h>
@@ -50,6 +50,8 @@ uint8_t g_zone = 2;
 uint16_t g_interval_s = gh::SENSOR_MEASURE_INTERVAL_S;  // 5 giây
 uint16_t g_dry_raw = ESP32C3_DEFAULT_DRY_RAW;
 uint16_t g_wet_raw = ESP32C3_DEFAULT_WET_RAW;
+uint16_t g_seq = 0;
+IPAddress g_gateway_ip(0, 0, 0, 0);
 unsigned long g_last_udp_ms = 0;
 
 IPAddress getBroadcastIp() {
@@ -92,6 +94,7 @@ void ensureWifiConnected() {
   g_ota_started = false;
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
+  WiFi.setSleep(false);
 
   while (WiFi.status() != WL_CONNECTED) {
     Serial.printf("[node2] Connecting Wi-Fi \"%s\"...\n", gh::WIFI_SSID);
@@ -114,6 +117,7 @@ void pollIncomingCfg() {
   if (!g_udp_started) return;
   int pkt_size = g_udp.parsePacket();
   while (pkt_size > 0) {
+    const IPAddress remote_ip = g_udp.remoteIP();
     char buf[384];
     int len = g_udp.read(buf, (pkt_size < static_cast<int>(sizeof(buf) - 1))
                                   ? pkt_size
@@ -124,6 +128,9 @@ void pollIncomingCfg() {
       if (deserializeJson(doc, buf, len) == DeserializationError::Ok) {
         const char* type_str = doc["type"] | "";
         if (strcmp(type_str, "cfg") == 0) {
+          if (static_cast<uint32_t>(remote_ip) != 0) {
+            g_gateway_ip = remote_ip;
+          }
           g_zone = doc["zone"] | g_zone;
           uint16_t dry = doc["soil_dry_raw"] | g_dry_raw;
           uint16_t wet = doc["soil_wet_raw"] | g_wet_raw;
@@ -165,18 +172,28 @@ void measureAndSendUdp() {
 
   const uint16_t soil_raw = readSoilRaw();
   const uint8_t soil_pct = gh::soilPct(soil_raw, g_dry_raw, g_wet_raw);
+  if (++g_seq == 0) g_seq = 1;
 
   JsonDocument doc;
   doc["type"] = "node2";
   doc["zone"] = g_zone;
+  doc["seq"] = g_seq;
+  doc["mac"] = WiFi.macAddress();
   doc["soil_pct"] = soil_pct;
+  doc["soil_raw"] = soil_raw;
 
-  char payload[192];
+  char payload[256];
   const size_t len = serializeJson(doc, payload, sizeof(payload));
   const IPAddress bcast = getBroadcastIp();
   g_udp.beginPacket(bcast, gh::UDP_PORT);
   g_udp.write(reinterpret_cast<const uint8_t*>(payload), len);
   g_udp.endPacket();
+
+  if (static_cast<uint32_t>(g_gateway_ip) != 0 && g_gateway_ip != bcast) {
+    g_udp.beginPacket(g_gateway_ip, gh::UDP_PORT);
+    g_udp.write(reinterpret_cast<const uint8_t*>(payload), len);
+    g_udp.endPacket();
+  }
 
   Serial.printf("[node2] GPIO0_raw12=%u (dry=%u, wet=%u) -> soil_pct=%u%% | UDP JSON: %s\n",
                 soil_raw, g_dry_raw, g_wet_raw, soil_pct, payload);

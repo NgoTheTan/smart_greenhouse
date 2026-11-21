@@ -87,6 +87,8 @@ uint8_t g_zone = 1;
 uint16_t g_interval_s = gh::SENSOR_MEASURE_INTERVAL_S;  // Chu kỳ gửi UDP (5 giây)
 uint16_t g_dry_raw = gh::DEFAULT_SOIL_DRY_RAW;
 uint16_t g_wet_raw = gh::DEFAULT_SOIL_WET_RAW;
+uint16_t g_seq = 0;
+IPAddress g_gateway_ip(0, 0, 0, 0);
 unsigned long g_last_sensor_ms = 0;
 unsigned long g_last_udp_ms = 0;
 
@@ -255,16 +257,16 @@ void initDisplay() {
   g_tft.setCursor(150, 38);
   g_tft.print("DO AM KK");
 
-  // 3. Hàng 2 (y: 100..171, h=72): Độ ẩm đất Node 1 (trái) & Độ ẩm đất Node 2 UDP (phải)
+  // 3. Hàng 2 (y: 100..171, h=72): Độ ẩm đất Node 2 UDP (trái) & Độ ẩm đất Node 1 (phải)
   drawCardFrame(5, 100, 112, 72);
   drawCardFrame(123, 100, 112, 72);
-  drawSproutIcon(9, 105, COL_SOIL1, false);
-  drawSproutIcon(127, 105, COL_SOIL2, true);
+  drawSproutIcon(9, 105, COL_SOIL2, true);
+  drawSproutIcon(127, 105, COL_SOIL1, false);
 
   g_tft.setCursor(33, 106);
-  g_tft.print("AM DAT N1");
-  g_tft.setCursor(151, 106);
   g_tft.print("AM DAT N2");
+  g_tft.setCursor(151, 106);
+  g_tft.print("AM DAT N1");
 
   // 4. Hàng 3 (y: 176..213, h=38): Ánh sáng BH1750 (thẻ ngang toàn màn hình)
   drawCardFrame(5, 176, 230, 38);
@@ -305,15 +307,15 @@ void updateNode2DisplayCard() {
   }
   g_tft.print(buf);
 
-  // Nội dung thẻ Độ ẩm đất Node 2 (x: 123..234, y: 100..171)
-  g_tft.fillRect(150, 118, 80, 26, COL_CARD);
-  g_tft.fillRect(130, 147, 98, 10, COL_CARD);
+  // Nội dung thẻ Độ ẩm đất Node 2 (x: 5..116, y: 100..171)
+  g_tft.fillRect(32, 118, 80, 26, COL_CARD);
+  g_tft.fillRect(12, 147, 98, 10, COL_CARD);
 
   if (g_node2_has_data) {
     const uint16_t val_col = is_fresh ? COL_SOIL2 : COL_TEMP;
     g_tft.setTextColor(val_col, COL_CARD);
     g_tft.setTextSize(3);
-    g_tft.setCursor(151, 119);
+    g_tft.setCursor(33, 119);
     snprintf(buf, sizeof(buf), "%u", g_node2_soil_pct);
     g_tft.print(buf);
     g_tft.setTextSize(2);
@@ -322,7 +324,7 @@ void updateNode2DisplayCard() {
     const unsigned long age_s = (now - g_node2_last_rx_ms) / 1000UL;
     g_tft.setTextSize(1);
     g_tft.setTextColor(is_fresh ? COL_MUTED : COL_TEMP, COL_CARD);
-    g_tft.setCursor(131, 148);
+    g_tft.setCursor(13, 148);
     if (g_node2_has_raw) {
       snprintf(buf, sizeof(buf), "ADC:%u|%lus", g_node2_soil_raw, age_s);
     } else {
@@ -330,17 +332,17 @@ void updateNode2DisplayCard() {
     }
     g_tft.print(buf);
 
-    drawProgressBar(131, 160, 96, 5, g_node2_soil_pct, pickSoilBarColor(g_node2_soil_pct));
+    drawProgressBar(13, 160, 96, 5, g_node2_soil_pct, pickSoilBarColor(g_node2_soil_pct));
   } else {
     g_tft.setTextColor(COL_MUTED, COL_CARD);
     g_tft.setTextSize(2);
-    g_tft.setCursor(151, 123);
+    g_tft.setCursor(33, 123);
     g_tft.print("-- %");
 
     g_tft.setTextSize(1);
-    g_tft.setCursor(131, 148);
+    g_tft.setCursor(13, 148);
     g_tft.print("UDP:4210 Wait..");
-    drawProgressBar(131, 160, 96, 5, 0, COL_MUTED);
+    drawProgressBar(13, 160, 96, 5, 0, COL_MUTED);
   }
 }
 
@@ -376,25 +378,25 @@ void updateDisplay(int16_t air_t_x100, uint16_t air_rh_x100, uint8_t soil_pct,
   g_tft.print(buf);
   drawProgressBar(131, 83, 96, 5, rh_pct, COL_HUM);
 
-  // 3. Độ ẩm đất Node 1 (% + ADC raw) - Thẻ trái Hàng 2
-  g_tft.fillRect(32, 118, 80, 26, COL_CARD);
+  // 3. Độ ẩm đất Node 1 (% + ADC raw) - Thẻ phải Hàng 2
+  g_tft.fillRect(150, 118, 80, 26, COL_CARD);
   g_tft.setTextColor(COL_SOIL1, COL_CARD);
   g_tft.setTextSize(3);
-  g_tft.setCursor(33, 119);
+  g_tft.setCursor(151, 119);
   snprintf(buf, sizeof(buf), "%u", soil_pct);
   g_tft.print(buf);
   g_tft.setTextSize(2);
   g_tft.print("%");
 
-  g_tft.fillRect(12, 147, 98, 10, COL_CARD);
+  g_tft.fillRect(130, 147, 98, 10, COL_CARD);
   g_tft.setTextSize(1);
   g_tft.setTextColor(COL_MUTED, COL_CARD);
-  g_tft.setCursor(13, 148);
+  g_tft.setCursor(131, 148);
   snprintf(buf, sizeof(buf), "Z%u|ADC:%u", g_zone, soil_raw);
   g_tft.print(buf);
-  drawProgressBar(13, 160, 96, 5, soil_pct, pickSoilBarColor(soil_pct));
+  drawProgressBar(131, 160, 96, 5, soil_pct, pickSoilBarColor(soil_pct));
 
-  // 4. Độ ẩm đất Node 2 (từ UDP Server) - Thẻ phải Hàng 2
+  // 4. Độ ẩm đất Node 2 (từ UDP Server) - Thẻ trái Hàng 2
   updateNode2DisplayCard();
 
   // 5. Ánh sáng (Lux) - Thẻ ngang Hàng 3
@@ -477,6 +479,7 @@ void ensureWifiConnected() {
   g_ota_started = false;
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
+  WiFi.setSleep(false);
 
   while (WiFi.status() != WL_CONNECTED) {
     Serial.printf("[node] Connecting Wi-Fi \"%s\"...\n", gh::WIFI_SSID);
@@ -535,6 +538,9 @@ void pollUdpServer() {
           updateNode2DisplayCard();
         } else if (strcmp(type_str, "cfg") == 0) {
           if (pkt_zone == 0 || pkt_zone == g_zone) {
+            if (static_cast<uint32_t>(remote_ip) != 0) {
+              g_gateway_ip = remote_ip;
+            }
             uint16_t dry = doc["soil_dry_raw"] | g_dry_raw;
             uint16_t wet = doc["soil_wet_raw"] | g_wet_raw;
             if (dry != wet && dry > 0 && wet > 0) {
@@ -619,10 +625,13 @@ void readSensorsAndUpdateDisplay() {
 
 void sendUdpTelemetry() {
   ensureWifiConnected();
+  if (++g_seq == 0) g_seq = 1;
 
   JsonDocument doc;
   doc["type"] = "node1";
   doc["zone"] = g_zone;
+  doc["seq"] = g_seq;
+  doc["mac"] = WiFi.macAddress();
   doc["air_t_x100"] = g_air_t_x100;
   doc["air_rh_x100"] = g_air_rh_x100;
   doc["soil_pct"] = g_soil_pct;
@@ -639,6 +648,12 @@ void sendUdpTelemetry() {
   g_udp.beginPacket(bcast, gh::UDP_PORT);
   g_udp.write(reinterpret_cast<const uint8_t*>(payload), len);
   g_udp.endPacket();
+
+  if (static_cast<uint32_t>(g_gateway_ip) != 0 && g_gateway_ip != bcast) {
+    g_udp.beginPacket(g_gateway_ip, gh::UDP_PORT);
+    g_udp.write(reinterpret_cast<const uint8_t*>(payload), len);
+    g_udp.endPacket();
+  }
 
   Serial.printf("[node] UDP JSON: %s\n", payload);
 

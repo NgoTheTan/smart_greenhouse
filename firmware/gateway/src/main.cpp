@@ -159,11 +159,13 @@ struct ZoneConfig {
 struct ZoneTelemetryState {
   bool has_sample;
   bool has_own_air;
+  bool has_own_lux;
   uint64_t last_rx_ms;
   float air_t;
   float air_rh;
   uint8_t soil_pct;
   uint16_t soil_raw;
+  uint32_t lux;
   uint8_t flags;
   uint16_t prev_soil_raw;
   uint8_t stuck_soil_count;
@@ -211,12 +213,12 @@ struct MqttQueueItem {
 
 // Biến toàn cục trạng thái Gateway
 ProvisionConfig g_prov = {
-    "10.11.154.220",
+    "16.178.47.249",
     8883,
-    "gw_d290e571f00e",
-    "BCHxXzTe7pEVGMSh-U85-o06Q8A",
-    "b038cbf3-922d-4dfa-98bb-8fbc322db837",
-    "d290e571-f00e-4888-a917-af986bed555c"};
+    "gw_4c083ef1e867",
+    "v-SgaRIk4noqOMPVFPDqNwjiXtg",
+    "ae690152-176b-46fd-89e4-506b934460bf",
+    "4c083ef1-e867-4d93-a981-81a6fe7506a2"};
 char g_topic_prefix[96] = {0};
 
 WiFiClientSecure g_tls_client;
@@ -1192,7 +1194,7 @@ void preprocessZoneTelemetry(uint8_t zone_idx, const TelemetryPkt& raw_pkt, bool
 
 void updateZoneTelemetryState(uint8_t zone_idx, const TelemetryPkt& raw_pkt,
                               const TelemetryPkt& filt_pkt, float air_t, float air_rh,
-                              bool has_own_air) {
+                              bool has_own_air, bool has_own_lux) {
   const int slot = findZoneSlot(zone_idx);
   if (slot < 0) return;
 
@@ -1206,24 +1208,30 @@ void updateZoneTelemetryState(uint8_t zone_idx, const TelemetryPkt& raw_pkt,
     } else {
       zs.stuck_soil_count = 1;
     }
-    if (raw_pkt.air_t_x100 == zs.prev_air_t_x100 &&
-        raw_pkt.air_rh_x100 == zs.prev_air_rh_x100) {
-      if (zs.stuck_air_count < 255) ++zs.stuck_air_count;
+    if (has_own_air) {
+      if (raw_pkt.air_t_x100 == zs.prev_air_t_x100 &&
+          raw_pkt.air_rh_x100 == zs.prev_air_rh_x100) {
+        if (zs.stuck_air_count < 255) ++zs.stuck_air_count;
+      } else {
+        zs.stuck_air_count = 1;
+      }
     } else {
-      zs.stuck_air_count = 1;
+      zs.stuck_air_count = 0;
     }
   } else {
     zs.stuck_soil_count = 1;
-    zs.stuck_air_count = 1;
+    zs.stuck_air_count = has_own_air ? 1 : 0;
   }
 
   zs.has_sample = true;
   zs.has_own_air = has_own_air;
+  zs.has_own_lux = has_own_lux;
   zs.last_rx_ms = now_ms;
   zs.air_t = air_t;
   zs.air_rh = air_rh;
   zs.soil_pct = filt_pkt.soil_pct;
   zs.soil_raw = filt_pkt.soil_raw;
+  zs.lux = filt_pkt.lux;
   zs.flags = filt_pkt.flags;
   zs.prev_soil_raw = raw_pkt.soil_raw;
   zs.prev_air_t_x100 = raw_pkt.air_t_x100;
@@ -1231,7 +1239,8 @@ void updateZoneTelemetryState(uint8_t zone_idx, const TelemetryPkt& raw_pkt,
 
   const bool invalid_air =
       (filt_pkt.flags & FLAG_AHT_ERR) || !gh::isValidAirTemp(air_t) ||
-      !gh::isValidAirRh(air_rh) || zs.stuck_air_count >= STUCK_AIR_CYCLES;
+      !gh::isValidAirRh(air_rh) ||
+      (has_own_air && zs.stuck_air_count >= STUCK_AIR_CYCLES);
   const bool invalid_soil =
       (filt_pkt.flags & FLAG_SOIL_ERR) || !gh::isValidSoilRaw(filt_pkt.soil_raw) ||
       zs.stuck_soil_count >= STUCK_SOIL_CYCLES;
@@ -1244,7 +1253,7 @@ void updateZoneTelemetryState(uint8_t zone_idx, const TelemetryPkt& raw_pkt,
     detail["soil_raw"] = filt_pkt.soil_raw;
     detail["air_t"] = air_t;
     detail["stuck_soil"] = (zs.stuck_soil_count >= STUCK_SOIL_CYCLES);
-    detail["stuck_air"] = (zs.stuck_air_count >= STUCK_AIR_CYCLES);
+    detail["stuck_air"] = (has_own_air && zs.stuck_air_count >= STUCK_AIR_CYCLES);
     emitEvent("sensor_invalid", zone_idx, nullptr, nullptr, nullptr, &detail);
   }
 }
@@ -1262,9 +1271,12 @@ bool findSharedAirSample(uint8_t exclude_zone, float* out_air_t, float* out_air_
     if (zs.flags & FLAG_AHT_ERR) continue;
     if (!gh::isValidAirTemp(zs.air_t) || !gh::isValidAirRh(zs.air_rh)) continue;
 
+    constexpr uint64_t SHARED_MIN_MAX_AGE_MS = 180000ULL;
     const uint16_t interval_s =
         g_zones[i].in_use ? g_zones[i].sample_interval_s : gh::SENSOR_MEASURE_INTERVAL_S;
-    const uint64_t max_age_ms = static_cast<uint64_t>(interval_s) * 3000ULL;
+    const uint64_t computed_age_ms = static_cast<uint64_t>(interval_s) * 3000ULL;
+    const uint64_t max_age_ms =
+        (computed_age_ms > SHARED_MIN_MAX_AGE_MS) ? computed_age_ms : SHARED_MIN_MAX_AGE_MS;
     if ((now_ms - zs.last_rx_ms) > max_age_ms) continue;
 
     if (best_slot < 0 || zs.last_rx_ms > best_rx_ms) {
@@ -1278,6 +1290,37 @@ bool findSharedAirSample(uint8_t exclude_zone, float* out_air_t, float* out_air_
   *out_air_rh = g_zone_state[best_slot].air_rh;
   *out_t_x100 = static_cast<int16_t>(lroundf(g_zone_state[best_slot].air_t * 100.0f));
   *out_rh_x100 = static_cast<uint16_t>(lroundf(g_zone_state[best_slot].air_rh * 100.0f));
+  return true;
+}
+
+bool findSharedLuxSample(uint8_t exclude_zone, uint32_t* out_lux) {
+  const uint64_t now_ms = millis64();
+  uint64_t best_rx_ms = 0;
+  int best_slot = -1;
+
+  for (uint8_t i = 0; i < MAX_ZONES; ++i) {
+    if (i + 1 == exclude_zone) continue;
+    const ZoneTelemetryState& zs = g_zone_state[i];
+    if (!zs.has_sample || !zs.has_own_lux) continue;
+    if (zs.flags & FLAG_BH_ERR) continue;
+    if (zs.lux == GH_LUX_NONE || !gh::isValidLux(zs.lux)) continue;
+
+    constexpr uint64_t SHARED_MIN_MAX_AGE_MS = 180000ULL;
+    const uint16_t interval_s =
+        g_zones[i].in_use ? g_zones[i].sample_interval_s : gh::SENSOR_MEASURE_INTERVAL_S;
+    const uint64_t computed_age_ms = static_cast<uint64_t>(interval_s) * 3000ULL;
+    const uint64_t max_age_ms =
+        (computed_age_ms > SHARED_MIN_MAX_AGE_MS) ? computed_age_ms : SHARED_MIN_MAX_AGE_MS;
+    if ((now_ms - zs.last_rx_ms) > max_age_ms) continue;
+
+    if (best_slot < 0 || zs.last_rx_ms > best_rx_ms) {
+      best_rx_ms = zs.last_rx_ms;
+      best_slot = i;
+    }
+  }
+
+  if (best_slot < 0) return false;
+  *out_lux = g_zone_state[best_slot].lux;
   return true;
 }
 
@@ -1316,6 +1359,8 @@ void processUdpTelemetry(const uint8_t mac[6], bool has_mac, IPAddress remote_ip
 
   const bool no_air_sensor =
       (pkt.air_t_x100 == GH_AIR_T_NONE || pkt.air_rh_x100 == GH_AIR_RH_NONE);
+  const bool no_lux_sensor =
+      (pkt.lux == GH_LUX_NONE && !(pkt.flags & FLAG_BH_ERR));
 
   TelemetryPkt eff_pkt = {};
   float air_t = 0.0f;
@@ -1331,7 +1376,15 @@ void processUdpTelemetry(const uint8_t mac[6], bool has_mac, IPAddress remote_ip
     }
   }
 
-  updateZoneTelemetryState(zone_idx, pkt, eff_pkt, air_t, air_rh, !no_air_sensor);
+  if (no_lux_sensor) {
+    uint32_t shared_lux = GH_LUX_NONE;
+    if (findSharedLuxSample(zone_idx, &shared_lux)) {
+      eff_pkt.lux = shared_lux;
+    }
+  }
+
+  updateZoneTelemetryState(zone_idx, pkt, eff_pkt, air_t, air_rh, !no_air_sensor,
+                           !no_lux_sensor);
 
   JsonDocument doc;
   char ts[32];
@@ -1642,6 +1695,7 @@ void saveProvisionToNvs() {
 void connectWifiAndPortal(bool force_portal) {
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
+  WiFi.setSleep(false);
 
   if (!force_portal) {
     Serial.printf("[gw] Connecting to Wi-Fi SSID \"%s\"...\n", gh::WIFI_SSID);

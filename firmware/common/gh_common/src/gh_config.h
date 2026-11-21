@@ -6,7 +6,7 @@
 namespace gh {
 
 // Cấu hình Wi-Fi & UDP dùng chung giữa Sensor Node (client) và Gateway (server)
-constexpr char WIFI_SSID[] = "UET-Wifi-T1 2.4Ghz";
+constexpr char WIFI_SSID[] = "UET-Wifi-T2 2.4Ghz";
 constexpr char WIFI_PASS[] = "";
 constexpr uint16_t UDP_PORT = 4210;
 

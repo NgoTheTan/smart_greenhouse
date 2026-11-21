@@ -99,7 +99,7 @@ Gateway ESP32 là nút trung tâm của mỗi nhà kính (`1 gateway = 1 nhà k�
    - **Fault Passthrough:** nếu có cờ lỗi phần cứng (`FLAG_AHT_ERR`, `FLAG_SOIL_ERR`, `FLAG_BH_ERR`) hoặc ngoài dải vật lý (`air_t ∉ [-10, 60]`, `air_rh ∉ [0, 100]`, `soil_raw ∉ [50, 4090]`), giữ nguyên giá trị thô để backend bắt `dropout`/`out_of_range`.
    - **Loại bỏ gai nhiễu 1 mẫu (Spike Rejection):** nếu mẫu hợp lệ về dải nhưng nhảy vọt đột ngột (`|Δair_t| > 5.0 °C`, `|Δair_rh| > 25.0 %`, `|Δsoil_m| > 20 %`) so với trạng thái đã lọc, bỏ qua gai nhiễu ở chu kỳ đầu tiên; nếu giữ ở mức mới từ chu kỳ thứ 2 liên tiếp thì chấp nhận thay đổi thật và nạp lại cửa sổ lọc.
    - **Lọc trung vị 3 mẫu (`Median-of-3`) + Làm mượt EMA (`α = 0.5`):** áp dụng cho `air_t`, `air_rh`, `soil_raw`, `lux`; tính lại `soil_pct` từ `soil_raw` đã lọc theo hiệu chuẩn zone; bảo toàn phát hiện `stuck` trên mẫu thô gốc.
-   - **Dùng chung cảm biến nhiệt–ẩm (`findSharedAirSample`):** nếu node gửi `GH_AIR_T_NONE`/`GH_AIR_RH_NONE` (vd ESP8266 Zone 2), mượn số đo đã lọc còn mới từ zone có cảm biến thật.
+   - **Dùng chung cảm biến nhiệt–ẩm & ánh sáng (`findSharedAirSample`, `findSharedLuxSample`):** nếu node gửi `GH_AIR_T_NONE`/`GH_AIR_RH_NONE` hoặc `GH_LUX_NONE` (vd Node 2 chỉ có cảm biến ẩm đất), mượn số đo đã lọc còn mới từ zone có cảm biến thật.
 5. **Kiểm tra dải vật lý & sức khỏe cảm biến cục bộ (cho Failsafe):**
    - Ghi nhận trạng thái cập nhật gần nhất của từng zone (`last_seen_ms`, `air_t`, `air_rh`, `soil_pct`, `soil_raw`, `flags`, phát hiện giá trị kẹt trên mẫu thô/đứt dây để failsafe không hành động sai).
    - Cập nhật `last_seen_s` cho mảng `nodes` trong bản tin `status`.

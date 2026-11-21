@@ -94,3 +94,35 @@ def test_neighbor_divergence() -> None:
     assert not is_neighbor_divergent(z1, z2_close, sample_interval_s=10.0)
     assert is_neighbor_divergent(z1, z2_far, sample_interval_s=10.0)
 
+
+def test_quality_recovery_after_dropout_not_spike() -> None:
+    tracker = ZoneQualityTracker()
+    assert tracker.evaluate(_sample(100.0, air_t=25.0, air_rh=68.0), sample_interval_s=10.0) == "ok"
+    # Mẫu lỗi AHT (0.0°C / 0.0%RH + FLAG_AHT_ERR) -> dropout
+    assert (
+        tracker.evaluate(
+            _sample(110.0, air_t=0.0, air_rh=0.0, flags=FLAG_AHT_ERR),
+            sample_interval_s=10.0,
+        )
+        == "dropout"
+    )
+    # Mẫu phục hồi ngay sau dropout (25.05°C / 67.74%) so với 25.0°C trước đó -> ok (không bị spike)
+    assert (
+        tracker.evaluate(_sample(120.0, air_t=25.05, air_rh=67.74), sample_interval_s=10.0) == "ok"
+    )
+    # Tương tự sau out_of_range -> ok khi cảm biến đọc lại giá trị hợp lệ gần nhất
+    assert (
+        tracker.evaluate(
+            _sample(130.0, soil_raw=0, soil_m=100.0, air_t=25.05, air_rh=67.74),
+            sample_interval_s=10.0,
+        )
+        == "out_of_range"
+    )
+    assert (
+        tracker.evaluate(
+            _sample(140.0, soil_raw=1525, soil_m=65.0, air_t=25.1, air_rh=67.5),
+            sample_interval_s=10.0,
+        )
+        == "ok"
+    )
+

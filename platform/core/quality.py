@@ -52,21 +52,47 @@ class ZoneQualityTracker:
         self.cfg = config or QualityConfig()
         max_len = max(self.cfg.stuck_soil_cycles, self.cfg.stuck_air_cycles)
         self._history: deque[ReadingSample] = deque(maxlen=max_len)
+        self._last_valid: ReadingSample | None = None
 
     @property
     def last_sample(self) -> ReadingSample | None:
         return self._history[-1] if self._history else None
 
+    def _is_physically_valid(self, s: ReadingSample) -> bool:
+        c = self.cfg
+        if s.flags & (FLAG_AHT_ERR | FLAG_SOIL_ERR):
+            return False
+        if s.air_t is None or s.air_rh is None or s.soil_m is None:
+            return False
+        if not (c.air_t_min <= s.air_t <= c.air_t_max):
+            return False
+        if not (c.air_rh_min <= s.air_rh <= c.air_rh_max):
+            return False
+        if not (c.soil_m_min <= s.soil_m <= c.soil_m_max):
+            return False
+        if s.soil_raw is not None and not (c.soil_raw_min <= s.soil_raw <= c.soil_raw_max):
+            return False
+        if s.lux is not None and not (c.lux_min <= s.lux <= c.lux_max):
+            return False
+        return True
+
     def warm_up(self, samples_chronological: list[ReadingSample]) -> None:
         """Dựng lại cửa sổ trạng thái từ DB khi worker khởi động."""
         self._history.clear()
+        self._last_valid = None
         for s in samples_chronological[-self._history.maxlen :]:  # type: ignore[misc]
             self._history.append(s)
+        for s in reversed(self._history):
+            if self._is_physically_valid(s):
+                self._last_valid = s
+                break
 
     def evaluate(self, sample: ReadingSample, sample_interval_s: float = 60.0) -> str:
         """Trả về nhãn quality ∈ {'ok', 'dropout', 'out_of_range', 'spike', 'stuck'} và lưu mẫu."""
         label = self._classify(sample, sample_interval_s)
         self._history.append(sample)
+        if label in ("ok", "stuck"):
+            self._last_valid = sample
         return label
 
     def _classify(self, s: ReadingSample, sample_interval_s: float) -> str:
@@ -90,7 +116,7 @@ class ZoneQualityTracker:
         if s.lux is not None and not (c.lux_min <= s.lux <= c.lux_max):
             return "out_of_range"
 
-        prev = self.last_sample
+        prev = self._last_valid
         if prev is not None:
             # 3. Spike: chỉ xét khi khoảng cách thời gian không quá 3 chu kỳ
             dt = s.ts_epoch - prev.ts_epoch
