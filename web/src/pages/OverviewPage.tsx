@@ -18,14 +18,19 @@ function cycleDayNumber(startedAt: string): number {
   return Math.max(1, Math.floor(diffMs / 86_400_000) + 1)
 }
 
-function fmtTemp(v: number | null | undefined): string | null {
-  return v != null ? `${v.toFixed(1)}°C` : null
+function fmtTemp(v: number | null | undefined): { val: string; unit: string } {
+  return v != null ? { val: v.toFixed(1), unit: '°C' } : { val: '—', unit: '°C' }
 }
-function fmtRh(v: number | null | undefined): string | null {
-  return v != null ? `${v.toFixed(0)}%` : null
+function fmtRh(v: number | null | undefined): { val: string; unit: string } {
+  return v != null ? { val: v.toFixed(0), unit: '%' } : { val: '—', unit: '%' }
 }
-function fmtSoil(v: number | null | undefined): string | null {
-  return v != null ? `${v.toFixed(0)}%` : null
+function fmtSoil(v: number | null | undefined): { val: string; unit: string } {
+  return v != null ? { val: v.toFixed(0), unit: '%' } : { val: '—', unit: '%' }
+}
+function fmtLux(v: number | null | undefined): { val: string; unit: string } {
+  if (v == null) return { val: '—', unit: 'klux' }
+  if (v >= 1000) return { val: (v / 1000).toFixed(1), unit: 'klux' }
+  return { val: Math.round(v).toString(), unit: 'lux' }
 }
 
 export default function OverviewPage() {
@@ -338,9 +343,15 @@ export default function OverviewPage() {
                       : 'Chưa gắn cây'
 
                   const reading = readingByZone.get(z.id)
-                  const hasReading =
+                  const hasReading = Boolean(
                     reading &&
-                    (reading.air_temp != null || reading.air_rh != null || reading.soil_moisture != null)
+                    (reading.air_temp != null || reading.air_rh != null || reading.soil_moisture != null || reading.lux != null)
+                  )
+                  const isSensorFault = reading?.quality && reading.quality !== 'ok'
+                  const t = fmtTemp(reading?.air_temp)
+                  const rh = fmtRh(reading?.air_rh)
+                  const sm = fmtSoil(reading?.soil_moisture)
+                  const lx = fmtLux(reading?.lux)
 
                   const isLast = idx === gh.zones.length - 1
 
@@ -349,14 +360,9 @@ export default function OverviewPage() {
                       key={z.id}
                       onClick={() => navigate(`/zones/${z.id}`)}
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '14px 24px',
+                        padding: '16px 24px',
                         borderBottom: isLast ? 'none' : '1px solid var(--border-row, #EEECE5)',
                         cursor: 'pointer',
-                        gap: '0.75rem',
-                        flexWrap: 'wrap',
                         transition: 'background-color 0.1s ease',
                       }}
                       onMouseEnter={(e) => {
@@ -366,87 +372,119 @@ export default function OverviewPage() {
                         e.currentTarget.style.backgroundColor = 'transparent'
                       }}
                     >
-                      {/* Cột 1: Tên Zone & Cây trồng */}
-                      <div style={{ minWidth: '120px', flex: '1 1 auto' }}>
-                        <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-main, #1C211E)' }}>
-                          {z.name || `Zone ${z.zone_index}`}
-                        </div>
-                        <div style={{ fontSize: '13px', color: 'var(--text-muted, #626861)', marginTop: '2px' }}>
-                          {cropLabel}
-                          {z.area_m2 ? ` · ${z.area_m2} m²` : ''}
-                        </div>
-                      </div>
-
-                      {/* Cột 2: Số liệu cảm biến */}
+                      {/* Header zone: Tên zone, diện tích, ngày thứ & trạng thái cảm biến */}
                       <div
                         style={{
                           display: 'flex',
-                          alignItems: 'center',
-                          gap: '1.25rem',
+                          alignItems: 'flex-start',
+                          justifyContent: 'space-between',
+                          gap: '0.75rem',
+                          marginBottom: '1rem',
+                        }}
+                      >
+                        <div>
+                          <div
+                            style={{
+                              fontSize: '1rem',
+                              fontWeight: 700,
+                              color: 'var(--text-main, #1C211E)',
+                              marginBottom: '0.25rem',
+                            }}
+                          >
+                            {z.name || `Khu ${z.zone_index}`}
+                          </div>
+                          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted, #626861)' }}>
+                            {cropLabel} · {z.area_m2 ? `${z.area_m2} m²` : '—'}
+                          </div>
+                        </div>
+
+                        <div style={{ textAlign: 'right' }}>
+                          <div
+                            style={{
+                              fontSize: '0.82rem',
+                              fontWeight: 600,
+                              color: 'var(--text-main, #1C211E)',
+                              marginBottom: '0.2rem',
+                            }}
+                          >
+                            {activeCycle ? `Ngày thứ ${cycleDayNumber(activeCycle.started_at)}` : 'Chưa có vụ'}
+                          </div>
+                          <StatusDot
+                            status={isSensorFault ? 'warning' : hasReading ? 'ok' : 'unallocated'}
+                            label={isSensorFault ? 'Lỗi cảm biến' : hasReading ? 'Cảm biến OK' : 'Chưa có dữ liệu'}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Khối hiển thị 4 chỉ số cảm biến lớn theo lưới 2x2 */}
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(2, 1fr)',
+                          gap: '1.25rem 1rem',
+                          padding: '0.25rem 0 0.25rem 0',
                           fontVariantNumeric: 'tabular-nums',
-                          justifyContent: 'center',
-                          flex: '1 1 auto',
                         }}
                       >
-                        {hasReading ? (
-                          <>
-                            <div style={{ textAlign: 'center' }}>
-                              <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-main)' }}>
-                                {fmtTemp(reading.air_temp) ?? '—'}
-                              </div>
-                              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Nhiệt độ</div>
-                            </div>
-                            <div style={{ textAlign: 'center' }}>
-                              <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-main)' }}>
-                                {fmtRh(reading.air_rh) ?? '—'}
-                              </div>
-                              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Ẩm KK</div>
-                            </div>
-                            <div style={{ textAlign: 'center' }}>
-                              <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-main)' }}>
-                                {fmtSoil(reading.soil_moisture) ?? '—'}
-                              </div>
-                              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Ẩm đất</div>
-                            </div>
-                          </>
-                        ) : (
-                          <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                            Không có dữ liệu cảm biến
-                          </span>
-                        )}
-                      </div>
+                        {/* Nhiệt độ */}
+                        <div>
+                          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted, #626861)', marginBottom: '0.25rem' }}>
+                            Nhiệt độ không khí
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.3rem' }}>
+                            <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-main, #1C211E)', lineHeight: 1.1 }}>
+                              {t.val}
+                            </span>
+                            <span style={{ fontSize: '0.88rem', color: 'var(--text-muted, #626861)' }}>
+                              {t.unit}
+                            </span>
+                          </div>
+                        </div>
 
-                      {/* Cột 3: Trạng thái mùa vụ & Chevron */}
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.65rem',
-                          justifyContent: 'flex-end',
-                          flexShrink: 0,
-                        }}
-                      >
-                        {activeCycle ? (
-                          <StatusDot
-                            status="ok"
-                            label={`Ngày thứ ${cycleDayNumber(activeCycle.started_at)}`}
-                          />
-                        ) : (
-                          <StatusDot
-                            status="unallocated"
-                            label="Chưa có vụ"
-                          />
-                        )}
-                        <span
-                          style={{
-                            color: 'var(--text-muted, #626861)',
-                            fontSize: '15px',
-                            fontWeight: 400,
-                            lineHeight: 1,
-                          }}
-                        >
-                          ›
-                        </span>
+                        {/* Độ ẩm không khí */}
+                        <div>
+                          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted, #626861)', marginBottom: '0.25rem' }}>
+                            Độ ẩm không khí
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.3rem' }}>
+                            <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-main, #1C211E)', lineHeight: 1.1 }}>
+                              {rh.val}
+                            </span>
+                            <span style={{ fontSize: '0.88rem', color: 'var(--text-muted, #626861)' }}>
+                              {rh.unit}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Độ ẩm đất */}
+                        <div>
+                          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted, #626861)', marginBottom: '0.25rem' }}>
+                            Độ ẩm đất
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.3rem' }}>
+                            <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-main, #1C211E)', lineHeight: 1.1 }}>
+                              {sm.val}
+                            </span>
+                            <span style={{ fontSize: '0.88rem', color: 'var(--text-muted, #626861)' }}>
+                              {sm.unit}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Cường độ ánh sáng */}
+                        <div>
+                          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted, #626861)', marginBottom: '0.25rem' }}>
+                            Cường độ ánh sáng
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.3rem' }}>
+                            <span style={{ fontSize: '1.65rem', fontWeight: 700, color: 'var(--text-main, #1C211E)', lineHeight: 1.1 }}>
+                              {lx.val}
+                            </span>
+                            <span style={{ fontSize: '0.88rem', color: 'var(--text-muted, #626861)' }}>
+                              {lx.unit}
+                            </span>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )
