@@ -1,20 +1,17 @@
-// GreenHub - Firmware Sensor Node 2 (ESP8266 NodeMCU / Wemos D1 Mini)
+// GreenHub - Firmware Sensor Node 2 (ESP32-C3 Super Mini)
 // Phần cứng:
-//   - Cảm biến độ ẩm đất: AOUT -> A0
-//   - LED trạng thái trên board: GPIO2 (D4, kích mức LOW)
+//   - Cảm biến độ ẩm đất: AOUT -> GPIO0 (ADC1_CH0, 12-bit 0..4095)
+//   - LED trạng thái trên board ESP32-C3 Super Mini: GPIO8 (kích mức LOW)
 // Tích hợp:
 //   - Kết nối Wi-Fi "Greenhouse-IOT" (pass "12345678") cùng mạng với Node 1 & Gateway
-//   - Xử lý xung đột A0 (TOUT) và Wi-Fi RF của ESP8266:
-//       + Tắt Wi-Fi Modem Sleep (WIFI_NONE_SLEEP) để RF không hiệu chuẩn đột ngột trên kênh ADC
-//       + Đọc 7 mẫu cách nhau 12 ms (với yield() cho Wi-Fi stack), loại bỏ 2 mẫu cực trị
-//         (spike khi Wi-Fi phát beacon) và lấy trung bình 3 mẫu giữa trước khi quy đổi sang 12-bit.
+//   - Đọc ADC1 12-bit trên GPIO0 (không xung đột Wi-Fi RF như ESP8266), lấy median 5 mẫu
 //   - Gửi gói UDP JSON {"type":"node2","zone":2,"soil_pct":...} mỗi 5 giây
 //   - Hỗ trợ nạp code không dây qua ArduinoOTA (hostname: node2.local)
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <ArduinoOTA.h>
-#include <ESP8266WiFi.h>
+#include <WiFi.h>
 #include <WiFiUdp.h>
 #include <stdio.h>
 #include <string.h>
@@ -24,24 +21,28 @@
 
 namespace {
 
-constexpr uint8_t PIN_SOIL_ADC = A0;
-constexpr uint8_t PIN_STATUS_LED = 2;  // LED tích hợp ESP8266 (LOW = sáng, HIGH = tắt)
-constexpr uint8_t SOIL_SAMPLES = 7;
+#ifdef PIN_SOIL_AOUT
+constexpr uint8_t PIN_SOIL_ADC = PIN_SOIL_AOUT;
+#else
+constexpr uint8_t PIN_SOIL_ADC = 0;  // GPIO0 (ADC1_CH0 trên ESP32-C3)
+#endif
+
+#ifdef PIN_LED
+constexpr uint8_t PIN_STATUS_LED = PIN_LED;
+#else
+constexpr uint8_t PIN_STATUS_LED = 8;  // LED tích hợp ESP32-C3 Super Mini (LOW = sáng, HIGH = tắt)
+#endif
+
+constexpr uint8_t SOIL_SAMPLES = 5;
 
 WiFiUDP g_udp;
 bool g_udp_started = false;
 bool g_ota_started = false;
 
-// Trên ESP8266 với cầu phân áp thực tế tại chân A0:
-// - Khi để KHÔ ngoài không khí: A0_raw10 ≈ 315 -> đặt mốc DRY = 315 (0% ẩm)
-// - Khi nhúng ƯỚT (nước/đất bão hòa): điện áp cảm biến giảm còn ~45% lúc khô -> đặt mốc WET = 140 (100% ẩm)
-constexpr uint16_t ESP8266_DEFAULT_DRY_RAW10 = 315;
-constexpr uint16_t ESP8266_DEFAULT_WET_RAW10 = 140;
-
 uint8_t g_zone = 2;
 uint16_t g_interval_s = gh::SENSOR_MEASURE_INTERVAL_S;  // 5 giây
-uint16_t g_dry_raw10 = ESP8266_DEFAULT_DRY_RAW10;
-uint16_t g_wet_raw10 = ESP8266_DEFAULT_WET_RAW10;
+uint16_t g_dry_raw = gh::DEFAULT_SOIL_DRY_RAW;
+uint16_t g_wet_raw = gh::DEFAULT_SOIL_WET_RAW;
 unsigned long g_last_udp_ms = 0;
 
 IPAddress getBroadcastIp() {
@@ -82,10 +83,7 @@ void ensureWifiConnected() {
 
   g_udp_started = false;
   g_ota_started = false;
-  WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
-  // Tắt Modem Sleep để bộ thu phát Wi-Fi không chiếm kênh ADC (TOUT/A0) khi thức dậy định kỳ
-  WiFi.setSleepMode(WIFI_NONE_SLEEP);
   WiFi.setAutoReconnect(true);
 
   while (WiFi.status() != WL_CONNECTED) {
@@ -120,14 +118,11 @@ void pollIncomingCfg() {
         const char* type_str = doc["type"] | "";
         if (strcmp(type_str, "cfg") == 0) {
           g_zone = doc["zone"] | g_zone;
-          uint16_t dry = doc["soil_dry_raw"] | 0;
-          uint16_t wet = doc["soil_wet_raw"] | 0;
+          uint16_t dry = doc["soil_dry_raw"] | g_dry_raw;
+          uint16_t wet = doc["soil_wet_raw"] | g_wet_raw;
           if (dry != wet && dry > 0 && wet > 0) {
-            // Nếu Gateway gửi ngưỡng 12-bit của ESP32 (> 1024) thì chỉ áp dụng khi đã hiệu chuẩn riêng cho ESP8266 (<= 1024)
-            if (dry <= 1024 && wet <= 1024) {
-              g_dry_raw10 = dry;
-              g_wet_raw10 = wet;
-            }
+            g_dry_raw = dry;
+            g_wet_raw = wet;
           }
         }
       }
@@ -136,26 +131,16 @@ void pollIncomingCfg() {
   }
 }
 
-// Đọc A0 trên ESP8266 (thang 10-bit gốc 0..1024) tránh nhiễu xung RF Wi-Fi:
-// - Nhường CPU (yield + delay) trước khi đo để gói Wi-Fi đang truyền kết thúc.
-// - Lấy 7 mẫu cách nhau 12 ms (lệch pha với chu kỳ beacon Wi-Fi), sắp xếp và lấy trung bình
-//   3 mẫu ở giữa (trimmed median).
-uint16_t readSoilA0Safe10Bit() {
+uint16_t readSoilRaw() {
   uint16_t samples[SOIL_SAMPLES] = {0};
-
-  yield();
-  delay(5);
-
   for (uint8_t i = 0; i < SOIL_SAMPLES; ++i) {
-    uint16_t raw10 = static_cast<uint16_t>(analogRead(PIN_SOIL_ADC));
-    if (raw10 > 1024) raw10 = 1024;
-    samples[i] = raw10;
+    samples[i] = static_cast<uint16_t>(analogRead(PIN_SOIL_ADC));
     if (i + 1 < SOIL_SAMPLES) {
-      delay(12);  // delay() trên ESP8266 tự gọi yield() cho Wi-Fi stack
+      delay(2);
     }
   }
 
-  // Insertion sort 7 mẫu
+  // Insertion sort 5 mẫu và lấy median
   for (uint8_t i = 1; i < SOIL_SAMPLES; ++i) {
     uint16_t key = samples[i];
     int j = i - 1;
@@ -165,19 +150,14 @@ uint16_t readSoilA0Safe10Bit() {
     }
     samples[j + 1] = key;
   }
-
-  // Lấy trung bình 3 mẫu trung tâm (bỏ 2 mẫu thấp nhất và 2 mẫu cao nhất do gai RF Wi-Fi)
-  uint32_t center_sum =
-      static_cast<uint32_t>(samples[2]) + samples[3] + samples[4];
-  return static_cast<uint16_t>(center_sum / 3UL);
+  return samples[SOIL_SAMPLES / 2];
 }
 
 void measureAndSendUdp() {
   ensureWifiConnected();
 
-  // Đọc A0 TRƯỚC khi phát gói UDP để tránh gai dòng TX Wi-Fi làm lệch ADC
-  const uint16_t raw10 = readSoilA0Safe10Bit();
-  const uint8_t soil_pct = gh::soilPct(raw10, g_dry_raw10, g_wet_raw10);
+  const uint16_t soil_raw = readSoilRaw();
+  const uint8_t soil_pct = gh::soilPct(soil_raw, g_dry_raw, g_wet_raw);
 
   JsonDocument doc;
   doc["type"] = "node2";
@@ -191,10 +171,10 @@ void measureAndSendUdp() {
   g_udp.write(reinterpret_cast<const uint8_t*>(payload), len);
   g_udp.endPacket();
 
-  Serial.printf("[node2] A0_raw10=%u (~%.2fV) -> soil_pct=%u%% | UDP JSON: %s\n",
-                raw10, (raw10 * 3.2f) / 1024.0f, soil_pct, payload);
+  Serial.printf("[node2] GPIO0_raw12=%u -> soil_pct=%u%% | UDP JSON: %s\n",
+                soil_raw, soil_pct, payload);
 
-  // Nháy ngắn LED trên board ESP8266 (LOW = sáng)
+  // Nháy ngắn LED trên board ESP32-C3 Super Mini (LOW = sáng)
   digitalWrite(PIN_STATUS_LED, LOW);
   delay(40);
   digitalWrite(PIN_STATUS_LED, HIGH);
@@ -205,6 +185,9 @@ void measureAndSendUdp() {
 void setup() {
   pinMode(PIN_STATUS_LED, OUTPUT);
   digitalWrite(PIN_STATUS_LED, HIGH);  // Tắt LED
+  pinMode(PIN_SOIL_ADC, INPUT);
+  analogReadResolution(12);
+  analogSetPinAttenuation(PIN_SOIL_ADC, ADC_11db);
 
   Serial.begin(115200);
   ensureWifiConnected();
