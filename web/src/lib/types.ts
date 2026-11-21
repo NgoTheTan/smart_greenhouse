@@ -1,5 +1,5 @@
 export type UserRole = 'owner'
-export type ActuatorName = 'pump_1' | 'pump_2' | 'fan' | 'light'
+export type ActuatorName = 'pump_1' | 'pump_2' | 'fan' | 'light' | (string & {})
 export type ActuatorMode = 'auto' | 'manual'
 export type AlertSeverity = 'info' | 'warning' | 'critical'
 export type AlertState = 'raised' | 'notified' | 'acknowledged' | 'resolved'
