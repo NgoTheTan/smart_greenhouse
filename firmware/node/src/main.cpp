@@ -366,6 +366,7 @@ void sendUdpTelemetry() {
   doc["air_t_x100"] = g_air_t_x100;
   doc["air_rh_x100"] = g_air_rh_x100;
   doc["soil_pct"] = g_soil_pct;
+  doc["soil_raw"] = g_soil_raw;
   if (g_lux == GH_LUX_NONE) {
     doc["lux"] = nullptr;
   } else {

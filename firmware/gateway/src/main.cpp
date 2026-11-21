@@ -1093,7 +1093,11 @@ void preprocessZoneTelemetry(uint8_t zone_idx, const TelemetryPkt& raw_pkt, bool
   if (soil_fault) {
     zf.soil_spike_streak = 0;
   } else {
-    const uint8_t raw_pct = gh::soilPct(raw_pkt.soil_raw, dry_raw, wet_raw);
+    // Nếu gói UDP chỉ gửi soil_pct (không gửi soil_raw thực hoặc đã tự hiệu chuẩn riêng tại node),
+    // giữ nguyên độ ẩm phần trăm do node đã tính để tránh lệch dải ADC giữa ESP32 và ESP32-C3.
+    const uint8_t raw_pct = (raw_pkt.soil_pct <= 100)
+                                ? raw_pkt.soil_pct
+                                : gh::soilPct(raw_pkt.soil_raw, dry_raw, wet_raw);
     if (!zf.soil_init) {
       zf.soil_init = true;
       zf.soil_count = 1;

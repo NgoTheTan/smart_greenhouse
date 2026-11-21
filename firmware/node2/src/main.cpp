@@ -39,10 +39,17 @@ WiFiUDP g_udp;
 bool g_udp_started = false;
 bool g_ota_started = false;
 
+// Ngưỡng hiệu chuẩn ADC 12-bit trên ESP32-C3 (GPIO0, ADC_11db, Vmax ~ 2.5V):
+// - Khi để KHÔ ngoài không khí (~1.9V-2.1V): GPIO0_raw12 ≈ 3100 -> DRY = 3100 (0% ẩm)
+// - Khi nhúng ƯỚT (nước/đất bão hòa ~0.9V-1.0V): GPIO0_raw12 ≈ 1400 -> WET = 1400 (100% ẩm)
+// (Khi đất ẩm vừa phải GPIO0_raw12 ≈ 1700-1800 -> ~75-82% ẩm)
+constexpr uint16_t ESP32C3_DEFAULT_DRY_RAW = 3100;
+constexpr uint16_t ESP32C3_DEFAULT_WET_RAW = 1400;
+
 uint8_t g_zone = 2;
 uint16_t g_interval_s = gh::SENSOR_MEASURE_INTERVAL_S;  // 5 giây
-uint16_t g_dry_raw = gh::DEFAULT_SOIL_DRY_RAW;
-uint16_t g_wet_raw = gh::DEFAULT_SOIL_WET_RAW;
+uint16_t g_dry_raw = ESP32C3_DEFAULT_DRY_RAW;
+uint16_t g_wet_raw = ESP32C3_DEFAULT_WET_RAW;
 unsigned long g_last_udp_ms = 0;
 
 IPAddress getBroadcastIp() {
@@ -171,8 +178,8 @@ void measureAndSendUdp() {
   g_udp.write(reinterpret_cast<const uint8_t*>(payload), len);
   g_udp.endPacket();
 
-  Serial.printf("[node2] GPIO0_raw12=%u -> soil_pct=%u%% | UDP JSON: %s\n",
-                soil_raw, soil_pct, payload);
+  Serial.printf("[node2] GPIO0_raw12=%u (dry=%u, wet=%u) -> soil_pct=%u%% | UDP JSON: %s\n",
+                soil_raw, g_dry_raw, g_wet_raw, soil_pct, payload);
 
   // Nháy ngắn LED trên board ESP32-C3 Super Mini (LOW = sáng)
   digitalWrite(PIN_STATUS_LED, LOW);
