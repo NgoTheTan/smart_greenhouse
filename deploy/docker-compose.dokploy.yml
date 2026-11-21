@@ -1,0 +1,142 @@
+# GreenHub - Docker Compose dành riêng cho Dokploy (đứng sau Traefik trên EC2/VPS)
+# - Đọc biến môi trường từ ./.env (deploy/.env do Dokploy tự tạo từ tab Environment)
+# - Caddy chỉ mở cổng nội bộ 80 (DOMAIN=:80) và nối vào mạng dokploy-network để Traefik định tuyến
+# - Mosquitto tự sinh chứng chỉ TLS self-signed vào volume mosquitto_certs khi khởi động lần đầu
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:2.17.2-pg16
+    env_file:
+      - path: ./.env
+        required: false
+    command: ["postgres", "-c", "shared_buffers=256MB", "-c", "max_connections=50"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 640m
+
+  mosquitto:
+    image: eclipse-mosquitto:2.0.20
+    env_file:
+      - path: ./.env
+        required: false
+    environment:
+      MQTT_TLS_AUTO_SELFSIGNED: "1"
+      MQTT_TLS_CERTFILE: "${MQTT_TLS_CERTFILE:-/certs/server.crt}"
+      MQTT_TLS_KEYFILE: "${MQTT_TLS_KEYFILE:-/certs/server.key}"
+    entrypoint: ["/bin/sh", "/greenhub-entrypoint.sh"]
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/docker-entrypoint.sh:/greenhub-entrypoint.sh:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_certs:/certs
+    ports:
+      - "8883:8883"
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_ctrl -h 127.0.0.1 -p 1883 -u \"$${MQTT_ADMIN_USER}\" -P \"$${MQTT_ADMIN_PASSWORD}\" dynsec getDefaultACLAccess >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+
+  api:
+    build:
+      context: ..
+      dockerfile: platform/Dockerfile
+    image: greenhub-platform:latest
+    command: ["api"]
+    env_file:
+      - path: ./.env
+        required: false
+    volumes:
+      - models:/models
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 384m
+
+  worker:
+    build:
+      context: ..
+      dockerfile: platform/Dockerfile
+    image: greenhub-platform:latest
+    command: ["worker"]
+    env_file:
+      - path: ./.env
+        required: false
+    volumes:
+      - models:/models
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  caddy:
+    build:
+      context: ..
+      dockerfile: deploy/caddy/Dockerfile
+    image: greenhub-caddy:latest
+    env_file:
+      - path: ./.env
+        required: false
+    environment:
+      DOMAIN: ":80"
+    expose:
+      - "80"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+    networks:
+      - default
+      - dokploy-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+
+volumes:
+  pgdata:
+  mosquitto_data:
+  mosquitto_certs:
+  models:
+  caddy_data:
+  caddy_config:
+
+networks:
+  dokploy-network:
+    external: true
