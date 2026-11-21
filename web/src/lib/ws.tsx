@@ -67,13 +67,23 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
             quality: typeof d.quality === 'string' ? d.quality : 'ok',
             source: 'live',
           }
+          // Cập nhật các query dạng mảng lịch sử (dùng trong ZoneDetailPage)
           queryClient.setQueriesData<ReadingPoint[]>(
             { queryKey: ['readings', zoneId] },
             (old) => {
-              if (!Array.isArray(old)) return old
-              if (old.some((p) => p.ts === newPt.ts)) return old
-              return [...old, newPt].slice(-500)
+              if (Array.isArray(old)) {
+                if (old.some((p) => p.ts === newPt.ts)) return old
+                return [...old, newPt].slice(-500)
+              }
+              return old
             },
+          )
+
+          // Cập nhật ngay lập tức điểm đo mới nhất (real-time) cho ['readings', zoneId, 'latest']
+          // hiển thị trên cả Trang tổng quan (OverviewPage) và Trang nhà kính (GreenhousePage)
+          queryClient.setQueryData<ReadingPoint | null>(
+            ['readings', zoneId, 'latest'],
+            newPt,
           )
           void queryClient.invalidateQueries({ queryKey: ['dli', zoneId] })
           break

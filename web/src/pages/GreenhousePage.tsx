@@ -279,7 +279,7 @@ export default function GreenhousePage() {
     })),
   })
 
-  // Readings mới nhất của từng zone
+  // Readings mới nhất của từng zone (cập nhật tự động thời gian thực qua WebSocket)
   const readingQueries = useQueries({
     queries: zones.map((z) => ({
       queryKey: ['readings', z.id, 'latest'],
@@ -288,8 +288,13 @@ export default function GreenhousePage() {
           (arr) => arr?.[0] ?? null,
         ),
       enabled: zones.length > 0,
-      refetchInterval: 15_000,
+      refetchInterval: 10_000,
     })),
+  })
+
+  const readingByZone = new Map<string, ReadingPoint | null>()
+  zones.forEach((z, idx) => {
+    readingByZone.set(z.id, readingQueries[idx]?.data ?? null)
   })
 
   // Gợi ý cây trồng cho nhà kính này
@@ -611,7 +616,7 @@ export default function GreenhousePage() {
           const profile = zone.crop_profile_id
             ? profilesById.get(zone.crop_profile_id)
             : undefined
-          const reading = readingQueries[idx]?.data ?? null
+          const reading = readingByZone.get(zone.id) ?? null
 
           return (
             <ZoneCard
