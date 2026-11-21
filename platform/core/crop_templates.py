@@ -37,6 +37,8 @@ class TempParams(BaseModel):
 
 class LightParams(BaseModel):
     dli_optimal: list[float] = Field(min_length=2, max_length=2)
+    lux_min: float = Field(default=100.0, ge=0)
+    lux_max: float = Field(default=150.0, ge=0)
 
     @field_validator("dli_optimal")
     @classmethod

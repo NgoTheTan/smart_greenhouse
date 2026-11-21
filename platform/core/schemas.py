@@ -7,8 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
-ACTUATOR_NAMES = ("pump_1", "pump_2", "fan")
-ActuatorType = Literal["pump_1", "pump_2", "fan"]
+ACTUATOR_NAMES = ("pump_1", "pump_2", "fan", "light")
+ActuatorType = Literal["pump_1", "pump_2", "fan", "light"]
 ActionType = Literal["on", "off"]
 ModeType = Literal["auto", "manual"]
 AckStatusType = Literal["applied", "rejected", "expired"]

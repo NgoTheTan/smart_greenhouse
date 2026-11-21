@@ -40,6 +40,7 @@ class ZoneRuleState:
     last_valid_temp: float | None = None
     last_valid_rh: float | None = None
     last_valid_vpd: float | None = None
+    last_valid_lux: float | None = None
     last_valid_ts: datetime | None = None
 
 
@@ -108,6 +109,7 @@ class RuleEngine:
                     z_state.last_valid_temp = r.air_temp
                     z_state.last_valid_rh = r.air_rh
                     z_state.last_valid_vpd = r.vpd
+                    z_state.last_valid_lux = r.lux
                     z_state.last_valid_ts = r.ts
                     z_state.consecutive_ok_samples += 1
                 else:
@@ -273,6 +275,7 @@ class RuleEngine:
         z_state.last_valid_temp = reading.air_temp
         z_state.last_valid_rh = reading.air_rh
         z_state.last_valid_vpd = reading.vpd
+        z_state.last_valid_lux = reading.lux
         z_state.last_valid_ts = reading.ts
 
         # Nếu đang có alert SENSOR_FAULT mở và đã nhận >= 2 mẫu ok liên tiếp -> auto resolve
@@ -673,6 +676,75 @@ class RuleEngine:
                             )
                             gh_state.fan_on_since = None
                             gh_state.fan_auto_reason = None
+
+        await self._evaluate_greenhouse_light(
+            session=session,
+            greenhouse_id=greenhouse_id,
+            client=client,
+            zones=zones,
+            modes=modes,
+            reported_acts=reported_acts,
+            fan_min_on_s=fan_min_on_s,
+            now=now,
+        )
+
+    async def _evaluate_greenhouse_light(
+        self,
+        session: AsyncSession,
+        greenhouse_id: uuid.UUID,
+        client: aiomqtt.Client | None,
+        zones: list[Any],
+        modes: dict[str, Any],
+        reported_acts: dict[str, Any],
+        fan_min_on_s: int,
+        now: datetime,
+    ) -> None:
+        """Điều khiển đèn chiếu sáng tự động theo hysteresis lux_min / lux_max."""
+        if _get_actuator_mode(modes, "light") != "auto":
+            return
+        if await self._has_pending_command(session, greenhouse_id, "light"):
+            return
+
+        lux_samples: list[tuple[float, float, float]] = []
+        for z, profile in zones:
+            z_state = self.get_zone_state(z.id)
+            if z_state.last_valid_lux is None:
+                continue
+            params = profile.parameters_json if profile is not None else DEFAULT_DEMO_PARAMS
+            light_cfg = params.get("light", {})
+            lux_min = float(light_cfg.get("lux_min", 100.0))
+            lux_max = float(light_cfg.get("lux_max", 150.0))
+            lux_samples.append((z_state.last_valid_lux, lux_min, lux_max))
+
+        if not lux_samples:
+            return
+
+        cur_light = reported_acts.get("light", "off")
+        low_samples = [(lux, l_min) for lux, l_min, _ in lux_samples if lux < l_min]
+        if low_samples and cur_light == "off":
+            lux_val, l_min_val = min(low_samples, key=lambda item: item[0])
+            await self._create_command(
+                session=session,
+                client=client,
+                greenhouse_id=greenhouse_id,
+                actuator="light",
+                action="on",
+                duration_s=fan_min_on_s,
+                reason=f"auto_light_on:lux_low:{lux_val:.0f}<{l_min_val:.0f}",
+                now=now,
+            )
+        elif cur_light == "on" and all(lux >= l_max for lux, _, l_max in lux_samples):
+            lux_val, _, l_max_val = min(lux_samples, key=lambda item: item[0])
+            await self._create_command(
+                session=session,
+                client=client,
+                greenhouse_id=greenhouse_id,
+                actuator="light",
+                action="off",
+                duration_s=None,
+                reason=f"light_sufficient:{lux_val:.0f}>={l_max_val:.0f}",
+                now=now,
+            )
 
     async def tick_5s(
         self,

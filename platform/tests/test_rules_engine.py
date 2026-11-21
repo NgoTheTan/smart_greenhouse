@@ -460,3 +460,102 @@ def test_scenario_c_sensor_fault_blocks_irrigation() -> None:
     assert len(fault_alerts) == 1
     assert fault_alerts[0].severity == "warning"
     assert fault_alerts[0].dedupe_key == f"SENSOR_FAULT:{zone_id}"
+
+
+def test_auto_light_control_hysteresis() -> None:
+    """Điều khiển đèn chiếu sáng tự động theo hysteresis lux_min=100 / lux_max=150."""
+    engine = RuleEngine()
+    farm_id, gh_id, zone_id, zone, gh, gw, prof, dev_state = _make_context()
+    dev_state.desired["modes"]["light"] = "auto"
+    dev_state.reported["actuators"]["light"] = "off"
+
+    created_commands = []
+
+    def _execute(stmt):
+        s_str = str(stmt)
+        if "FROM zones" in s_str:
+            if "greenhouses" in s_str:
+                return _FakeResult((zone, gh, gw, prof))
+            return _FakeResult([(zone, prof)])
+        if "FROM device_state" in s_str:
+            return _FakeResult(dev_state)
+        if "FROM alerts" in s_str:
+            return _FakeResult([])
+        return _FakeResult(None)
+
+    def _get(model, pk):
+        if model == DeviceState:
+            return dev_state
+        if model == Greenhouse:
+            return gh
+        if model == Zone:
+            return zone
+        return None
+
+    session = FakeAsyncSession(
+        execute_fn=_execute,
+        get_fn=_get,
+        add_fn=lambda obj: created_commands.append(obj) if hasattr(obj, "actuator") else None,
+    )
+
+    now = datetime(2026, 11, 21, 10, 0, 0, tzinfo=UTC)
+
+    # 1. lux = 60 < 100 -> BẬT đèn
+    r_dark = Reading(
+        zone_id=zone_id,
+        ts=now,
+        air_temp=24.0,
+        air_rh=65.0,
+        vpd=1.0,
+        soil_moisture=65.0,
+        lux=60.0,
+        quality="ok",
+    )
+    _run_coro(engine.evaluate_zone_telemetry(session, zone_id, gh_id, farm_id, r_dark, now=now))
+    light_cmds = [c for c in created_commands if c.actuator == "light"]
+    assert len(light_cmds) == 1
+    assert light_cmds[0].action == "on"
+    assert light_cmds[0].duration_s == 60
+    assert "auto_light_on:lux_low:" in light_cmds[0].reason
+
+    # 2. Đang bật và lux = 120 (trong dải trễ 100..150) -> giữ nguyên trạng thái, không tắt
+    created_commands.clear()
+    dev_state.reported["actuators"]["light"] = "on"
+    r_mid = Reading(
+        zone_id=zone_id,
+        ts=now + timedelta(seconds=10),
+        air_temp=24.0,
+        air_rh=65.0,
+        vpd=1.0,
+        soil_moisture=65.0,
+        lux=120.0,
+        quality="ok",
+    )
+    _run_coro(
+        engine.evaluate_zone_telemetry(
+            session, zone_id, gh_id, farm_id, r_mid, now=now + timedelta(seconds=10)
+        )
+    )
+    assert not [c for c in created_commands if c.actuator == "light"]
+
+    # 3. Đang bật và lux = 180 >= 150 -> TẮT đèn
+    r_bright = Reading(
+        zone_id=zone_id,
+        ts=now + timedelta(seconds=20),
+        air_temp=24.0,
+        air_rh=65.0,
+        vpd=1.0,
+        soil_moisture=65.0,
+        lux=180.0,
+        quality="ok",
+    )
+    _run_coro(
+        engine.evaluate_zone_telemetry(
+            session, zone_id, gh_id, farm_id, r_bright, now=now + timedelta(seconds=20)
+        )
+    )
+    off_cmds = [c for c in created_commands if c.actuator == "light"]
+    assert len(off_cmds) == 1
+    assert off_cmds[0].action == "off"
+    assert off_cmds[0].duration_s is None
+    assert "light_sufficient:" in off_cmds[0].reason

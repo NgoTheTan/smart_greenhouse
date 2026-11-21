@@ -53,7 +53,7 @@ const RANGE_OPTIONS: Array<{
     { key: '7d', label: '7 ngày', hours: 168, agg: '1h' },
   ]
 
-const ACTUATORS: ActuatorName[] = ['pump_1', 'pump_2', 'fan']
+const ACTUATORS: ActuatorName[] = ['pump_1', 'pump_2', 'fan', 'light']
 
 const CMD_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   pending: { label: 'Chờ gửi', cls: 'muted' },
@@ -785,7 +785,7 @@ export default function ZoneDetailPage() {
               </div>
             )}
 
-            <div className="grid grid-cols-3" style={{ marginBottom: '1.25rem' }}>
+            <div className="grid grid-cols-4" style={{ marginBottom: '1.25rem' }}>
               {ACTUATORS.map((act) => {
                 const state = reportedActuators[act] ?? 'off'
                 const modeObj = desiredModes[act]

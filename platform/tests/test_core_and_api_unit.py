@@ -75,6 +75,9 @@ def test_mac_normalization_and_command_validation() -> None:
     ok_off = CommandCreateRequest(actuator="fan", action="off")
     assert ok_off.duration_s is None
 
+    ok_light = CommandCreateRequest(actuator="light", action="on", duration_s=30)
+    assert ok_light.actuator == "light"
+
 
 def test_dynsec_acl_topic_isolation_and_topic_parser() -> None:
     farm_id = uuid.uuid4()
@@ -91,6 +94,7 @@ def test_dynsec_acl_topic_isolation_and_topic_parser() -> None:
     assert _parse_side_effect("fan_off") == ("fan", "off")
     assert _parse_side_effect("mist_off") is None
     assert _parse_side_effect("pump_1_off") == ("pump_1", "off")
+    assert _parse_side_effect("light_off") == ("light", "off")
 
 
 def test_api_process_does_not_import_heavy_ml_libraries() -> None:
