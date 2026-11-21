@@ -14,15 +14,15 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)/certs"
 mkdir -p "$DIR"
 cd "$DIR"
 
-SAN="DNS:localhost,DNS:mosquitto,IP:127.0.0.1"
-[ -n "$LAN_IP" ] && SAN="$SAN,IP:$LAN_IP"
+SAN="DNS:localhost,DNS:mosquitto,IP:127.0.0.1,DNS:127.0.0.1"
+[ -n "$LAN_IP" ] && SAN="$SAN,IP:$LAN_IP,DNS:$LAN_IP"
 
 if [ ! -f ca.key ]; then
   openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
     -keyout ca.key -out ca.crt -subj "/CN=GreenHub Dev CA"
 fi
 
-openssl req -newkey rsa:2048 -nodes -keyout server.key -out server.csr -subj "/CN=localhost"
+openssl req -newkey rsa:2048 -nodes -keyout server.key -out server.csr -subj "/CN=${LAN_IP:-localhost}"
 printf "subjectAltName=%s\nextendedKeyUsage=serverAuth\n" "$SAN" > server.ext
 openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
   -out server.crt -days 825 -sha256 -extfile server.ext

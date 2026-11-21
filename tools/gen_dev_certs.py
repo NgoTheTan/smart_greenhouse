@@ -70,12 +70,15 @@ def main(argv: list[str] | None = None) -> None:
         x509.DNSName("localhost"),
         x509.DNSName("mosquitto"),
         x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
+        # Mbed TLS 2.28 (ESP32) chỉ khớp SAN dạng dNSName khi xác thực IP/host
+        x509.DNSName("127.0.0.1"),
     ]
     if lan_ip:
         sans.append(x509.IPAddress(ipaddress.ip_address(lan_ip)))
+        sans.append(x509.DNSName(lan_ip))
 
     srv_key = _gen_key()
-    srv_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")])
+    srv_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, lan_ip or "localhost")])
     srv_cert = (
         x509.CertificateBuilder()
         .subject_name(srv_name)

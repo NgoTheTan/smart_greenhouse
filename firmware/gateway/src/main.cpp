@@ -207,7 +207,13 @@ struct MqttQueueItem {
 };
 
 // Biến toàn cục trạng thái Gateway
-ProvisionConfig g_prov = {"", 8883, "", "", "", ""};
+ProvisionConfig g_prov = {
+    "10.11.154.220",
+    8883,
+    "gw_d290e571f00e",
+    "BCHxXzTe7pEVGMSh-U85-o06Q8A",
+    "b038cbf3-922d-4dfa-98bb-8fbc322db837",
+    "d290e571-f00e-4888-a917-af986bed555c"};
 char g_topic_prefix[96] = {0};
 
 WiFiClientSecure g_tls_client;
@@ -1572,22 +1578,24 @@ bool hasValidProvisionConfig() {
          g_prov.gh_id[0] != '\0';
 }
 
+void loadNvsStringIfSet(Preferences& prefs, const char* key, char* dst, size_t dst_size) {
+  String val = prefs.getString(key, "");
+  if (val.length() > 0) {
+    snprintf(dst, dst_size, "%s", val.c_str());
+  }
+}
+
 void loadProvisionFromNvs() {
   Preferences prefs;
   if (!prefs.begin(NVS_NAMESPACE, true)) return;
 
-  String host = prefs.getString("mqtt_host", "");
-  snprintf(g_prov.mqtt_host, sizeof(g_prov.mqtt_host), "%s", host.c_str());
-  g_prov.mqtt_port = prefs.getUShort("mqtt_port", 8883);
-  if (g_prov.mqtt_port == 0) g_prov.mqtt_port = 8883;
-  String user = prefs.getString("mqtt_user", "");
-  snprintf(g_prov.mqtt_user, sizeof(g_prov.mqtt_user), "%s", user.c_str());
-  String pass = prefs.getString("mqtt_pass", "");
-  snprintf(g_prov.mqtt_pass, sizeof(g_prov.mqtt_pass), "%s", pass.c_str());
-  String farm = prefs.getString("farm_id", "");
-  snprintf(g_prov.farm_id, sizeof(g_prov.farm_id), "%s", farm.c_str());
-  String gh_id = prefs.getString("gh_id", "");
-  snprintf(g_prov.gh_id, sizeof(g_prov.gh_id), "%s", gh_id.c_str());
+  loadNvsStringIfSet(prefs, "mqtt_host", g_prov.mqtt_host, sizeof(g_prov.mqtt_host));
+  const uint16_t saved_port = prefs.getUShort("mqtt_port", g_prov.mqtt_port);
+  if (saved_port > 0) g_prov.mqtt_port = saved_port;
+  loadNvsStringIfSet(prefs, "mqtt_user", g_prov.mqtt_user, sizeof(g_prov.mqtt_user));
+  loadNvsStringIfSet(prefs, "mqtt_pass", g_prov.mqtt_pass, sizeof(g_prov.mqtt_pass));
+  loadNvsStringIfSet(prefs, "farm_id", g_prov.farm_id, sizeof(g_prov.farm_id));
+  loadNvsStringIfSet(prefs, "gh_id", g_prov.gh_id, sizeof(g_prov.gh_id));
 
   String cached_cfg = prefs.getString("cfg_json", "");
   prefs.end();
