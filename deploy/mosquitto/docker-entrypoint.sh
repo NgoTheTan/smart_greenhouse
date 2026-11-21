@@ -10,9 +10,31 @@ set -e
 : "${MQTT_ADMIN_USER:?}" "${MQTT_ADMIN_PASSWORD:?}" "${MQTT_WORKER_USER:?}" "${MQTT_WORKER_PASSWORD:?}"
 
 if [ ! -f "$MQTT_TLS_CERTFILE" ] || [ ! -f "$MQTT_TLS_KEYFILE" ]; then
-  echo "[mosquitto] Không tìm thấy chứng chỉ: $MQTT_TLS_CERTFILE / $MQTT_TLS_KEYFILE" >&2
-  echo "[mosquitto] Dev: chạy deploy/scripts/gen-dev-certs.sh trước." >&2
-  exit 1
+  if [ "${MQTT_TLS_AUTO_SELFSIGNED:-0}" = "1" ]; then
+    echo "[mosquitto] Tự sinh chứng chỉ TLS self-signed tại $MQTT_TLS_CERTFILE"
+    command -v openssl >/dev/null 2>&1 || apk add --no-cache openssl >/dev/null
+    mkdir -p "$(dirname "$MQTT_TLS_CERTFILE")" "$(dirname "$MQTT_TLS_KEYFILE")"
+    SAN="DNS:localhost,DNS:mosquitto,IP:127.0.0.1,DNS:127.0.0.1"
+    PUB_HOST="${MQTT_PUBLIC_HOST:-}"
+    CN="localhost"
+    if [ -n "$PUB_HOST" ] && [ "$PUB_HOST" != "localhost" ] && [ "$PUB_HOST" != "127.0.0.1" ]; then
+      CN="$PUB_HOST"
+      SAN="$SAN,DNS:$PUB_HOST"
+      case "$PUB_HOST" in
+        *[!0-9.]*) ;;
+        *.*.*.*) SAN="$SAN,IP:$PUB_HOST" ;;
+      esac
+    fi
+    openssl req -x509 -newkey rsa:2048 -nodes -days 825 \
+      -keyout "$MQTT_TLS_KEYFILE" -out "$MQTT_TLS_CERTFILE" \
+      -subj "/CN=$CN" \
+      -addext "subjectAltName=$SAN" \
+      -addext "extendedKeyUsage=serverAuth"
+  else
+    echo "[mosquitto] Không tìm thấy chứng chỉ: $MQTT_TLS_CERTFILE / $MQTT_TLS_KEYFILE" >&2
+    echo "[mosquitto] Dev: chạy deploy/scripts/gen-dev-certs.sh trước." >&2
+    exit 1
+  fi
 fi
 
 mkdir -p /mosquitto/certs

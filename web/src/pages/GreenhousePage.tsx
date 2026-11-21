@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, formatApiError } from '../lib/api'
+import { useAuth } from '../lib/auth'
 import { Button, Card, Field, SelectField, StatusDot } from '../components/ui'
 import {
   formatCropName,
@@ -43,9 +44,12 @@ interface ZoneCardProps {
   activeCycle: CropCycle | undefined
   profile: CropProfile | undefined
   reading: ReadingPoint | null
+  isOwner?: boolean
+  onDelete?: (zoneId: string, zoneName: string) => void
 }
 
-function ZoneCard({ zone, activeCycle, profile, reading }: ZoneCardProps) {
+function ZoneCard({ zone, activeCycle, profile, reading, isOwner, onDelete }: ZoneCardProps) {
+  const navigate = useNavigate()
   const cropLabel = activeCycle
     ? formatCropName(activeCycle.crop_code, activeCycle.crop_name)
     : profile
@@ -61,11 +65,20 @@ function ZoneCard({ zone, activeCycle, profile, reading }: ZoneCardProps) {
 
   return (
     <Card
+      onClick={() => navigate(`/zones/${zone.id}`)}
       style={{
         padding: '1.25rem',
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between',
+        cursor: 'pointer',
+        transition: 'background-color 0.1s ease',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.backgroundColor = '#FAFAF8'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.backgroundColor = '#FFFFFF'
       }}
     >
       <div>
@@ -107,13 +120,13 @@ function ZoneCard({ zone, activeCycle, profile, reading }: ZoneCardProps) {
           </div>
         </div>
 
-        {/* Khối hiển thị 4 chỉ số cảm biến lớn chuẩn theo ảnh */}
+        {/* Khối hiển thị 4 chỉ số cảm biến lớn */}
         <div
           style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(2, 1fr)',
             gap: '1.25rem 1rem',
-            padding: '1.25rem 0',
+            padding: '1.25rem 0 0.5rem 0',
             fontVariantNumeric: 'tabular-nums',
           }}
         >
@@ -179,29 +192,38 @@ function ZoneCard({ zone, activeCycle, profile, reading }: ZoneCardProps) {
         </div>
       </div>
 
-      {/* Link chân card: Điều khiển bơm, quạt & thu hoạch */}
-      <div
-        style={{
-          borderTop: '1px solid var(--border-row, #EEECE5)',
-          paddingTop: '0.85rem',
-        }}
-      >
-        <Link
-          to={`/zones/${zone.id}`}
+      {/* Nút xóa zone màu đỏ ở cuối mỗi zone */}
+      {isOwner && onDelete && (
+        <div
           style={{
+            borderTop: '1px solid var(--border-row, #EEECE5)',
+            paddingTop: '0.75rem',
+            marginTop: '0.75rem',
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            textDecoration: 'none',
-            color: 'var(--accent, #1E6B47)',
-            fontSize: '0.85rem',
-            fontWeight: 500,
+            justifyContent: 'flex-end',
           }}
         >
-          <span>Điều khiển bơm, quạt &amp; thu hoạch</span>
-          <span style={{ fontSize: '1rem' }}>→</span>
-        </Link>
-      </div>
+          <Button
+            type="button"
+            variant="danger"
+            size="sm"
+            style={{
+              color: 'var(--status-offline, #B94A32)',
+              borderColor: 'var(--status-offline, #B94A32)',
+              minHeight: '32px',
+              height: '32px',
+              padding: '0 12px',
+              fontSize: '12px',
+            }}
+            onClick={(e) => {
+              e.stopPropagation()
+              onDelete(zone.id, zone.name || `Khu ${zone.zone_index}`)
+            }}
+          >
+            Xóa zone
+          </Button>
+        </div>
+      )}
     </Card>
   )
 }
@@ -210,6 +232,9 @@ function ZoneCard({ zone, activeCycle, profile, reading }: ZoneCardProps) {
 
 export default function GreenhousePage() {
   const { ghId } = useParams<{ ghId: string }>()
+  const navigate = useNavigate()
+  const { user } = useAuth()
+  const isOwner = user?.role === 'owner' || Boolean(user)
   const queryClient = useQueryClient()
   const [refreshing, setRefreshing] = useState(false)
   const [refreshMsg, setRefreshMsg] = useState<string | null>(null)
@@ -223,8 +248,8 @@ export default function GreenhousePage() {
   const [zoneEditMsg, setZoneEditMsg] = useState<string | null>(null)
   const [zoneEditError, setZoneEditError] = useState<string | null>(null)
 
-  // Thêm Zone mới states
-  const [showAddZone, setShowAddZone] = useState(false)
+  // Thêm Zone mới states (cô lập nút ngoài)
+  const [showAddZoneModal, setShowAddZoneModal] = useState(false)
   const [newZoneName, setNewZoneName] = useState('')
   const [newZoneProfileId, setNewZoneProfileId] = useState('')
   const [newZoneArea, setNewZoneArea] = useState('')
@@ -365,7 +390,7 @@ export default function GreenhousePage() {
         }),
       }),
     onSuccess: (newZone) => {
-      setShowAddZone(false)
+      setShowAddZoneModal(false)
       setNewZoneName('')
       setNewZoneProfileId('')
       setNewZoneArea('')
@@ -390,14 +415,22 @@ export default function GreenhousePage() {
   }
 
   const deleteZoneMutation = useMutation({
-    mutationFn: (zoneId: string) =>
-      api<{ ok: boolean; message: string }>(`/zones/${zoneId}`, {
-        method: 'DELETE',
-      }),
+    mutationFn: ({ zoneId, deleteGreenhouseIfLast }: { zoneId: string; deleteGreenhouseIfLast?: boolean }) =>
+      api<{ ok: boolean; message: string; deleted_greenhouse?: boolean }>(
+        `/zones/${zoneId}${deleteGreenhouseIfLast ? '?delete_greenhouse_if_last=true' : ''}`,
+        {
+          method: 'DELETE',
+        },
+      ),
     onSuccess: (res) => {
-      setZoneEditMsg(res.message || 'Đã xóa vùng trồng thành công.')
       setZoneEditError(null)
       void queryClient.invalidateQueries({ queryKey: ['greenhouses'] })
+      if (res.deleted_greenhouse) {
+        setShowZoneModal(false)
+        navigate('/')
+      } else {
+        setZoneEditMsg(res.message || 'Đã xóa vùng trồng thành công.')
+      }
     },
     onError: (err) => {
       setZoneEditError(formatApiError(err))
@@ -406,14 +439,20 @@ export default function GreenhousePage() {
 
   const handleDeleteZone = (zoneId: string, zoneName: string) => {
     if (zones.length <= 1) {
-      alert('Nhà kính phải có ít nhất 1 vùng trồng. Không thể xóa vùng trồng cuối cùng.')
+      const confirmedLast = window.confirm(
+        `CẢNH BÁO: Đây là vùng trồng cuối cùng của nhà kính "${gh?.name || ''}".\n\nNếu bạn xóa vùng trồng này, TOÀN BỘ NHÀ KÍNH và các dữ liệu liên quan sẽ bị xóa vĩnh viễn!\n\nBạn có chắc chắn muốn xóa cả vùng trồng và nhà kính này không?`
+      )
+      if (confirmedLast) {
+        deleteZoneMutation.mutate({ zoneId, deleteGreenhouseIfLast: true })
+      }
       return
     }
+
     const confirmed = window.confirm(
       `Bạn có chắc chắn muốn xóa "${zoneName}" không? Các thiết bị và dữ liệu cảm biến liên quan sẽ được gỡ bỏ.`
     )
     if (confirmed) {
-      deleteZoneMutation.mutate(zoneId)
+      deleteZoneMutation.mutate({ zoneId, deleteGreenhouseIfLast: false })
     }
   }
 
@@ -442,13 +481,20 @@ export default function GreenhousePage() {
 
   return (
     <div>
-      {/* Breadcrumb theo ảnh thiết kế */}
-      <div style={{ fontSize: '0.85rem', color: 'var(--text-muted, #626861)', marginBottom: '0.75rem' }}>
-        <Link to="/" style={{ color: 'var(--text-muted, #626861)', textDecoration: 'none' }}>
+      {/* Breadcrumb điều hướng */}
+      <div style={{ fontSize: '0.88rem', marginBottom: '0.85rem' }}>
+        <Link
+          to="/"
+          style={{
+            color: 'var(--accent, #1E6B47)',
+            textDecoration: 'none',
+            fontWeight: 500,
+          }}
+        >
           Tổng quan
         </Link>
-        <span style={{ margin: '0 0.5rem' }}>/</span>
-        <span>{gh.name || 'Nhà kính'}</span>
+        <span style={{ margin: '0 0.45rem', color: 'var(--text-muted, #626861)' }}>/</span>
+        <span style={{ color: 'var(--text-main, #1C211E)', fontWeight: 500 }}>{gh.name || 'Nhà kính'}</span>
       </div>
 
       {/* Header trang Chi tiết nhà kính chuẩn theo ảnh */}
@@ -508,7 +554,7 @@ export default function GreenhousePage() {
         </div>
       </div>
 
-      {/* Tiêu đề mục Vùng trồng & nút Sửa zone */}
+      {/* Tiêu đề mục Vùng trồng & Các nút Thêm zone, Sửa zone cô lập */}
       <div
         style={{
           display: 'flex',
@@ -528,9 +574,28 @@ export default function GreenhousePage() {
           </p>
         </div>
 
-        <Button variant="secondary" onClick={handleOpenZoneModal}>
-          Sửa zone
-        </Button>
+        <div style={{ display: 'flex', gap: '0.65rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          {isOwner && (
+            <Button
+              variant="primary"
+              onClick={() => {
+                setNewZoneName('')
+                setNewZoneProfileId(profilesQuery.data?.[0]?.id || '')
+                setNewZoneArea('20.0')
+                setAddZoneError(null)
+                setShowAddZoneModal(true)
+              }}
+            >
+              + Thêm zone
+            </Button>
+          )}
+
+          {isOwner && (
+            <Button variant="secondary" onClick={handleOpenZoneModal}>
+              Sửa zone
+            </Button>
+          )}
+        </div>
       </div>
 
       {zoneEditMsg && (
@@ -555,6 +620,8 @@ export default function GreenhousePage() {
               activeCycle={activeCycle}
               profile={profile}
               reading={reading}
+              isOwner={isOwner}
+              onDelete={handleDeleteZone}
             />
           )
         })}
@@ -641,7 +708,7 @@ export default function GreenhousePage() {
         <div className="modal-backdrop" onClick={() => setShowZoneModal(false)}>
           <div className="modal-card" style={{ maxWidth: '560px' }} onClick={(e) => e.stopPropagation()}>
             <div className="card-header">
-              <h3 style={{ margin: 0 }}>Quản lý vùng trồng (Zone)</h3>
+              <h3 style={{ margin: 0 }}>Sửa thông tin vùng trồng (Zone)</h3>
               <button
                 type="button"
                 className="btn btn-sm btn-secondary"
@@ -666,7 +733,7 @@ export default function GreenhousePage() {
             {/* Danh sách các zone để chọn sửa */}
             <div style={{ marginBottom: '1.25rem' }}>
               <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>
-                Chọn Zone cần cấu hình:
+                Chọn Zone cần sửa thông tin:
               </label>
               <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                 {zones.map((z) => (
@@ -679,14 +746,6 @@ export default function GreenhousePage() {
                     {z.name || `Khu ${z.zone_index}`}
                   </button>
                 ))}
-                <button
-                  type="button"
-                  className="btn btn-sm btn-secondary"
-                  onClick={() => setShowAddZone(true)}
-                  style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}
-                >
-                  + Thêm Zone
-                </button>
               </div>
             </div>
 
@@ -726,91 +785,89 @@ export default function GreenhousePage() {
                   required
                 />
 
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '1.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-                  <Button
-                    type="button"
-                    variant="danger"
-                    size="sm"
-                    disabled={deleteZoneMutation.isPending || zones.length <= 1}
-                    onClick={() => handleDeleteZone(editZoneId, editZoneName)}
-                  >
-                    {deleteZoneMutation.isPending ? 'Đang xóa...' : 'Xóa Zone này'}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1.5rem' }}>
+                  <Button type="button" variant="secondary" onClick={() => setShowZoneModal(false)}>
+                    Đóng
                   </Button>
-
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <Button type="button" variant="secondary" onClick={() => setShowZoneModal(false)}>
-                      Đóng
-                    </Button>
-                    <Button type="submit" variant="primary" disabled={updateZoneMutation.isPending}>
-                      {updateZoneMutation.isPending ? 'Đang lưu...' : 'Lưu thay đổi'}
-                    </Button>
-                  </div>
+                  <Button type="submit" variant="primary" disabled={updateZoneMutation.isPending}>
+                    {updateZoneMutation.isPending ? 'Đang lưu...' : 'Lưu thay đổi'}
+                  </Button>
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
 
-            {/* Khối thêm Zone mới */}
-            {showAddZone && (
-              <div
-                style={{
-                  marginTop: '1.5rem',
-                  paddingTop: '1.25rem',
-                  borderTop: '1px solid var(--border-row, #EEECE5)',
-                }}
+      {/* Modal Thêm Zone mới riêng biệt */}
+      {showAddZoneModal && (
+        <div className="modal-backdrop" onClick={() => setShowAddZoneModal(false)}>
+          <div className="modal-card" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="card-header">
+              <h3 style={{ margin: 0 }}>Thêm vùng trồng (Zone) mới</h3>
+              <button
+                type="button"
+                className="btn btn-sm btn-secondary"
+                onClick={() => setShowAddZoneModal(false)}
+                style={{ padding: '0.1rem 0.5rem' }}
               >
-                <h4 style={{ margin: '0 0 0.85rem 0', fontSize: '0.95rem', fontWeight: 600 }}>Thêm Zone mới</h4>
+                ✕
+              </button>
+            </div>
 
-                {addZoneError && (
-                  <div className="alert-banner bad" style={{ marginBottom: '1rem' }}>
-                    {addZoneError}
-                  </div>
-                )}
-
-                <form onSubmit={handleAddZoneSubmit}>
-                  <Field
-                    label="Tên vùng trồng mới *"
-                    type="text"
-                    value={newZoneName}
-                    onChange={(e) => setNewZoneName(e.target.value)}
-                    placeholder="Ví dụ: Khu 3 - Xà lách"
-                    required
-                  />
-
-                  <SelectField
-                    label="Hồ sơ cây trồng mặc định"
-                    value={newZoneProfileId}
-                    onChange={(e) => setNewZoneProfileId(e.target.value)}
-                  >
-                    <option value="">Chưa gắn cây</option>
-                    {(profilesQuery.data ?? []).map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.crop_name}
-                      </option>
-                    ))}
-                  </SelectField>
-
-                  <Field
-                    label="Diện tích"
-                    type="number"
-                    step="0.1"
-                    min="0.1"
-                    value={newZoneArea}
-                    onChange={(e) => setNewZoneArea(e.target.value)}
-                    unit="m²"
-                    placeholder="20.0"
-                  />
-
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1rem' }}>
-                    <Button type="button" variant="secondary" size="sm" onClick={() => setShowAddZone(false)}>
-                      Hủy
-                    </Button>
-                    <Button type="submit" variant="primary" size="sm" disabled={addZoneMutation.isPending || !newZoneName.trim()}>
-                      {addZoneMutation.isPending ? 'Đang thêm...' : 'Xác nhận thêm'}
-                    </Button>
-                  </div>
-                </form>
+            {addZoneError && (
+              <div className="alert-banner bad" style={{ marginBottom: '1rem' }}>
+                {addZoneError}
               </div>
             )}
+
+            <form onSubmit={handleAddZoneSubmit}>
+              <Field
+                label="Tên vùng trồng mới *"
+                type="text"
+                value={newZoneName}
+                onChange={(e) => setNewZoneName(e.target.value)}
+                placeholder="Ví dụ: Khu 3 - Xà lách"
+                required
+              />
+
+              <SelectField
+                label="Hồ sơ cây trồng mặc định"
+                value={newZoneProfileId}
+                onChange={(e) => setNewZoneProfileId(e.target.value)}
+              >
+                <option value="">Chưa gắn cây</option>
+                {(profilesQuery.data ?? []).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.crop_name}
+                  </option>
+                ))}
+              </SelectField>
+
+              <Field
+                label="Diện tích canh tác"
+                type="number"
+                step="0.1"
+                min="0.1"
+                value={newZoneArea}
+                onChange={(e) => setNewZoneArea(e.target.value)}
+                unit="m²"
+                placeholder="20.0"
+              />
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1.25rem' }}>
+                <Button type="button" variant="secondary" onClick={() => setShowAddZoneModal(false)}>
+                  Hủy
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={addZoneMutation.isPending || !newZoneName.trim()}
+                >
+                  {addZoneMutation.isPending ? 'Đang thêm...' : 'Xác nhận thêm'}
+                </Button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -40,6 +40,7 @@ constexpr uint8_t ACT_PUMP_2 = 1;
 constexpr uint8_t ACT_FAN = 2;
 constexpr uint8_t ACT_LIGHT = 3;
 constexpr uint8_t ACT_COUNT = 4;
+constexpr uint8_t MOTOR_PWM_DUTY = 80;
 
 constexpr uint8_t MAX_ZONES = 8;
 constexpr uint8_t MAX_NODES = 16;
@@ -184,9 +185,11 @@ struct ZoneFilterState {
 
   bool soil_init;
   uint16_t soil_win[FILTER_WIN];
+  uint8_t soil_pct_win[FILTER_WIN];
   uint8_t soil_count;
   uint8_t soil_idx;
   float ema_soil_raw;
+  float ema_soil_pct;
   uint8_t soil_spike_streak;
 
   bool lux_init;
@@ -202,7 +205,7 @@ struct PumpRunRecord {
 };
 
 struct MqttQueueItem {
-  char topic[112];
+  char suffix[48];
   char payload[320];
 };
 
@@ -286,10 +289,13 @@ uint64_t millis64() {
 uint32_t uptimeSeconds() { return static_cast<uint32_t>(millis64() / 1000ULL); }
 
 void initActuatorsOff() {
-  // Đệm transistor 8050 kích mức HIGH: ghi LOW TRƯỚC pinMode để tắt tuyệt đối khi boot
+  // Đệm transistor 8050 kích mức HIGH: ghi LOW/0 TRƯỚC pinMode để tắt tuyệt đối khi boot
   for (uint8_t i = 0; i < ACT_COUNT; ++i) {
     digitalWrite(ACTUATOR_PINS[i], LOW);
     pinMode(ACTUATOR_PINS[i], OUTPUT);
+    if (i != ACT_LIGHT) {
+      analogWrite(ACTUATOR_PINS[i], 0);
+    }
     g_actuator_on[i] = false;
     g_has_off_deadline[i] = false;
   }
@@ -299,7 +305,11 @@ void setActuatorPin(uint8_t act_idx, bool turn_on) {
   if (act_idx >= ACT_COUNT) {
     return;
   }
-  digitalWrite(ACTUATOR_PINS[act_idx], turn_on ? HIGH : LOW);
+  if (act_idx == ACT_LIGHT) {
+    digitalWrite(ACTUATOR_PINS[act_idx], turn_on ? HIGH : LOW);
+  } else {
+    analogWrite(ACTUATOR_PINS[act_idx], turn_on ? MOTOR_PWM_DUTY : 0);
+  }
   g_actuator_on[act_idx] = turn_on;
 }
 
@@ -397,7 +407,7 @@ void buildTopic(char* buf, size_t len, const char* suffix) {
   snprintf(buf, len, "%s/%s", g_topic_prefix, suffix);
 }
 
-void enqueueMqtt(const char* topic, const char* payload) {
+void enqueueMqtt(const char* suffix, const char* payload) {
   uint16_t slot = 0;
   if (g_queue_count < MQTT_QUEUE_SIZE) {
     slot = (g_queue_head + g_queue_count) % MQTT_QUEUE_SIZE;
@@ -407,13 +417,13 @@ void enqueueMqtt(const char* topic, const char* payload) {
     slot = g_queue_head;
     g_queue_head = (g_queue_head + 1) % MQTT_QUEUE_SIZE;
   }
-  snprintf(g_mqtt_queue[slot].topic, sizeof(g_mqtt_queue[slot].topic), "%s", topic);
+  snprintf(g_mqtt_queue[slot].suffix, sizeof(g_mqtt_queue[slot].suffix), "%s", suffix);
   snprintf(g_mqtt_queue[slot].payload, sizeof(g_mqtt_queue[slot].payload), "%s",
            payload);
 }
 
 void publishOrEnqueue(const char* suffix, const char* payload, bool allow_queue) {
-  char topic[112];
+  char topic[160];
   buildTopic(topic, sizeof(topic), suffix);
   if (g_mqtt.connected() && g_queue_count == 0) {
     if (g_mqtt.publish(topic, payload, false)) {
@@ -421,7 +431,7 @@ void publishOrEnqueue(const char* suffix, const char* payload, bool allow_queue)
     }
   }
   if (allow_queue) {
-    enqueueMqtt(topic, payload);
+    enqueueMqtt(suffix, payload);
   }
 }
 
@@ -429,7 +439,9 @@ void flushMqttQueue() {
   uint8_t burst = 0;
   while (g_mqtt.connected() && g_queue_count > 0 && burst < 2) {
     const MqttQueueItem& item = g_mqtt_queue[g_queue_head];
-    if (!g_mqtt.publish(item.topic, item.payload, false)) {
+    char topic[160];
+    buildTopic(topic, sizeof(topic), item.suffix);
+    if (!g_mqtt.publish(topic, item.payload, false)) {
       break;
     }
     g_queue_head = (g_queue_head + 1) % MQTT_QUEUE_SIZE;
@@ -473,7 +485,7 @@ void publishStatusNow() {
   char payload[1024];
   const size_t n = serializeJson(doc, payload, sizeof(payload));
   if (n > 0 && n < sizeof(payload)) {
-    char topic[112];
+    char topic[160];
     buildTopic(topic, sizeof(topic), "status");
     g_mqtt.publish(topic, payload, true);
   }
@@ -522,7 +534,7 @@ void initDefaultZones() {
     g_zones[i].irrigation_max_run_s = 15;
     g_zones[i].irrigation_min_gap_s = 90;
     g_zones[i].irrigation_max_total_s_per_hour = 120;
-    g_zones[i].fan_max_on_s = 300;
+    g_zones[i].fan_max_on_s = 60;
     g_zones[i].temp_critical_high_c = 38.0f;
     g_zones[i].soil_moisture_critical_low_pct = 30.0f;
   }
@@ -653,7 +665,10 @@ bool applyCfgJson(const char* json_str, size_t len, bool save_to_nvs) {
         zc.irrigation_max_run_s = lim["irrigation_max_run_s"] | 15;
         zc.irrigation_min_gap_s = lim["irrigation_min_gap_s"] | 90;
         zc.irrigation_max_total_s_per_hour = lim["irrigation_max_total_s_per_hour"] | 120;
-        zc.fan_max_on_s = lim["fan_max_on_s"] | 300;
+        zc.fan_max_on_s = lim["fan_max_on_s"] | 60;
+        if (zc.fan_max_on_s > 60) {
+          zc.fan_max_on_s = 60;
+        }
       }
 
       JsonObjectConst fs = z["failsafe"].as<JsonObjectConst>();
@@ -842,13 +857,13 @@ uint16_t getMaxRunForActuator(uint8_t act_idx) {
     const ZoneConfig* zc = findZoneByPump(act_idx);
     return zc ? zc->irrigation_max_run_s : 15;
   }
-  // Lấy max của zone 1 (hoặc zone đầu tiên tìm thấy) cho fan
+  // Lấy max của zone 1 (hoặc zone đầu tiên tìm thấy) cho fan/light (tối đa 60s)
   for (uint8_t i = 0; i < MAX_ZONES; ++i) {
     if (g_zones[i].in_use) {
-      return g_zones[i].fan_max_on_s;
+      return (g_zones[i].fan_max_on_s > 60) ? 60 : g_zones[i].fan_max_on_s;
     }
   }
-  return 300;
+  return 60;
 }
 
 bool tryTurnOnPump(uint8_t pump_idx, uint16_t req_dur_s, const char** out_reject_reason,
@@ -1090,7 +1105,7 @@ void preprocessZoneTelemetry(uint8_t zone_idx, const TelemetryPkt& raw_pkt, bool
     }
   }
 
-  // 2. Tiền xử lý Độ ẩm đất (Median-of-3 + Spike Rejection + EMA + quy đổi theo zone cal)
+  // 2. Tiền xử lý Độ ẩm đất (Median-of-3 + Spike Rejection + EMA trên cả soil_raw và soil_pct)
   const ZoneConfig* zc = findZoneConfig(zone_idx);
   const uint16_t dry_raw = zc ? zc->soil_dry_raw : gh::DEFAULT_SOIL_DRY_RAW;
   const uint16_t wet_raw = zc ? zc->soil_wet_raw : gh::DEFAULT_SOIL_WET_RAW;
@@ -1099,8 +1114,7 @@ void preprocessZoneTelemetry(uint8_t zone_idx, const TelemetryPkt& raw_pkt, bool
   if (soil_fault) {
     zf.soil_spike_streak = 0;
   } else {
-    // Nếu gói UDP chỉ gửi soil_pct (không gửi soil_raw thực hoặc đã tự hiệu chuẩn riêng tại node),
-    // giữ nguyên độ ẩm phần trăm do node đã tính để tránh lệch dải ADC giữa ESP32 và ESP32-C3.
+    // Ưu tiên % độ ẩm đất do Node đã hiệu chuẩn để tránh lệch thang ADC giữa các loại node
     const uint8_t raw_pct = (raw_pkt.soil_pct <= 100)
                                 ? raw_pkt.soil_pct
                                 : gh::soilPct(raw_pkt.soil_raw, dry_raw, wet_raw);
@@ -1109,11 +1123,12 @@ void preprocessZoneTelemetry(uint8_t zone_idx, const TelemetryPkt& raw_pkt, bool
       zf.soil_count = 1;
       zf.soil_idx = 1 % FILTER_WIN;
       zf.soil_win[0] = raw_pkt.soil_raw;
+      zf.soil_pct_win[0] = raw_pct;
       zf.ema_soil_raw = static_cast<float>(raw_pkt.soil_raw);
+      zf.ema_soil_pct = static_cast<float>(raw_pct);
       zf.soil_spike_streak = 0;
     } else {
-      const uint16_t prev_raw_u16 = static_cast<uint16_t>(lroundf(zf.ema_soil_raw));
-      const uint8_t prev_pct = gh::soilPct(prev_raw_u16, dry_raw, wet_raw);
+      const uint8_t prev_pct = gh::clampPct(static_cast<int>(lroundf(zf.ema_soil_pct)));
       const bool is_spike =
           abs(static_cast<int>(raw_pct) - static_cast<int>(prev_pct)) >
           static_cast<int>(gh::SPIKE_SOIL_PCT);
@@ -1124,23 +1139,30 @@ void preprocessZoneTelemetry(uint8_t zone_idx, const TelemetryPkt& raw_pkt, bool
         zf.soil_count = 1;
         zf.soil_idx = 1 % FILTER_WIN;
         zf.soil_win[0] = raw_pkt.soil_raw;
+        zf.soil_pct_win[0] = raw_pct;
         zf.ema_soil_raw = static_cast<float>(raw_pkt.soil_raw);
+        zf.ema_soil_pct = static_cast<float>(raw_pct);
       } else {
         zf.soil_spike_streak = 0;
         zf.soil_win[zf.soil_idx] = raw_pkt.soil_raw;
+        zf.soil_pct_win[zf.soil_idx] = raw_pct;
         zf.soil_idx = (zf.soil_idx + 1) % FILTER_WIN;
         if (zf.soil_count < FILTER_WIN) ++zf.soil_count;
         const uint16_t med_s = medianWin(zf.soil_win, zf.soil_count);
+        const uint8_t med_pct = medianWin(zf.soil_pct_win, zf.soil_count);
         zf.ema_soil_raw =
             FILTER_EMA_ALPHA * static_cast<float>(med_s) +
             (1.0f - FILTER_EMA_ALPHA) * zf.ema_soil_raw;
+        zf.ema_soil_pct =
+            FILTER_EMA_ALPHA * static_cast<float>(med_pct) +
+            (1.0f - FILTER_EMA_ALPHA) * zf.ema_soil_pct;
       }
     }
     long filt_raw_l = lroundf(zf.ema_soil_raw);
     if (filt_raw_l < gh::SOIL_RAW_MIN) filt_raw_l = gh::SOIL_RAW_MIN;
     if (filt_raw_l > gh::SOIL_RAW_MAX) filt_raw_l = gh::SOIL_RAW_MAX;
     out_pkt->soil_raw = static_cast<uint16_t>(filt_raw_l);
-    out_pkt->soil_pct = gh::soilPct(out_pkt->soil_raw, dry_raw, wet_raw);
+    out_pkt->soil_pct = gh::clampPct(static_cast<int>(lroundf(zf.ema_soil_pct)));
   }
 
   // 3. Tiền xử lý Ánh sáng lux
@@ -1556,7 +1578,7 @@ void tickFailsafeAndBuzzer() {
 // ============================================================================
 
 void onMqttMessage(char* topic, byte* payload, unsigned int length) {
-  char cfg_topic[112];
+  char cfg_topic[160];
   buildTopic(cfg_topic, sizeof(cfg_topic), "cfg");
   if (strcmp(topic, cfg_topic) == 0) {
     if (applyCfgJson(reinterpret_cast<const char*>(payload), length, true)) {
@@ -1565,7 +1587,7 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
     return;
   }
 
-  char cmd_prefix[112];
+  char cmd_prefix[160];
   buildTopic(cmd_prefix, sizeof(cmd_prefix), "cmd/");
   if (strncmp(topic, cmd_prefix, strlen(cmd_prefix)) == 0) {
     handleCommandPayload(payload, length);
@@ -1729,7 +1751,7 @@ bool attemptMqttConnect() {
   snprintf(client_id, sizeof(client_id), "gh-gw-%02X%02X%02X%02X%02X%02X", mac[0],
            mac[1], mac[2], mac[3], mac[4], mac[5]);
 
-  char lwt_topic[112];
+  char lwt_topic[160];
   buildTopic(lwt_topic, sizeof(lwt_topic), "status");
 
   Serial.printf("[gw] Connecting MQTT TLS %s:%u...\n", g_prov.mqtt_host,
@@ -1742,8 +1764,8 @@ bool attemptMqttConnect() {
     return false;
   }
 
-  char sub_cmd[112];
-  char sub_cfg[112];
+  char sub_cmd[160];
+  char sub_cfg[160];
   buildTopic(sub_cmd, sizeof(sub_cmd), "cmd/#");
   buildTopic(sub_cfg, sizeof(sub_cfg), "cfg");
   g_mqtt.subscribe(sub_cmd, 1);

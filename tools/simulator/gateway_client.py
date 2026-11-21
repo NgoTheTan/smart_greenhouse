@@ -17,7 +17,7 @@ import aiomqtt
 
 log = logging.getLogger("simulator.gw")
 
-ACTUATORS = ("pump_1", "pump_2", "fan")
+ACTUATORS = ("pump_1", "pump_2", "fan", "light")
 
 
 @dataclass

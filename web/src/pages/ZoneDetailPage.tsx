@@ -53,7 +53,110 @@ const RANGE_OPTIONS: Array<{
     { key: '7d', label: '7 ngày', hours: 168, agg: '1h' },
   ]
 
-const ACTUATORS: ActuatorName[] = ['pump_1', 'pump_2', 'fan']
+function getActuatorTitle(act: string, _currentZoneName?: string | null, _zoneIndex?: number): string {
+  if (act.startsWith('pump_')) {
+    return 'Bơm tưới'
+  }
+  if (act === 'fan') return 'Quạt đối lưu'
+  if (act === 'light') return 'Đèn chiếu sáng'
+  return ACTUATOR_LABELS[act as ActuatorName] ?? act
+}
+
+function formatCommandReason(
+  reason?: string | null,
+  rejectReason?: string | null,
+  status?: string,
+): { text: string; isError?: boolean } {
+  // Ưu tiên hiển thị lý do nếu lệnh bị từ chối
+  if (status === 'rejected' || rejectReason) {
+    const raw = rejectReason || reason || ''
+    if (raw.includes('gateway_offline')) {
+      return { text: 'Từ chối: Bộ điều khiển Gateway đang ngoại tuyến (mất kết nối)', isError: true }
+    }
+    if (raw.includes('min_gap')) {
+      return { text: 'Từ chối: Chưa đủ thời gian nghỉ an toàn giữa 2 lần bật bơm', isError: true }
+    }
+    if (raw.includes('max_total')) {
+      return { text: 'Từ chối: Vượt quá tổng thời lượng chạy an toàn trong 1 giờ', isError: true }
+    }
+    if (raw.includes('interlock')) {
+      return { text: 'Từ chối: Khóa liên động an toàn (tránh quá tải nguồn điện)', isError: true }
+    }
+    if (raw.includes('invalid')) {
+      return { text: 'Từ chối: Lệnh hoặc thông số cài đặt chưa hợp lệ', isError: true }
+    }
+    if (raw.includes('cooldown')) {
+      return { text: 'Từ chối: Thiết bị đang trong thời gian làm nguội/nghỉ', isError: true }
+    }
+    return { text: `Từ chối: ${raw || 'Vi phạm luật an toàn của thiết bị'}`, isError: true }
+  }
+
+  if (!reason || reason === 'manual_api' || reason === 'manual') {
+    return { text: 'Người dùng thao tác bật/tắt thủ công trên bảng điều khiển' }
+  }
+
+  if (reason.startsWith('soil_low:')) {
+    const vals = reason.replace('soil_low:', '').split('<')
+    if (vals.length === 2) {
+      return { text: `Độ ẩm đất thấp (${vals[0]}% < ngưỡng ${vals[1]}%) → Tự động bơm nước` }
+    }
+    return { text: 'Độ ẩm đất xuống dưới ngưỡng tối ưu → Tự động bơm tưới' }
+  }
+
+  if (reason.startsWith('soil_reached_max:')) {
+    const vals = reason.replace('soil_reached_max:', '').split('>=')
+    if (vals.length === 2) {
+      return { text: `Đất đã đủ ẩm (${vals[0]}% ≥ ${vals[1]}%) → Tự động ngắt bơm chống úng` }
+    }
+    return { text: 'Độ ẩm đất đã đạt mức yêu cầu → Tự động ngắt bơm' }
+  }
+
+  if (reason.includes('heat_stress')) {
+    const match = reason.match(/heat_stress:([\d.]+)>([\d.]+)/)
+    if (match) {
+      return { text: `Nhiệt độ phòng nóng (${match[1]}°C > ${match[2]}°C) → Bật quạt làm mát` }
+    }
+    return { text: 'Nhiệt độ không khí vượt ngưỡng cho phép → Bật quạt đối lưu làm mát' }
+  }
+
+  if (reason.includes('vpd_low_streak')) {
+    return { text: 'Không khí ẩm đọng kéo dài → Bật quạt thông gió tránh nấm bệnh' }
+  }
+
+  if (reason.includes('disease_risk')) {
+    return { text: 'Cảnh báo nguy cơ nấm bệnh mầm cây → Bật quạt thông gió' }
+  }
+
+  if (reason.includes('climate_stabilized')) {
+    return { text: 'Vi khí hậu đã mát và khô ráo ổn định → Tự động tắt quạt' }
+  }
+
+  if (reason.startsWith('auto_light_on:lux_low')) {
+    const match = reason.match(/lux_low:([\d.]+)<([\d.]+)/)
+    if (match) {
+      return { text: `Ánh sáng yếu (${match[1]} lux < ${match[2]} lux) → Bật đèn bổ sung quang hợp` }
+    }
+    return { text: 'Thiếu ánh sáng tự nhiên → Bật đèn bổ sung quang hợp' }
+  }
+
+  if (reason.startsWith('light_sufficient')) {
+    const match = reason.match(/light_sufficient:([\d.]+)/)
+    if (match) {
+      return { text: `Đủ ánh sáng tự nhiên (${match[1]} lux) → Tắt đèn tiết kiệm điện` }
+    }
+    return { text: 'Đã đủ ánh sáng tự nhiên → Tắt đèn bổ sung' }
+  }
+
+  if (reason.startsWith('side_effect:')) {
+    return { text: 'Cơ chế tự bảo vệ: Tự động điều chỉnh thiết bị liên quan' }
+  }
+
+  if (reason.startsWith('gateway_event:')) {
+    return { text: 'Phản ứng bảo vệ an toàn của bộ điều khiển Gateway' }
+  }
+
+  return { text: reason }
+}
 
 const CMD_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   pending: { label: 'Chờ gửi', cls: 'muted' },
@@ -154,6 +257,11 @@ export default function ZoneDetailPage() {
   const zone = zoneQuery.data ?? resolvedGh?.zones.find((z) => z.id === zoneId) ?? null
   const gh = resolvedGh ?? greenhouses.find((g) => g.id === zone?.greenhouse_id) ?? null
   const ghId = gh?.id || routeGhId || ''
+
+  // Chỉ lấy đúng bơm thuộc zone này (theo pump_channel hoặc zone_index)
+  const zonePumpChannel = zone?.pump_channel || zone?.zone_index || 1
+  const zonePump = `pump_${zonePumpChannel}` as ActuatorName
+  const zoneActuators: ActuatorName[] = [zonePump, 'fan', 'light']
 
   const profile = profiles.find((p) => p.id === zone?.crop_profile_id) ?? null
   const params = profile?.parameters_json
@@ -259,8 +367,12 @@ export default function ZoneDetailPage() {
     for (const cmd of commandsQuery.data ?? []) {
       const ms = new Date(cmd.created_at).getTime()
       if (ms >= firstTsMs && ms <= lastTsMs && cmd.action === 'on') {
+        // Chỉ hiện sự kiện của bơm thuộc zone này hoặc quạt/đèn chung
+        if (cmd.actuator.startsWith('pump_') && cmd.actuator !== zonePump) {
+          continue
+        }
         items.push({
-          label: `${cmd.actuator} ON`,
+          label: `${getActuatorTitle(cmd.actuator, zone?.name, zone?.zone_index)} BẬT`,
           timeLabel: formatTimeShortVi(cmd.created_at),
           color: '#0284c7',
         })
@@ -277,9 +389,11 @@ export default function ZoneDetailPage() {
         body: JSON.stringify(payload),
       }),
     onSuccess: (cmd) => {
+      const actTitle = getActuatorTitle(cmd.actuator, zone?.name, zone?.zone_index)
+      const actionTitle = cmd.action === 'on' ? 'BẬT' : 'TẮT'
       setCmdFeedback({
         ok: true,
-        text: `Đã gửi lệnh ${cmd.actuator} → ${cmd.action.toUpperCase()} (${cmd.status}).`,
+        text: `Đã gửi thành công lệnh ${actionTitle} cho ${actTitle}.`,
       })
       void queryClient.invalidateQueries({ queryKey: ['commands', ghId] })
     },
@@ -371,6 +485,16 @@ export default function ZoneDetailPage() {
   const desiredModes = gwStatus?.desired?.modes ?? {}
   const commands = commandsQuery.data ?? []
 
+  // Chỉ hiển thị các lệnh thuộc về vùng trồng này (bơm của zone này, quạt, đèn)
+  const zoneCommands = useMemo(() => {
+    return commands.filter((c) => {
+      if (c.actuator.startsWith('pump_') && c.actuator !== zonePump) {
+        return false
+      }
+      return true
+    })
+  }, [commands, zonePump])
+
   // Tính tiến độ vụ
   const elapsedDays = activeCycle
     ? Math.max(0, (Date.now() - new Date(activeCycle.started_at).getTime()) / 86_400_000)
@@ -434,22 +558,42 @@ export default function ZoneDetailPage() {
 
   return (
     <div>
-      {/* Header & Zone switcher */}
+      {/* Breadcrumb điều hướng */}
+      <div style={{ fontSize: '0.88rem', marginBottom: '0.85rem' }}>
+        <Link
+          to="/"
+          style={{
+            color: 'var(--accent, #1E6B47)',
+            textDecoration: 'none',
+            fontWeight: 500,
+          }}
+        >
+          Tổng quan
+        </Link>
+        <span style={{ margin: '0 0.45rem', color: 'var(--text-muted, #626861)' }}>/</span>
+        {gh && (
+          <>
+            <Link
+              to={`/greenhouses/${gh.id}`}
+              style={{
+                color: 'var(--accent, #1E6B47)',
+                textDecoration: 'none',
+                fontWeight: 500,
+              }}
+            >
+              {gh.name || 'Nhà kính'}
+            </Link>
+            <span style={{ margin: '0 0.45rem', color: 'var(--text-muted, #626861)' }}>/</span>
+          </>
+        )}
+        <span style={{ color: 'var(--text-main, #1C211E)', fontWeight: 500 }}>
+          {zone?.name || (zone ? `Zone ${zone.zone_index}` : 'Chi tiết')}
+        </span>
+      </div>
+
       <div className="page-header">
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-            <Link
-              to={gh ? `/greenhouses/${gh.id}` : '/'}
-              style={{
-                color: 'var(--primary)',
-                fontWeight: 600,
-                textDecoration: 'none',
-                fontSize: '0.84rem',
-              }}
-              title="Quay lại sơ đồ nhà kính"
-            >
-              ← {gh?.name || 'Nhà kính'}
-            </Link>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
             <h2 style={{ margin: 0 }}>
               {zone?.name || (zone ? `Zone ${zone.zone_index}` : 'Chi tiết Zone & Điều khiển')}
             </h2>
@@ -540,66 +684,72 @@ export default function ZoneDetailPage() {
             </div>
           )}
 
-          {/* Thẻ chỉ số tức thời */}
-          <div className="grid grid-cols-4" style={{ marginBottom: '1.25rem' }}>
-            <div className="metric-tile">
-              <span className="label">Nhiệt độ &amp; Độ ẩm</span>
-              <span className="value">
-                {latestOk?.air_temp !== null && latestOk?.air_temp !== undefined
-                  ? latestOk.air_temp.toFixed(1)
-                  : '—'}
+          {/* Hộp 4 giá trị đo cảm biến chuẩn theo thiết kế */}
+          <div className="sensor-metric-boxes">
+            {/* Box 1: Nhiệt độ */}
+            <div className="sensor-metric-box">
+              <span className="box-label">Nhiệt độ</span>
+              <div className="box-value-row">
+                <span className="val">
+                  {latestOk?.air_temp !== null && latestOk?.air_temp !== undefined
+                    ? latestOk.air_temp.toFixed(1)
+                    : '—'}
+                </span>
                 <span className="unit">°C</span>
-              </span>
-              <span className="subtext muted">
-                Độ ẩm:{' '}
+              </div>
+              <span className="box-subtext">
+                Độ ẩm không khí:{' '}
                 {latestOk?.air_rh !== null && latestOk?.air_rh !== undefined
-                  ? `${latestOk.air_rh.toFixed(1)}%`
+                  ? `${latestOk.air_rh.toFixed(0)}%`
                   : '—'}
               </span>
             </div>
 
-            <div
-              className={`metric-tile ${latestOk?.vpd !== null && latestOk?.vpd !== undefined
-                  ? latestOk.vpd >= vpdOpt[0] && latestOk.vpd <= vpdOpt[1]
-                    ? 'vpd-optimal'
-                    : latestOk.vpd <= vpdLowCrit || latestOk.vpd >= vpdHighCrit
-                      ? 'vpd-danger'
-                      : 'vpd-warning'
-                  : ''
-                }`}
-            >
-              <span className="label">VPD hiện tại</span>
-              <span className="value">
-                {latestOk?.vpd !== null && latestOk?.vpd !== undefined ? latestOk.vpd.toFixed(2) : '—'}
+            {/* Box 2: VPD hiện tại */}
+            <div className="sensor-metric-box">
+              <span className="box-label">VPD hiện tại</span>
+              <div className="box-value-row">
+                <span className="val">
+                  {latestOk?.vpd !== null && latestOk?.vpd !== undefined ? latestOk.vpd.toFixed(1) : '—'}
+                </span>
                 <span className="unit">kPa</span>
-              </span>
-              <span className="subtext muted">
+              </div>
+              <span className="box-subtext">
                 Tối ưu: {vpdOpt[0]}–{vpdOpt[1]} kPa
               </span>
             </div>
 
-            <div className="metric-tile">
-              <span className="label">Độ ẩm đất</span>
-              <span className="value">
-                {latestOk?.soil_moisture !== null && latestOk?.soil_moisture !== undefined
-                  ? latestOk.soil_moisture.toFixed(1)
-                  : '—'}
+            {/* Box 3: Độ ẩm đất */}
+            <div className="sensor-metric-box">
+              <span className="box-label">Độ ẩm đất</span>
+              <div className="box-value-row">
+                <span className="val">
+                  {latestOk?.soil_moisture !== null && latestOk?.soil_moisture !== undefined
+                    ? latestOk.soil_moisture.toFixed(0)
+                    : '—'}
+                </span>
                 <span className="unit">%</span>
-              </span>
-              <span className="subtext muted">
+              </div>
+              <span className="box-subtext">
                 Hysteresis: {soilMin}% – {soilMax}%
               </span>
             </div>
 
-            <div className="metric-tile">
-              <span className="label">Ánh sáng &amp; DLI hôm nay</span>
-              <span className="value">
-                {dliVal !== undefined ? dliVal.toFixed(1) : '—'}
+            {/* Box 4: Ánh sáng & DLI hôm nay */}
+            <div className="sensor-metric-box">
+              <span className="box-label">Ánh sáng &amp; DLI hôm nay</span>
+              <div className="box-value-row">
+                <span className="val">
+                  {dliVal !== undefined ? dliVal.toFixed(1) : '0.0'}
+                </span>
                 <span className="unit">mol/m²/ngày</span>
-              </span>
-              <span className="subtext muted">
-                Lux: {latestOk?.lux !== null && latestOk?.lux !== undefined ? Math.round(latestOk.lux) : 'Không có'}
-                {dliOpt ? ` · Tối ưu ${dliOpt[0]}–${dliOpt[1]}` : ''}
+              </div>
+              <span className="box-subtext">
+                Lux:{' '}
+                {latestOk?.lux !== null && latestOk?.lux !== undefined
+                  ? `${(latestOk.lux / 1000).toFixed(1)} klux`
+                  : 'không có'}{' '}
+                · Tối ưu {dliOpt ? `${dliOpt[0]}–${dliOpt[1]}` : '20–30'}
               </span>
             </div>
           </div>
@@ -745,7 +895,7 @@ export default function ZoneDetailPage() {
               <div>
                 <h3>Điều khiển Chấp hành</h3>
                 <span className="muted" style={{ fontSize: '0.8rem' }}>
-                  Chế độ Auto dùng luật hysteresis cố định theo Crop Profile (Ẩm đất {soilMin}–{soilMax}%, VPD {vpdLowCrit}–{vpdHighCrit} kPa).
+                  Chế độ Tự động: Hệ thống tự động tưới khi độ ẩm đất dưới {soilMin}%, ngắt khi đạt {soilMax}%; bật quạt khi VPD lệch ngưỡng {vpdLowCrit}–{vpdHighCrit} kPa để tránh nấm bệnh.
                 </span>
               </div>
               <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -761,7 +911,7 @@ export default function ZoneDetailPage() {
                   />
                 </label>
                 <label style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
-                  Hạn Manual:
+                  Hạn Thủ công:
                   <select
                     style={{ width: 'auto' }}
                     value={manualMinutes}
@@ -785,8 +935,16 @@ export default function ZoneDetailPage() {
               </div>
             )}
 
-            <div className="grid grid-cols-3" style={{ marginBottom: '1.25rem' }}>
-              {ACTUATORS.map((act) => {
+            {/* Chỉ hiển thị bơm của zone này cùng các thiết bị chung (quạt, đèn) */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                gap: '1rem',
+                marginBottom: '1.25rem',
+              }}
+            >
+              {zoneActuators.map((act) => {
                 const state = reportedActuators[act] ?? 'off'
                 const modeObj = desiredModes[act]
                 const mode = modeObj?.mode ?? 'auto'
@@ -795,7 +953,7 @@ export default function ZoneDetailPage() {
                 return (
                   <div key={act} className={`actuator-card ${isOn ? 'on' : ''}`}>
                     <div className="title-row">
-                      <strong>{ACTUATOR_LABELS[act]}</strong>
+                      <strong>{getActuatorTitle(act, zone?.name, zone?.zone_index)}</strong>
                       <span className="status-indicator" />
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.82rem' }}>
@@ -803,12 +961,12 @@ export default function ZoneDetailPage() {
                         Trạng thái: <strong>{isOn ? 'ĐANG BẬT' : 'TẮT'}</strong>
                       </span>
                       <span className={`badge ${mode === 'manual' ? 'warning' : 'info'}`}>
-                        {mode === 'manual' ? 'Manual' : 'Auto'}
+                        {mode === 'manual' ? 'Thủ công' : 'Tự động'}
                       </span>
                     </div>
                     {mode === 'manual' && modeObj?.until && (
                       <div className="muted" style={{ fontSize: '0.73rem' }}>
-                        Hết hạn: {formatTimeShortVi(modeObj.until)}
+                        Hết hạn thủ công: {formatTimeShortVi(modeObj.until)}
                       </div>
                     )}
                     <div style={{ display: 'flex', gap: '0.4rem' }}>
@@ -827,7 +985,7 @@ export default function ZoneDetailPage() {
                         disabled={setModeMutation.isPending}
                         onClick={() => handleToggleMode(act, mode)}
                       >
-                        {mode === 'manual' ? 'Về Auto' : 'Manual'}
+                        {mode === 'manual' ? 'Về Tự động' : 'Chuyển Thủ công'}
                       </button>
                     </div>
                   </div>
@@ -835,11 +993,11 @@ export default function ZoneDetailPage() {
               })}
             </div>
 
-            {/* Lịch sử lệnh gần nhất */}
-            <h4 style={{ margin: '0 0 0.6rem', fontSize: '0.9rem' }}>Lịch sử lệnh điều khiển gần nhất</h4>
-            {commands.length === 0 ? (
+            {/* Lịch sử lệnh gần nhất của zone */}
+            <h4 style={{ margin: '0 0 0.6rem', fontSize: '0.9rem' }}>Lịch sử lệnh điều khiển gần nhất của vùng này</h4>
+            {zoneCommands.length === 0 ? (
               <p className="muted" style={{ margin: 0 }}>
-                Chưa có lệnh điều khiển nào cho nhà kính này.
+                Chưa có lệnh điều khiển nào cho vùng trồng này.
               </p>
             ) : (
               <div className="table-container">
@@ -851,30 +1009,43 @@ export default function ZoneDetailPage() {
                       <th>Hành động</th>
                       <th>Nguồn</th>
                       <th>Trạng thái</th>
-                      <th>Lý do / Ghi chú</th>
+                      <th>Lý do &amp; Ghi chú</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {commands.map((c) => {
+                    {zoneCommands.map((c) => {
                       const st = CMD_STATUS_BADGE[c.status] ?? { label: c.status, cls: 'muted' }
+                      const reasonInfo = formatCommandReason(c.reason, c.reject_reason, c.status)
                       return (
                         <tr key={c.id}>
                           <td className="muted">{formatTimeShortVi(c.created_at)}</td>
                           <td>
-                            <strong>{ACTUATOR_LABELS[c.actuator as ActuatorName] ?? c.actuator}</strong>
+                            <strong>{getActuatorTitle(c.actuator, zone?.name, zone?.zone_index)}</strong>
                           </td>
                           <td>
-                            {c.action.toUpperCase()}
+                            <span style={{ fontWeight: 600 }}>
+                              {c.action === 'on' ? 'BẬT' : 'TẮT'}
+                            </span>
                             {c.duration_s ? ` (${c.duration_s}s)` : ''}
                           </td>
                           <td>
-                            <span className="badge muted">{c.source}</span>
+                            <span className="badge muted">
+                              {c.source === 'manual' ? 'Thủ công' : (c.source === 'rules' ? 'Tự động' : c.source)}
+                            </span>
                           </td>
                           <td>
                             <span className={`badge ${st.cls}`}>{st.label}</span>
                           </td>
-                          <td className="muted" style={{ fontSize: '0.8rem' }}>
-                            {c.reject_reason || c.reason || '—'}
+                          <td
+                            style={{
+                              fontSize: '0.82rem',
+                              color: reasonInfo.isError
+                                ? 'var(--status-offline, #B94A32)'
+                                : 'var(--text-main, #1C211E)',
+                              fontWeight: reasonInfo.isError ? 500 : 400,
+                            }}
+                          >
+                            {reasonInfo.text}
                           </td>
                         </tr>
                       )

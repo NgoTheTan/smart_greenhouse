@@ -1,5 +1,5 @@
 export type UserRole = 'owner'
-export type ActuatorName = 'pump_1' | 'pump_2' | 'fan'
+export type ActuatorName = 'pump_1' | 'pump_2' | 'fan' | 'light' | (string & {})
 export type ActuatorMode = 'auto' | 'manual'
 export type AlertSeverity = 'info' | 'warning' | 'critical'
 export type AlertState = 'raised' | 'notified' | 'acknowledged' | 'resolved'
@@ -117,6 +117,8 @@ export interface CropParameters {
   }
   light: {
     dli_optimal: [number, number]
+    lux_min?: number
+    lux_max?: number
   }
   soil_moisture_pct: {
     min: number
@@ -394,6 +396,7 @@ export const ACTUATOR_LABELS: Record<ActuatorName, string> = {
   pump_1: 'Bơm tưới Zone 1',
   pump_2: 'Bơm tưới Zone 2',
   fan: 'Quạt đối lưu',
+  light: 'Đèn chiếu sáng',
 }
 
 export const QUALITY_LABELS: Record<string, string> = {

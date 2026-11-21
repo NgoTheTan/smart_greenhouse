@@ -6,32 +6,32 @@
   /* 1. Màu sắc nền & bề mặt */
   --bg-page: #F5F4EF;
   --surface-card: #FFFFFF;
-  
+
   /* 2. Đường viền & phân cách */
   --border-card: #E6E3DA;
   --border-row: #EEECE5;
   --border-input: #D9D6CB;
-  
+
   /* 3. Màu chữ */
   --text-main: #1C211E;
   --text-muted: #626861;
-  
+
   /* 4. Màu nhấn & trạng thái chọn */
   --accent: #1E6B47;
   --accent-hover: #165638;
   --item-selected: #E8F0EA;
-  
+
   /* 5. Chấm trạng thái */
   --status-ok: #2E9A62;
   --status-offline: #B94A32;
   --status-unallocated: #B7B3A6;
   --status-warning: #D97706;
-  
+
   /* 6. Bo góc */
   --radius-card: 10px;
   --radius-btn: 8px;
   --radius-input: 6px;
-  
+
   /* 7. Phông chữ */
   --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -728,5 +728,107 @@ tr:hover td {
 
   .page-header h2 {
     font-size: 1.35rem;
+  }
+}
+
+/* Masonry 2 cột cho danh sách Nhà kính trên Trang tổng quan */
+.greenhouse-masonry {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px;
+  align-items: start;
+  margin-bottom: 2rem;
+}
+
+.greenhouse-masonry-col {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+@media (max-width: 768px) {
+  .greenhouse-masonry {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 4 Box thông số cảm biến theo hàng ngang chia cột chuẩn theo ảnh thiết kế */
+.sensor-metric-boxes {
+  background-color: var(--surface-card, #FFFFFF);
+  border: 1px solid var(--border-card, #E6E3DA);
+  border-radius: var(--radius-card, 10px);
+  margin-bottom: 1.5rem;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  overflow: hidden;
+  box-shadow: none;
+}
+
+.sensor-metric-box {
+  padding: 1.25rem 1.5rem;
+  border-right: 1px solid var(--border-row, #EEECE5);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.sensor-metric-box:last-child {
+  border-right: none;
+}
+
+.sensor-metric-box .box-label {
+  font-size: 0.8rem;
+  color: var(--text-muted, #626861);
+  margin-bottom: 0.35rem;
+}
+
+.sensor-metric-box .box-value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  margin-bottom: 0.35rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.sensor-metric-box .box-value-row .val {
+  font-size: 1.85rem;
+  font-weight: 700;
+  color: var(--text-main, #1C211E);
+  line-height: 1.1;
+}
+
+.sensor-metric-box .box-value-row .unit {
+  font-size: 0.88rem;
+  color: var(--text-muted, #626861);
+}
+
+.sensor-metric-box .box-subtext {
+  font-size: 0.8rem;
+  color: var(--text-muted, #626861);
+}
+
+@media (max-width: 900px) {
+  .sensor-metric-boxes {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .sensor-metric-box:nth-child(2) {
+    border-right: none;
+  }
+  .sensor-metric-box:nth-child(1),
+  .sensor-metric-box:nth-child(2) {
+    border-bottom: 1px solid var(--border-row, #EEECE5);
+  }
+}
+
+@media (max-width: 520px) {
+  .sensor-metric-boxes {
+    grid-template-columns: 1fr;
+  }
+  .sensor-metric-box {
+    border-right: none !important;
+    border-bottom: 1px solid var(--border-row, #EEECE5);
+  }
+  .sensor-metric-box:last-child {
+    border-bottom: none !important;
   }
 }

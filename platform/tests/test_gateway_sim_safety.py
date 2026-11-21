@@ -44,10 +44,20 @@ def test_fan_duration_cap_and_reject_unsupported_mist() -> None:
     assert ack_fan is not None
     assert ack_fan["status"] == "applied"
     assert ack_fan["side_effects"] == []
-    assert eng.actuators == {"pump_1": "off", "pump_2": "off", "fan": "on"}
+    assert eng.actuators == {"pump_1": "off", "pump_2": "off", "fan": "on", "light": "off"}
     assert eng.tick(299.0) == []
     assert eng.tick(300.0) == ["fan"]
     assert eng.actuators["fan"] == "off"
+
+    # Đèn chiếu sáng bật/tắt hợp lệ và bị giới hạn tối đa fan_max_on_s
+    c_light, now = _cmd("light", "on", duration_s=60)
+    ack_light = eng.apply_command(c_light, now, now_mono=301.0)
+    assert ack_light is not None and ack_light["status"] == "applied"
+    assert eng.actuators["light"] == "on"
+    c_light_off, now = _cmd("light", "off", duration_s=None)
+    ack_light_off = eng.apply_command(c_light_off, now, now_mono=310.0)
+    assert ack_light_off is not None and ack_light_off["status"] == "applied"
+    assert eng.actuators["light"] == "off"
 
 
 def test_pump_duration_cap_auto_off_and_min_gap_max_total() -> None:
