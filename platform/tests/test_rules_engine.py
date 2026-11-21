@@ -559,3 +559,62 @@ def test_auto_light_control_hysteresis() -> None:
     assert off_cmds[0].action == "off"
     assert off_cmds[0].duration_s is None
     assert "light_sufficient:" in off_cmds[0].reason
+
+
+def test_auto_duration_clamped_to_60s() -> None:
+    """Chế độ auto luôn giới hạn thời lượng bật bơm/quạt/đèn tối đa 60s dù profile đặt cao hơn."""
+    import copy
+
+    engine = RuleEngine()
+    farm_id, gh_id, zone_id, zone, gh, gw, prof, dev_state = _make_context()
+    big_params = copy.deepcopy(DEFAULT_DEMO_PARAMS)
+    big_params["irrigation"]["max_run_s"] = 300
+    big_params["fan"]["min_on_s"] = 300
+    prof.parameters_json = big_params
+    dev_state.desired["modes"]["light"] = "auto"
+    dev_state.reported["actuators"]["light"] = "off"
+
+    created_commands = []
+
+    def _execute(stmt):
+        s_str = str(stmt)
+        if "FROM zones" in s_str:
+            if "greenhouses" in s_str:
+                return _FakeResult((zone, gh, gw, prof))
+            return _FakeResult([(zone, prof)])
+        if "FROM device_state" in s_str:
+            return _FakeResult(dev_state)
+        if "FROM alerts" in s_str:
+            return _FakeResult([])
+        return _FakeResult(None)
+
+    def _get(model, pk):
+        if model == DeviceState:
+            return dev_state
+        if model == Greenhouse:
+            return gh
+        if model == Zone:
+            return zone
+        return None
+
+    session = FakeAsyncSession(
+        execute_fn=_execute,
+        get_fn=_get,
+        add_fn=lambda obj: created_commands.append(obj) if hasattr(obj, "actuator") else None,
+    )
+
+    now = datetime(2026, 11, 21, 10, 40, 0, tzinfo=UTC)
+    r = Reading(
+        zone_id=zone_id,
+        ts=now,
+        air_temp=31.0,
+        air_rh=65.0,
+        vpd=1.1,
+        soil_moisture=40.0,
+        lux=50.0,
+        quality="ok",
+    )
+    _run_coro(engine.evaluate_zone_telemetry(session, zone_id, gh_id, farm_id, r, now=now))
+    assert {c.actuator for c in created_commands} == {"pump_1", "fan", "light"}
+    for c in created_commands:
+        assert c.duration_s == 60

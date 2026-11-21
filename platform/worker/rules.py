@@ -28,6 +28,7 @@ from worker.commands import dispatch_pending_commands
 from worker.shadow import ensure_device_state
 
 log = logging.getLogger("worker.rules")
+AUTO_MAX_DURATION_S = 60
 
 
 @dataclass
@@ -445,7 +446,7 @@ class RuleEngine:
         irr_cfg = params.get("irrigation", {})
         soil_min = float(soil_pct_cfg.get("min", 55.0))
         soil_max = float(soil_pct_cfg.get("max", 75.0))
-        max_run_s = int(irr_cfg.get("max_run_s", 60))
+        max_run_s = min(int(irr_cfg.get("max_run_s", AUTO_MAX_DURATION_S)), AUTO_MAX_DURATION_S)
         min_gap_s = int(irr_cfg.get("min_gap_s", 300))
         soil_settle_s = int(irr_cfg.get("soil_settle_s", 180))
         max_total_s_per_hour = int(irr_cfg.get("max_total_s_per_hour", 300))
@@ -612,7 +613,7 @@ class RuleEngine:
                         fan_trigger_reason = f"heat_stress:{air_t:.1f}>{temp_max_opt}"
 
         fan_cfg = dangerous_params.get("fan", {})
-        fan_min_on_s = int(fan_cfg.get("min_on_s", 180))
+        fan_min_on_s = min(int(fan_cfg.get("min_on_s", AUTO_MAX_DURATION_S)), AUTO_MAX_DURATION_S)
 
         # --- ĐIỀU KHIỂN QUẠT (FAN) ---
         fan_mode = _get_actuator_mode(modes, "fan")

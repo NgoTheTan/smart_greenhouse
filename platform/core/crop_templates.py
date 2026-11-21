@@ -118,12 +118,12 @@ class CropParameters(BaseModel):
 _TIMING_REAL: dict[str, Any] = {
     "sample_interval_s": 60,
     "irrigation": {
-        "max_run_s": 300,
+        "max_run_s": 60,
         "min_gap_s": 1800,
         "max_total_s_per_hour": 420,
         "soil_settle_s": 300,
     },
-    "fan": {"min_on_s": 300, "max_on_s": 1800},
+    "fan": {"min_on_s": 60, "max_on_s": 60},
     "risk": {"vpd_low_duration_min": 60},
     "fungal_minutes_alert": 360,
     "ai": {
@@ -142,7 +142,7 @@ _TIMING_DEMO: dict[str, Any] = {
         "max_total_s_per_hour": 120,
         "soil_settle_s": 30,
     },
-    "fan": {"min_on_s": 60, "max_on_s": 300},
+    "fan": {"min_on_s": 60, "max_on_s": 60},
     "risk": {"vpd_low_duration_min": 3},
     "fungal_minutes_alert": 5,
     "ai": {
