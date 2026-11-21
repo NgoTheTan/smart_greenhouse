@@ -11,13 +11,18 @@ from sqlalchemy import delete, func, or_, select, text, update
 from api.deps import CurrentUser, DbSession
 from core.crop_templates import CropParameters
 from core.models import (
+    ActuatorLog,
     Alert,
+    Command,
     CropCycle,
     CropProfile,
     DeviceNode,
+    DeviceState,
+    Gateway,
     Greenhouse,
     Prediction,
     Reading,
+    YieldSample,
     Zone,
 )
 from core.pubsub import CHANNEL_WORKER, pg_notify
@@ -96,11 +101,77 @@ async def update_zone(
     return zone
 
 
+async def _delete_greenhouse_cascade(session: DbSession, gh: Greenhouse) -> None:
+    """Xóa toàn bộ greenhouse và tất cả các bảng phụ thuộc cascade."""
+    # 1. Gỡ liên kết DeviceNode
+    await session.execute(
+        update(DeviceNode)
+        .where(DeviceNode.greenhouse_id == gh.id)
+        .values(greenhouse_id=None, zone_id=None, status="discovered")
+    )
+
+    # 2. Gỡ liên kết YieldSample liên quan crop_cycle trong greenhouse này
+    subq_crop_cycles = select(CropCycle.id).where(
+        CropCycle.zone_id.in_(select(Zone.id).where(Zone.greenhouse_id == gh.id))
+    )
+    await session.execute(
+        update(YieldSample)
+        .where(YieldSample.crop_cycle_id.in_(subq_crop_cycles))
+        .values(crop_cycle_id=None)
+    )
+
+    # 3. Xóa Predictions
+    await session.execute(delete(Prediction).where(Prediction.greenhouse_id == gh.id))
+
+    # 4. Xóa ActuatorLogs
+    await session.execute(delete(ActuatorLog).where(ActuatorLog.greenhouse_id == gh.id))
+
+    # 5. Xóa Commands
+    await session.execute(delete(Command).where(Command.greenhouse_id == gh.id))
+
+    # 6. Xóa Alerts
+    await session.execute(delete(Alert).where(Alert.greenhouse_id == gh.id))
+
+    # 7. Xóa DeviceState
+    await session.execute(delete(DeviceState).where(DeviceState.greenhouse_id == gh.id))
+
+    # 8. Xóa Readings (và bảng sqlite rollups)
+    subq_zones = select(Zone.id).where(Zone.greenhouse_id == gh.id)
+    await session.execute(delete(Reading).where(Reading.zone_id.in_(subq_zones)))
+    bind = getattr(session, "bind", None) or (
+        session.get_bind() if hasattr(session, "get_bind") else None
+    )
+    if bind and getattr(bind.dialect, "name", "") == "sqlite":
+        zone_ids = (
+            await session.execute(select(Zone.id).where(Zone.greenhouse_id == gh.id))
+        ).scalars().all()
+        for zid in zone_ids:
+            await session.execute(
+                text("DELETE FROM readings_1m WHERE zone_id = :zid"), {"zid": str(zid)}
+            )
+            await session.execute(
+                text("DELETE FROM readings_1h WHERE zone_id = :zid"), {"zid": str(zid)}
+            )
+
+    # 9. Xóa CropCycles
+    await session.execute(delete(CropCycle).where(CropCycle.zone_id.in_(subq_zones)))
+
+    # 10. Xóa Gateway
+    await session.execute(delete(Gateway).where(Gateway.greenhouse_id == gh.id))
+
+    # 11. Xóa Zones
+    await session.execute(delete(Zone).where(Zone.greenhouse_id == gh.id))
+
+    # 12. Xóa Greenhouse
+    await session.delete(gh)
+
+
 @router.delete("/zones/{zone_id}", status_code=status.HTTP_200_OK)
 async def delete_zone(
     zone_id: uuid.UUID,
     user: CurrentUser,
     session: DbSession,
+    delete_greenhouse_if_last: Annotated[bool, Query()] = False,
 ) -> dict[str, Any]:
     zone, gh = await _get_owned_zone(session, zone_id, user.farm_id)
 
@@ -110,10 +181,18 @@ async def delete_zone(
         )
     ).scalar_one()
     if count <= 1:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Nhà kính phải có ít nhất 1 vùng trồng. Không thể xóa vùng trồng cuối cùng.",
-        )
+        if not delete_greenhouse_if_last:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Nhà kính phải có ít nhất 1 vùng trồng. Nếu tiếp tục xóa, toàn bộ nhà kính sẽ bị xóa.",
+            )
+        await _delete_greenhouse_cascade(session, gh)
+        await session.commit()
+        return {
+            "ok": True,
+            "deleted_greenhouse": True,
+            "message": f"Đã xóa thành công vùng trồng và toàn bộ nhà kính '{gh.name}'.",
+        }
 
     # Gỡ liên kết DeviceNode
     await session.execute(
@@ -123,6 +202,17 @@ async def delete_zone(
     # Gỡ liên kết Alert
     await session.execute(
         update(Alert).where(Alert.zone_id == zone.id).values(zone_id=None)
+    )
+
+    # Gỡ liên kết YieldSample nếu có
+    await session.execute(
+        update(YieldSample)
+        .where(
+            YieldSample.crop_cycle_id.in_(
+                select(CropCycle.id).where(CropCycle.zone_id == zone.id)
+            )
+        )
+        .values(crop_cycle_id=None)
     )
 
     # Xóa Readings
@@ -153,7 +243,11 @@ async def delete_zone(
         session, CHANNEL_WORKER, {"type": "cfg_updated", "greenhouse_id": str(gh.id)}
     )
     await session.commit()
-    return {"ok": True, "message": f"Đã xóa thành công {zone.name or f'Zone {zone.zone_index}'}"}
+    return {
+        "ok": True,
+        "deleted_greenhouse": False,
+        "message": f"Đã xóa thành công {zone.name or f'Zone {zone.zone_index}'}",
+    }
 
 
 

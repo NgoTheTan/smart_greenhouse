@@ -318,31 +318,11 @@ export default function OverviewPage() {
 
                 <div
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
                     fontSize: '13px',
+                    color: 'var(--text-muted, #626861)',
                   }}
                 >
-                  <span style={{ color: 'var(--text-muted, #626861)' }}>
-                    {gh.open_alerts} cảnh báo · {gh.zones.length} vùng trồng
-                  </span>
-
-                  <Link
-                    to={`/greenhouses/${gh.id}`}
-                    onClick={(e) => e.stopPropagation()}
-                    style={{
-                      color: 'var(--accent, #1E6B47)',
-                      fontWeight: 500,
-                      textDecoration: 'none',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}
-                  >
-                    <span>Vào nhà kính</span>
-                    <span style={{ fontSize: '14px' }}>→</span>
-                  </Link>
+                  {gh.open_alerts} cảnh báo · {gh.zones.length} vùng trồng
                 </div>
               </div>
 

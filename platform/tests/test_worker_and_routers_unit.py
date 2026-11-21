@@ -273,13 +273,37 @@ def test_create_and_delete_zone_endpoints() -> None:
         _FakeResult(2),         # count = 2
         _FakeResult(None),      # unpair nodes
         _FakeResult(None),      # detach alerts
+        _FakeResult(None),      # detach yield samples
         _FakeResult(None),      # delete readings
         _FakeResult(None),      # delete cycles
         _FakeResult(None),      # delete predictions
     ]
     res = _run_coro(delete_zone(z2.id, user, fake_session3))
     assert res["ok"] is True
+    assert res["deleted_greenhouse"] is False
     fake_session3.delete.assert_called_once_with(z2)
+
+    # 4. Test delete_zone with delete_greenhouse_if_last=True deletes greenhouse
+    fake_session4 = AsyncMock()
+    fake_session4.execute.side_effect = [
+        _FakeResult((z1, gh)),  # _get_owned_zone
+        _FakeResult(1),         # count = 1
+        _FakeResult(None),      # unpair nodes
+        _FakeResult(None),      # detach yield samples
+        _FakeResult(None),      # delete predictions
+        _FakeResult(None),      # delete actuator logs
+        _FakeResult(None),      # delete commands
+        _FakeResult(None),      # delete alerts
+        _FakeResult(None),      # delete device state
+        _FakeResult(None),      # delete readings
+        _FakeResult(None),      # delete cycles
+        _FakeResult(None),      # delete gateway
+        _FakeResult(None),      # delete zones
+    ]
+    res4 = _run_coro(delete_zone(z1.id, user, fake_session4, delete_greenhouse_if_last=True))
+    assert res4["ok"] is True
+    assert res4["deleted_greenhouse"] is True
+    fake_session4.delete.assert_called_once_with(gh)
 
 
 def test_acknowledge_all_alerts_endpoint() -> None:
