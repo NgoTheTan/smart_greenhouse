@@ -481,41 +481,20 @@ export default function GreenhousePage() {
 
   return (
     <div>
-      {/* Nút quay lại & Breadcrumb */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.75rem',
-          marginBottom: '1rem',
-          flexWrap: 'wrap',
-        }}
-      >
+      {/* Breadcrumb điều hướng */}
+      <div style={{ fontSize: '0.88rem', marginBottom: '0.85rem' }}>
         <Link
           to="/"
-          className="btn btn-secondary btn-sm"
           style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '6px',
+            color: 'var(--accent, #1E6B47)',
             textDecoration: 'none',
-            fontSize: '13px',
             fontWeight: 500,
-            padding: '0 14px',
-            height: '36px',
-            minHeight: '36px',
           }}
         >
-          <span>←</span>
-          <span>Quay lại</span>
+          Tổng quan
         </Link>
-        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted, #626861)' }}>
-          <Link to="/" style={{ color: 'var(--text-muted, #626861)', textDecoration: 'none' }}>
-            Tổng quan
-          </Link>
-          <span style={{ margin: '0 0.35rem' }}>/</span>
-          <span style={{ color: 'var(--text-main, #1C211E)', fontWeight: 500 }}>{gh.name || 'Nhà kính'}</span>
-        </div>
+        <span style={{ margin: '0 0.45rem', color: 'var(--text-muted, #626861)' }}>/</span>
+        <span style={{ color: 'var(--text-main, #1C211E)', fontWeight: 500 }}>{gh.name || 'Nhà kính'}</span>
       </div>
 
       {/* Header trang Chi tiết nhà kính chuẩn theo ảnh */}

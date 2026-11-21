@@ -559,52 +559,37 @@ export default function ZoneDetailPage() {
 
   return (
     <div>
-      {/* Nút quay lại & Header */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.75rem',
-          marginBottom: '1rem',
-          flexWrap: 'wrap',
-        }}
-      >
+      {/* Breadcrumb điều hướng */}
+      <div style={{ fontSize: '0.88rem', marginBottom: '0.85rem' }}>
         <Link
-          to={gh ? `/greenhouses/${gh.id}` : '/'}
-          className="btn btn-secondary btn-sm"
+          to="/"
           style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '6px',
+            color: 'var(--accent, #1E6B47)',
             textDecoration: 'none',
-            fontSize: '13px',
             fontWeight: 500,
-            padding: '0 14px',
-            height: '36px',
-            minHeight: '36px',
           }}
-          title="Quay lại sơ đồ nhà kính"
         >
-          <span>←</span>
-          <span>Quay lại {gh?.name || 'Nhà kính'}</span>
+          Tổng quan
         </Link>
-        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted, #626861)' }}>
-          <Link to="/" style={{ color: 'var(--text-muted, #626861)', textDecoration: 'none' }}>
-            Tổng quan
-          </Link>
-          <span style={{ margin: '0 0.35rem' }}>/</span>
-          {gh && (
-            <>
-              <Link to={`/greenhouses/${gh.id}`} style={{ color: 'var(--text-muted, #626861)', textDecoration: 'none' }}>
-                {gh.name || 'Nhà kính'}
-              </Link>
-              <span style={{ margin: '0 0.35rem' }}>/</span>
-            </>
-          )}
-          <span style={{ color: 'var(--text-main, #1C211E)', fontWeight: 500 }}>
-            {zone?.name || (zone ? `Zone ${zone.zone_index}` : 'Chi tiết')}
-          </span>
-        </div>
+        <span style={{ margin: '0 0.45rem', color: 'var(--text-muted, #626861)' }}>/</span>
+        {gh && (
+          <>
+            <Link
+              to={`/greenhouses/${gh.id}`}
+              style={{
+                color: 'var(--accent, #1E6B47)',
+                textDecoration: 'none',
+                fontWeight: 500,
+              }}
+            >
+              {gh.name || 'Nhà kính'}
+            </Link>
+            <span style={{ margin: '0 0.45rem', color: 'var(--text-muted, #626861)' }}>/</span>
+          </>
+        )}
+        <span style={{ color: 'var(--text-main, #1C211E)', fontWeight: 500 }}>
+          {zone?.name || (zone ? `Zone ${zone.zone_index}` : 'Chi tiết')}
+        </span>
       </div>
 
       <div className="page-header">
