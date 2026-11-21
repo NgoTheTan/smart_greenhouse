@@ -731,6 +731,27 @@ tr:hover td {
   }
 }
 
+/* Masonry 2 cột cho danh sách Nhà kính trên Trang tổng quan */
+.greenhouse-masonry {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px;
+  align-items: start;
+  margin-bottom: 2rem;
+}
+
+.greenhouse-masonry-col {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+@media (max-width: 768px) {
+  .greenhouse-masonry {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* 4 Box thông số cảm biến theo hàng ngang chia cột chuẩn theo ảnh thiết kế */
 .sensor-metric-boxes {
   background-color: var(--surface-card, #FFFFFF);
