@@ -53,10 +53,9 @@ const RANGE_OPTIONS: Array<{
     { key: '7d', label: '7 ngày', hours: 168, agg: '1h' },
   ]
 
-function getActuatorTitle(act: string, currentZoneName?: string | null, zoneIndex?: number): string {
+function getActuatorTitle(act: string, _currentZoneName?: string | null, _zoneIndex?: number): string {
   if (act.startsWith('pump_')) {
-    const nameStr = currentZoneName || `Khu ${zoneIndex || 1}`
-    return `Bơm tưới (${nameStr})`
+    return 'Bơm tưới'
   }
   if (act === 'fan') return 'Quạt đối lưu'
   if (act === 'light') return 'Đèn chiếu sáng'

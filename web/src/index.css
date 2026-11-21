@@ -6,32 +6,32 @@
   /* 1. Màu sắc nền & bề mặt */
   --bg-page: #F5F4EF;
   --surface-card: #FFFFFF;
-  
+
   /* 2. Đường viền & phân cách */
   --border-card: #E6E3DA;
   --border-row: #EEECE5;
   --border-input: #D9D6CB;
-  
+
   /* 3. Màu chữ */
   --text-main: #1C211E;
   --text-muted: #626861;
-  
+
   /* 4. Màu nhấn & trạng thái chọn */
   --accent: #1E6B47;
   --accent-hover: #165638;
   --item-selected: #E8F0EA;
-  
+
   /* 5. Chấm trạng thái */
   --status-ok: #2E9A62;
   --status-offline: #B94A32;
   --status-unallocated: #B7B3A6;
   --status-warning: #D97706;
-  
+
   /* 6. Bo góc */
   --radius-card: 10px;
   --radius-btn: 8px;
   --radius-input: 6px;
-  
+
   /* 7. Phông chữ */
   --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
