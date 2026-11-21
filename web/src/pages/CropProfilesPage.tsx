@@ -142,7 +142,7 @@ export default function CropProfilesPage() {
       <div className="page-header">
         <div>
           <h2>Hồ sơ cây trồng</h2>
-          <p className="muted">Template hệ thống và ngưỡng sinh học cho từng zone.</p>
+
         </div>
       </div>
 
@@ -262,9 +262,7 @@ export default function CropProfilesPage() {
                       Gán cho zone này
                     </Button>
                   </div>
-                  <div style={{ fontSize: '0.76rem', color: 'var(--text-muted, #626861)', marginTop: '0.35rem' }}>
-                    Nếu zone đang có vụ active, hồ sơ của zone được cố định theo vụ.
-                  </div>
+
                 </div>
               )}
             </div>
@@ -401,9 +399,9 @@ export default function CropProfilesPage() {
                       setParams((prev) =>
                         prev
                           ? {
-                              ...prev,
-                              vpd: { ...prev.vpd, optimal: [v, prev.vpd.optimal[1]] },
-                            }
+                            ...prev,
+                            vpd: { ...prev.vpd, optimal: [v, prev.vpd.optimal[1]] },
+                          }
                           : null,
                       )
                     }}
@@ -421,9 +419,9 @@ export default function CropProfilesPage() {
                       setParams((prev) =>
                         prev
                           ? {
-                              ...prev,
-                              vpd: { ...prev.vpd, optimal: [prev.vpd.optimal[0], v] },
-                            }
+                            ...prev,
+                            vpd: { ...prev.vpd, optimal: [prev.vpd.optimal[0], v] },
+                          }
                           : null,
                       )
                     }}
@@ -520,9 +518,9 @@ export default function CropProfilesPage() {
                       setParams((prev) =>
                         prev
                           ? {
-                              ...prev,
-                              soil_moisture_pct: { ...prev.soil_moisture_pct, min: v },
-                            }
+                            ...prev,
+                            soil_moisture_pct: { ...prev.soil_moisture_pct, min: v },
+                          }
                           : null,
                       )
                     }}
@@ -539,9 +537,9 @@ export default function CropProfilesPage() {
                       setParams((prev) =>
                         prev
                           ? {
-                              ...prev,
-                              soil_moisture_pct: { ...prev.soil_moisture_pct, max: v },
-                            }
+                            ...prev,
+                            soil_moisture_pct: { ...prev.soil_moisture_pct, max: v },
+                          }
                           : null,
                       )
                     }}
@@ -558,9 +556,9 @@ export default function CropProfilesPage() {
                       setParams((prev) =>
                         prev
                           ? {
-                              ...prev,
-                              irrigation: { ...prev.irrigation, soil_settle_s: v },
-                            }
+                            ...prev,
+                            irrigation: { ...prev.irrigation, soil_settle_s: v },
+                          }
                           : null,
                       )
                     }}
@@ -577,9 +575,9 @@ export default function CropProfilesPage() {
                       setParams((prev) =>
                         prev
                           ? {
-                              ...prev,
-                              irrigation: { ...prev.irrigation, max_run_s: v },
-                            }
+                            ...prev,
+                            irrigation: { ...prev.irrigation, max_run_s: v },
+                          }
                           : null,
                       )
                     }}
@@ -598,9 +596,9 @@ export default function CropProfilesPage() {
                       setParams((prev) =>
                         prev
                           ? {
-                              ...prev,
-                              irrigation: { ...prev.irrigation, min_gap_s: v },
-                            }
+                            ...prev,
+                            irrigation: { ...prev.irrigation, min_gap_s: v },
+                          }
                           : null,
                       )
                     }}
@@ -617,9 +615,9 @@ export default function CropProfilesPage() {
                       setParams((prev) =>
                         prev
                           ? {
-                              ...prev,
-                              irrigation: { ...prev.irrigation, max_total_s_per_hour: v },
-                            }
+                            ...prev,
+                            irrigation: { ...prev.irrigation, max_total_s_per_hour: v },
+                          }
                           : null,
                       )
                     }}

@@ -37,9 +37,9 @@ export default function DevicesPage() {
   const allZones = greenhouses.flatMap((gh) =>
     Array.isArray(gh.zones)
       ? gh.zones.map((z) => ({
-          ...z,
-          greenhouseName: gh.name || gh.id,
-        }))
+        ...z,
+        greenhouseName: gh.name || gh.id,
+      }))
       : [],
   )
   const zoneById = new Map(allZones.map((z) => [z.id, z]))
@@ -220,9 +220,7 @@ export default function DevicesPage() {
       <div className="page-header">
         <div>
           <h2>Thiết bị</h2>
-          <p className="muted">
-            Gateway ESP32, đồng bộ cấu hình cfg_version, ghép node ESP-NOW và hiệu chuẩn ẩm đất 2 điểm.
-          </p>
+
         </div>
 
         <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap' }}>
@@ -399,7 +397,7 @@ export default function DevicesPage() {
           </span>
         </div>
         <p style={{ margin: '0 0 1rem 0', fontSize: '0.85rem', color: 'var(--text-muted, #626861)' }}>
-          Node bật nguồn và gửi bản tin HELLO qua ESP-NOW sẽ tự động hiện ở đây.
+          Node bật nguồn và gửi bản tin tự động hiện ở đây.
         </p>
 
         {discoveredNodes.length === 0 ? (

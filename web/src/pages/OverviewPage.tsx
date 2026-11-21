@@ -422,7 +422,6 @@ export default function OverviewPage() {
       <div className="page-header">
         <div>
           <h2>Tổng quan</h2>
-          <p className="muted">Vi khí hậu và vụ trồng hiện tại của từng nhà kính.</p>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap' }}>
