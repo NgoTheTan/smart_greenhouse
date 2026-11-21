@@ -700,66 +700,72 @@ export default function ZoneDetailPage() {
             </div>
           )}
 
-          {/* Thẻ chỉ số tức thời */}
-          <div className="grid grid-cols-4" style={{ marginBottom: '1.25rem' }}>
-            <div className="metric-tile">
-              <span className="label">Nhiệt độ &amp; Độ ẩm</span>
-              <span className="value">
-                {latestOk?.air_temp !== null && latestOk?.air_temp !== undefined
-                  ? latestOk.air_temp.toFixed(1)
-                  : '—'}
+          {/* Hộp 4 giá trị đo cảm biến chuẩn theo thiết kế */}
+          <div className="sensor-metric-boxes">
+            {/* Box 1: Nhiệt độ */}
+            <div className="sensor-metric-box">
+              <span className="box-label">Nhiệt độ</span>
+              <div className="box-value-row">
+                <span className="val">
+                  {latestOk?.air_temp !== null && latestOk?.air_temp !== undefined
+                    ? latestOk.air_temp.toFixed(1)
+                    : '—'}
+                </span>
                 <span className="unit">°C</span>
-              </span>
-              <span className="subtext muted">
-                Độ ẩm:{' '}
+              </div>
+              <span className="box-subtext">
+                Độ ẩm không khí:{' '}
                 {latestOk?.air_rh !== null && latestOk?.air_rh !== undefined
-                  ? `${latestOk.air_rh.toFixed(1)}%`
+                  ? `${latestOk.air_rh.toFixed(0)}%`
                   : '—'}
               </span>
             </div>
 
-            <div
-              className={`metric-tile ${latestOk?.vpd !== null && latestOk?.vpd !== undefined
-                  ? latestOk.vpd >= vpdOpt[0] && latestOk.vpd <= vpdOpt[1]
-                    ? 'vpd-optimal'
-                    : latestOk.vpd <= vpdLowCrit || latestOk.vpd >= vpdHighCrit
-                      ? 'vpd-danger'
-                      : 'vpd-warning'
-                  : ''
-                }`}
-            >
-              <span className="label">VPD hiện tại</span>
-              <span className="value">
-                {latestOk?.vpd !== null && latestOk?.vpd !== undefined ? latestOk.vpd.toFixed(2) : '—'}
+            {/* Box 2: VPD hiện tại */}
+            <div className="sensor-metric-box">
+              <span className="box-label">VPD hiện tại</span>
+              <div className="box-value-row">
+                <span className="val">
+                  {latestOk?.vpd !== null && latestOk?.vpd !== undefined ? latestOk.vpd.toFixed(1) : '—'}
+                </span>
                 <span className="unit">kPa</span>
-              </span>
-              <span className="subtext muted">
+              </div>
+              <span className="box-subtext">
                 Tối ưu: {vpdOpt[0]}–{vpdOpt[1]} kPa
               </span>
             </div>
 
-            <div className="metric-tile">
-              <span className="label">Độ ẩm đất</span>
-              <span className="value">
-                {latestOk?.soil_moisture !== null && latestOk?.soil_moisture !== undefined
-                  ? latestOk.soil_moisture.toFixed(1)
-                  : '—'}
+            {/* Box 3: Độ ẩm đất */}
+            <div className="sensor-metric-box">
+              <span className="box-label">Độ ẩm đất</span>
+              <div className="box-value-row">
+                <span className="val">
+                  {latestOk?.soil_moisture !== null && latestOk?.soil_moisture !== undefined
+                    ? latestOk.soil_moisture.toFixed(0)
+                    : '—'}
+                </span>
                 <span className="unit">%</span>
-              </span>
-              <span className="subtext muted">
+              </div>
+              <span className="box-subtext">
                 Hysteresis: {soilMin}% – {soilMax}%
               </span>
             </div>
 
-            <div className="metric-tile">
-              <span className="label">Ánh sáng &amp; DLI hôm nay</span>
-              <span className="value">
-                {dliVal !== undefined ? dliVal.toFixed(1) : '—'}
+            {/* Box 4: Ánh sáng & DLI hôm nay */}
+            <div className="sensor-metric-box">
+              <span className="box-label">Ánh sáng &amp; DLI hôm nay</span>
+              <div className="box-value-row">
+                <span className="val">
+                  {dliVal !== undefined ? dliVal.toFixed(1) : '0.0'}
+                </span>
                 <span className="unit">mol/m²/ngày</span>
-              </span>
-              <span className="subtext muted">
-                Lux: {latestOk?.lux !== null && latestOk?.lux !== undefined ? Math.round(latestOk.lux) : 'Không có'}
-                {dliOpt ? ` · Tối ưu ${dliOpt[0]}–${dliOpt[1]}` : ''}
+              </div>
+              <span className="box-subtext">
+                Lux:{' '}
+                {latestOk?.lux !== null && latestOk?.lux !== undefined
+                  ? `${(latestOk.lux / 1000).toFixed(1)} klux`
+                  : 'không có'}{' '}
+                · Tối ưu {dliOpt ? `${dliOpt[0]}–${dliOpt[1]}` : '20–30'}
               </span>
             </div>
           </div>

@@ -730,3 +730,84 @@ tr:hover td {
     font-size: 1.35rem;
   }
 }
+
+/* 4 Box thông số cảm biến theo hàng ngang chia cột chuẩn theo ảnh thiết kế */
+.sensor-metric-boxes {
+  background-color: var(--surface-card, #FFFFFF);
+  border: 1px solid var(--border-card, #E6E3DA);
+  border-radius: var(--radius-card, 10px);
+  margin-bottom: 1.5rem;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  overflow: hidden;
+  box-shadow: none;
+}
+
+.sensor-metric-box {
+  padding: 1.25rem 1.5rem;
+  border-right: 1px solid var(--border-row, #EEECE5);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.sensor-metric-box:last-child {
+  border-right: none;
+}
+
+.sensor-metric-box .box-label {
+  font-size: 0.8rem;
+  color: var(--text-muted, #626861);
+  margin-bottom: 0.35rem;
+}
+
+.sensor-metric-box .box-value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  margin-bottom: 0.35rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.sensor-metric-box .box-value-row .val {
+  font-size: 1.85rem;
+  font-weight: 700;
+  color: var(--text-main, #1C211E);
+  line-height: 1.1;
+}
+
+.sensor-metric-box .box-value-row .unit {
+  font-size: 0.88rem;
+  color: var(--text-muted, #626861);
+}
+
+.sensor-metric-box .box-subtext {
+  font-size: 0.8rem;
+  color: var(--text-muted, #626861);
+}
+
+@media (max-width: 900px) {
+  .sensor-metric-boxes {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .sensor-metric-box:nth-child(2) {
+    border-right: none;
+  }
+  .sensor-metric-box:nth-child(1),
+  .sensor-metric-box:nth-child(2) {
+    border-bottom: 1px solid var(--border-row, #EEECE5);
+  }
+}
+
+@media (max-width: 520px) {
+  .sensor-metric-boxes {
+    grid-template-columns: 1fr;
+  }
+  .sensor-metric-box {
+    border-right: none !important;
+    border-bottom: 1px solid var(--border-row, #EEECE5);
+  }
+  .sensor-metric-box:last-child {
+    border-bottom: none !important;
+  }
+}
