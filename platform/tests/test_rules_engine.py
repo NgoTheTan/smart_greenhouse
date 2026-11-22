@@ -540,10 +540,35 @@ def test_auto_light_control_hysteresis() -> None:
     )
     assert not [c for c in created_commands if c.actuator == "light"]
 
-    # 3. Sau đủ 30 phút (1800s) -> server gửi lệnh TẮT đèn để kiểm tra lại ánh sáng tự nhiên
+    # 2b. Nếu sau >= 1 phút đèn bị tắt (cur_light == "off") và kiểm tra độ sáng thấy vẫn yếu (lux = 65 < 100)
+    #     -> Server phát lệnh bật đèn lại ngay!
+    dev_state.reported["actuators"]["light"] = "off"
+    t_after_1m = now + timedelta(minutes=6)
+    r_dark_after_off = Reading(
+        zone_id=zone_id,
+        ts=t_after_1m,
+        air_temp=24.0,
+        air_rh=65.0,
+        vpd=1.0,
+        soil_moisture=65.0,
+        lux=65.0,
+        quality="ok",
+    )
+    _run_coro(
+        engine.evaluate_zone_telemetry(
+            session, zone_id, gh_id, farm_id, r_dark_after_off, now=t_after_1m
+        )
+    )
+    re_cmds = [c for c in created_commands if c.actuator == "light"]
+    assert len(re_cmds) == 1
+    assert re_cmds[0].action == "on"
+    assert re_cmds[0].duration_s == 1800
+    assert "auto_light_on:lux_low:" in re_cmds[0].reason
+
+    # 3. Sau đủ 30 phút kể từ lần bật gần nhất -> server gửi lệnh TẮT đèn để kiểm tra lại ánh sáng tự nhiên
     created_commands.clear()
     dev_state.reported["actuators"]["light"] = "on"
-    t_30m = now + timedelta(minutes=30)
+    t_30m = t_after_1m + timedelta(minutes=30)
     r_at_30m = Reading(
         zone_id=zone_id,
         ts=t_30m,

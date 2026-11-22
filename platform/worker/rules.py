@@ -726,8 +726,14 @@ class RuleEngine:
         cur_light = reported_acts.get("light", "off")
         hold_duration_s = AUTO_LIGHT_HOLD_DURATION_S
 
-        # 1. Nếu đang trong chu kỳ bật đèn tự động (< 30 phút):
-        #    Giữ đèn sáng liên tục suốt 30 phút, không ra lệnh tắt hay bật lại giữa chừng.
+        # Nếu đèn thực tế đã tắt trên gateway (sau khoảng 1 phút để qua thời gian lệnh mới gửi hoặc sau khi đèn tắt),
+        # xóa trạng thái giữ chu kỳ để kiểm tra lại độ sáng bình thường; nếu sáng yếu sẽ ra lệnh bật lại đèn.
+        if cur_light == "off" and gh_state.light_on_since is not None:
+            if (now - gh_state.light_on_since).total_seconds() >= 60.0:
+                gh_state.light_on_since = None
+
+        # 1. Nếu đèn đang bật và chưa đủ chu kỳ 30 phút:
+        #    Giữ đèn sáng liên tục, không đánh giá tắt đèn theo lux (vì lux cao là do ánh sáng đèn).
         if gh_state.light_on_since is not None:
             elapsed_s = (now - gh_state.light_on_since).total_seconds()
             if elapsed_s < hold_duration_s:
