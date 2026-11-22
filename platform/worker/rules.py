@@ -727,24 +727,10 @@ class RuleEngine:
         hold_duration_s = AUTO_LIGHT_HOLD_DURATION_S
 
         # 1. Nếu đang trong chu kỳ bật đèn tự động (< 30 phút):
-        #    KHÔNG đánh giá tắt đèn theo lux (vì lux cao là do chính đèn đang chiếu vào cảm biến),
-        #    và tự động gia hạn nếu gateway vừa tự ngắt sau mỗi 60s.
+        #    Giữ đèn sáng liên tục suốt 30 phút, không ra lệnh tắt hay bật lại giữa chừng.
         if gh_state.light_on_since is not None:
             elapsed_s = (now - gh_state.light_on_since).total_seconds()
             if elapsed_s < hold_duration_s:
-                if cur_light == "off":
-                    remaining_s = max(1, int(round(hold_duration_s - elapsed_s)))
-                    duration_s = min(fan_min_on_s, remaining_s)
-                    await self._create_command(
-                        session=session,
-                        client=client,
-                        greenhouse_id=greenhouse_id,
-                        actuator="light",
-                        action="on",
-                        duration_s=duration_s,
-                        reason=f"auto_light_hold:{int(elapsed_s)}s/{hold_duration_s}s",
-                        now=now,
-                    )
                 return
 
             # 2. Đã đủ 30 phút bật đèn -> tắt đèn và chờ sample mới để recheck ánh sáng tự nhiên thật
@@ -781,7 +767,7 @@ class RuleEngine:
                 return
             gh_state.light_recheck_after = None
 
-        # 4. Đèn đang tắt (và đã hết thời gian settle sau khi tắt): kiểm tra ánh sáng tự nhiên để quyết định bật đèn
+        # 4. Đèn đang tắt (và đã hết thời gian settle sau khi tắt): kiểm tra ánh sáng tự nhiên để quyết định bật đèn 30 phút liên tục
         lux_samples: list[tuple[float, float, float]] = []
         for z, profile in zones:
             z_state = self.get_zone_state(z.id)
@@ -805,7 +791,7 @@ class RuleEngine:
                 greenhouse_id=greenhouse_id,
                 actuator="light",
                 action="on",
-                duration_s=fan_min_on_s,
+                duration_s=hold_duration_s,
                 reason=f"auto_light_on:lux_low:{lux_val:.0f}<{l_min_val:.0f}",
                 now=now,
             )

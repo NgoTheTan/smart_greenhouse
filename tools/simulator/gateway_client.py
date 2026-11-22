@@ -148,6 +148,8 @@ class GatewaySafetyEngine:
             ):
                 return self._reject(cmd_id, "max_total")
             self._pump_history[actuator].append((now_mono, eff_duration))
+        elif actuator == "light":
+            eff_duration = min(req_duration, 1800)
         else:
             eff_duration = min(req_duration, self.fan_max_on_s)
 

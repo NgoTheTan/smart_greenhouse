@@ -500,7 +500,7 @@ def test_auto_light_control_hysteresis() -> None:
 
     now = datetime(2026, 11, 21, 10, 0, 0, tzinfo=UTC)
 
-    # 1. lux = 60 < 100 -> BẬT đèn (bắt đầu chu kỳ 30 phút)
+    # 1. lux = 60 < 100 -> BẬT đèn 1 lần duy nhất suốt chu kỳ 30 phút (1800s)
     r_dark = Reading(
         zone_id=zone_id,
         ts=now,
@@ -515,11 +515,11 @@ def test_auto_light_control_hysteresis() -> None:
     light_cmds = [c for c in created_commands if c.actuator == "light"]
     assert len(light_cmds) == 1
     assert light_cmds[0].action == "on"
-    assert light_cmds[0].duration_s == 60
+    assert light_cmds[0].duration_s == 1800
     assert "auto_light_on:lux_low:" in light_cmds[0].reason
 
-    # 2. Khi đèn đang bật (chưa đủ 30 phút) và cảm biến đo được lux = 248 >= 150 (do chính ánh sáng đèn)
-    #    -> TUYỆT ĐỐI KHÔNG tắt đèn với lý do Đủ ánh sáng tự nhiên!
+    # 2. Trong suốt 30 phút đèn đang bật, dù cảm biến đo được lux = 248 >= 150 (do chính ánh sáng đèn)
+    #    -> TUYỆT ĐỐI KHÔNG ra lệnh tắt hay bật lại đèn!
     created_commands.clear()
     dev_state.reported["actuators"]["light"] = "on"
     t_during = now + timedelta(minutes=5)
@@ -540,30 +540,7 @@ def test_auto_light_control_hysteresis() -> None:
     )
     assert not [c for c in created_commands if c.actuator == "light"]
 
-    # 3. Nếu gateway tự ngắt đèn sau 60s khi mới chạy 10 phút (< 30 phút) -> server tự gia hạn bật tiếp
-    dev_state.reported["actuators"]["light"] = "off"
-    t_hold = now + timedelta(minutes=10)
-    r_hold = Reading(
-        zone_id=zone_id,
-        ts=t_hold,
-        air_temp=24.0,
-        air_rh=65.0,
-        vpd=1.0,
-        soil_moisture=65.0,
-        lux=248.0,
-        quality="ok",
-    )
-    _run_coro(
-        engine.evaluate_zone_telemetry(
-            session, zone_id, gh_id, farm_id, r_hold, now=t_hold
-        )
-    )
-    hold_cmds = [c for c in created_commands if c.actuator == "light"]
-    assert len(hold_cmds) == 1
-    assert hold_cmds[0].action == "on"
-    assert "auto_light_hold:" in hold_cmds[0].reason
-
-    # 4. Sau đủ 30 phút (1800s) -> server gửi lệnh TẮT đèn để kiểm tra lại ánh sáng tự nhiên
+    # 3. Sau đủ 30 phút (1800s) -> server gửi lệnh TẮT đèn để kiểm tra lại ánh sáng tự nhiên
     created_commands.clear()
     dev_state.reported["actuators"]["light"] = "on"
     t_30m = now + timedelta(minutes=30)
@@ -588,7 +565,7 @@ def test_auto_light_control_hysteresis() -> None:
     assert off_cmds[0].duration_s is None
     assert "light_cycle_recheck:" in off_cmds[0].reason
 
-    # 5. Sau khi đèn tắt và qua thời gian settle (15s), recheck điều kiện:
+    # 4. Sau khi đèn tắt và qua thời gian settle (15s), recheck điều kiện:
     #    - Nếu ánh sáng tự nhiên đã đủ (lux = 220 >= 100) -> giữ đèn TẮT
     created_commands.clear()
     dev_state.reported["actuators"]["light"] = "off"
@@ -630,11 +607,12 @@ def test_auto_light_control_hysteresis() -> None:
     re_on_cmds = [c for c in created_commands if c.actuator == "light"]
     assert len(re_on_cmds) == 1
     assert re_on_cmds[0].action == "on"
+    assert re_on_cmds[0].duration_s == 1800
     assert "auto_light_on:lux_low:" in re_on_cmds[0].reason
 
 
 def test_auto_duration_clamped_to_60s() -> None:
-    """Chế độ auto luôn giới hạn thời lượng bật bơm/quạt/đèn tối đa 60s dù profile đặt cao hơn."""
+    """Chế độ auto giới hạn thời lượng bơm 2s, quạt 60s và đèn chiếu sáng 1800s (30 phút)."""
     import copy
 
     engine = RuleEngine()
@@ -691,5 +669,7 @@ def test_auto_duration_clamped_to_60s() -> None:
     for c in created_commands:
         if c.actuator == "pump_1":
             assert c.duration_s == 2
+        elif c.actuator == "light":
+            assert c.duration_s == 1800
         else:
             assert c.duration_s == 60

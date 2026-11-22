@@ -871,7 +871,10 @@ uint16_t getMaxRunForActuator(uint8_t act_idx) {
     const ZoneConfig* zc = findZoneByPump(act_idx);
     return zc ? zc->irrigation_max_run_s : 15;
   }
-  // Lấy max của zone 1 (hoặc zone đầu tiên tìm thấy) cho fan/light (tối đa 60s)
+  if (act_idx == ACT_LIGHT) {
+    return 1800;
+  }
+  // Lấy max của zone 1 (hoặc zone đầu tiên tìm thấy) cho fan (tối đa 60s)
   for (uint8_t i = 0; i < MAX_ZONES; ++i) {
     if (g_zones[i].in_use) {
       return (g_zones[i].fan_max_on_s > 60) ? 60 : g_zones[i].fan_max_on_s;
