@@ -134,9 +134,17 @@ function formatCommandReason(
   if (reason.startsWith('auto_light_on:lux_low')) {
     const match = reason.match(/lux_low:([\d.]+)<([\d.]+)/)
     if (match) {
-      return { text: `Ánh sáng yếu (${match[1]} lux < ${match[2]} lux) → Bật đèn bổ sung quang hợp` }
+      return { text: `Ánh sáng yếu (${match[1]} lux < ${match[2]} lux) → Bật đèn bổ sung quang hợp (chu kỳ 30 phút)` }
     }
-    return { text: 'Thiếu ánh sáng tự nhiên → Bật đèn bổ sung quang hợp' }
+    return { text: 'Thiếu ánh sáng tự nhiên → Bật đèn bổ sung quang hợp (chu kỳ 30 phút)' }
+  }
+
+  if (reason.startsWith('auto_light_hold:')) {
+    return { text: 'Duy trì chiếu sáng trong chu kỳ 30 phút (bỏ qua độ sáng do đèn đang bật)' }
+  }
+
+  if (reason.startsWith('light_cycle_recheck')) {
+    return { text: 'Đã chiếu sáng đủ 30 phút → Tắt đèn để kiểm tra lại ánh sáng tự nhiên' }
   }
 
   if (reason.startsWith('light_sufficient')) {

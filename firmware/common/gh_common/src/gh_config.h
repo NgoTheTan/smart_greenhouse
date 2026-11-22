@@ -6,8 +6,8 @@
 namespace gh {
 
 // Cấu hình Wi-Fi & UDP dùng chung giữa Sensor Node (client) và Gateway (server)
-constexpr char WIFI_SSID[] = "UET-Wifi-T2 2.4Ghz";
-constexpr char WIFI_PASS[] = "";
+constexpr char WIFI_SSID[] = "Greenhouse-IOT";
+constexpr char WIFI_PASS[] = "12345678";
 constexpr uint16_t UDP_PORT = 4210;
 
 // Chu kỳ đo & hiệu chuẩn ẩm đất mặc định (cảm biến xuất ~1.9V khi khô -> ADC 12-bit ESP32 ≈ 2230)

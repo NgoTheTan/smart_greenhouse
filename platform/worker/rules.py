@@ -29,6 +29,9 @@ from worker.shadow import ensure_device_state
 
 log = logging.getLogger("worker.rules")
 AUTO_MAX_DURATION_S = 60
+AUTO_PUMP_DURATION_S = 2
+AUTO_LIGHT_HOLD_DURATION_S = 1800
+AUTO_LIGHT_RECHECK_SETTLE_S = 15
 
 
 @dataclass
@@ -49,6 +52,8 @@ class ZoneRuleState:
 class GreenhouseRuleState:
     fan_on_since: datetime | None = None
     fan_auto_reason: str | None = None
+    light_on_since: datetime | None = None
+    light_recheck_after: datetime | None = None
     last_pump_end_at: dict[str, datetime] = field(default_factory=dict)
     pump_hourly_runs: dict[str, list[tuple[datetime, int]]] = field(default_factory=dict)
     soil_settle_until: dict[str, datetime] = field(default_factory=dict)
@@ -137,6 +142,16 @@ class RuleEngine:
                     gh_state.pump_hourly_runs.setdefault(act, []).append((end_t, dur))
                 elif act == "fan" and log_entry.action == "on":
                     gh_state.fan_on_since = log_entry.created_at
+                elif act == "light":
+                    if log_entry.action == "on":
+                        if gh_state.light_on_since is None:
+                            gh_state.light_on_since = log_entry.created_at
+                        gh_state.light_recheck_after = None
+                    elif log_entry.action == "off":
+                        gh_state.light_on_since = None
+                        gh_state.light_recheck_after = log_entry.created_at + timedelta(
+                            seconds=AUTO_LIGHT_RECHECK_SETTLE_S
+                        )
 
         log.info("Warmed up RuleEngine for %d zones, %d greenhouses", len(zones), len(ghs))
 
@@ -446,7 +461,7 @@ class RuleEngine:
         irr_cfg = params.get("irrigation", {})
         soil_min = float(soil_pct_cfg.get("min", 55.0))
         soil_max = float(soil_pct_cfg.get("max", 75.0))
-        max_run_s = min(int(irr_cfg.get("max_run_s", AUTO_MAX_DURATION_S)), AUTO_MAX_DURATION_S)
+        max_run_s = min(int(irr_cfg.get("max_run_s", AUTO_PUMP_DURATION_S)), AUTO_PUMP_DURATION_S)
         min_gap_s = int(irr_cfg.get("min_gap_s", 300))
         soil_settle_s = int(irr_cfg.get("soil_settle_s", 180))
         max_total_s_per_hour = int(irr_cfg.get("max_total_s_per_hour", 300))
@@ -686,6 +701,7 @@ class RuleEngine:
             modes=modes,
             reported_acts=reported_acts,
             fan_min_on_s=fan_min_on_s,
+            gh_state=gh_state,
             now=now,
         )
 
@@ -698,14 +714,74 @@ class RuleEngine:
         modes: dict[str, Any],
         reported_acts: dict[str, Any],
         fan_min_on_s: int,
+        gh_state: GreenhouseRuleState,
         now: datetime,
     ) -> None:
-        """Điều khiển đèn chiếu sáng tự động theo hysteresis lux_min / lux_max."""
+        """Điều khiển đèn chiếu sáng tự động: giữ chu kỳ 30 phút rồi tắt đèn để recheck ánh sáng tự nhiên."""
         if _get_actuator_mode(modes, "light") != "auto":
             return
         if await self._has_pending_command(session, greenhouse_id, "light"):
             return
 
+        cur_light = reported_acts.get("light", "off")
+        hold_duration_s = AUTO_LIGHT_HOLD_DURATION_S
+
+        # 1. Nếu đang trong chu kỳ bật đèn tự động (< 30 phút):
+        #    KHÔNG đánh giá tắt đèn theo lux (vì lux cao là do chính đèn đang chiếu vào cảm biến),
+        #    và tự động gia hạn nếu gateway vừa tự ngắt sau mỗi 60s.
+        if gh_state.light_on_since is not None:
+            elapsed_s = (now - gh_state.light_on_since).total_seconds()
+            if elapsed_s < hold_duration_s:
+                if cur_light == "off":
+                    remaining_s = max(1, int(round(hold_duration_s - elapsed_s)))
+                    duration_s = min(fan_min_on_s, remaining_s)
+                    await self._create_command(
+                        session=session,
+                        client=client,
+                        greenhouse_id=greenhouse_id,
+                        actuator="light",
+                        action="on",
+                        duration_s=duration_s,
+                        reason=f"auto_light_hold:{int(elapsed_s)}s/{hold_duration_s}s",
+                        now=now,
+                    )
+                return
+
+            # 2. Đã đủ 30 phút bật đèn -> tắt đèn và chờ sample mới để recheck ánh sáng tự nhiên thật
+            gh_state.light_on_since = None
+            gh_state.light_recheck_after = now + timedelta(seconds=AUTO_LIGHT_RECHECK_SETTLE_S)
+            if cur_light == "on":
+                await self._create_command(
+                    session=session,
+                    client=client,
+                    greenhouse_id=greenhouse_id,
+                    actuator="light",
+                    action="off",
+                    duration_s=None,
+                    reason=f"light_cycle_recheck:{hold_duration_s}s",
+                    now=now,
+                )
+            return
+
+        # Trường hợp worker khởi động lại khi đèn đang bật trên gateway mà chưa có mốc light_on_since
+        if cur_light == "on":
+            gh_state.light_on_since = now
+            return
+
+        # 3. Nếu vừa tắt đèn sau chu kỳ 30 phút, đợi cảm biến gửi mẫu mới khi đèn đã tắt hẳn rồi mới recheck
+        if gh_state.light_recheck_after is not None:
+            if now < gh_state.light_recheck_after:
+                return
+            has_fresh_sample = any(
+                self.get_zone_state(z.id).last_valid_ts is not None
+                and self.get_zone_state(z.id).last_valid_ts >= gh_state.light_recheck_after
+                for z, _ in zones
+            )
+            if not has_fresh_sample:
+                return
+            gh_state.light_recheck_after = None
+
+        # 4. Đèn đang tắt (và đã hết thời gian settle sau khi tắt): kiểm tra ánh sáng tự nhiên để quyết định bật đèn
         lux_samples: list[tuple[float, float, float]] = []
         for z, profile in zones:
             z_state = self.get_zone_state(z.id)
@@ -720,7 +796,6 @@ class RuleEngine:
         if not lux_samples:
             return
 
-        cur_light = reported_acts.get("light", "off")
         low_samples = [(lux, l_min) for lux, l_min, _ in lux_samples if lux < l_min]
         if low_samples and cur_light == "off":
             lux_val, l_min_val = min(low_samples, key=lambda item: item[0])
@@ -734,18 +809,8 @@ class RuleEngine:
                 reason=f"auto_light_on:lux_low:{lux_val:.0f}<{l_min_val:.0f}",
                 now=now,
             )
-        elif cur_light == "on" and all(lux >= l_max for lux, _, l_max in lux_samples):
-            lux_val, _, l_max_val = min(lux_samples, key=lambda item: item[0])
-            await self._create_command(
-                session=session,
-                client=client,
-                greenhouse_id=greenhouse_id,
-                actuator="light",
-                action="off",
-                duration_s=None,
-                reason=f"light_sufficient:{lux_val:.0f}>={l_max_val:.0f}",
-                now=now,
-            )
+            gh_state.light_on_since = now
+            gh_state.light_recheck_after = None
 
     async def tick_5s(
         self,

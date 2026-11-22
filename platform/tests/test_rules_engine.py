@@ -171,7 +171,7 @@ def test_fixed_irrigation_hysteresis() -> None:
     pump_cmds = [c for c in created_commands if getattr(c, "actuator", None) == "pump_1"]
     assert len(pump_cmds) == 1
     assert pump_cmds[0].action == "on"
-    assert pump_cmds[0].duration_s == 15  # max_run_s trong DEFAULT_DEMO_PARAMS
+    assert pump_cmds[0].duration_s == 2  # AUTO_PUMP_DURATION_S = 2s
     assert "soil_low:" in pump_cmds[0].reason
 
     # 2. Hysteresis TẮT SỚM: khi bơm đang on và độ ẩm vượt >= 75% -> TẮT BƠM
@@ -463,7 +463,7 @@ def test_scenario_c_sensor_fault_blocks_irrigation() -> None:
 
 
 def test_auto_light_control_hysteresis() -> None:
-    """Điều khiển đèn chiếu sáng tự động theo hysteresis lux_min=100 / lux_max=150."""
+    """Điều khiển đèn chiếu sáng tự động: khi bật đèn giữ đủ 30 phút (không tắt theo lux của đèn), sau 30 phút tắt và recheck."""
     engine = RuleEngine()
     farm_id, gh_id, zone_id, zone, gh, gw, prof, dev_state = _make_context()
     dev_state.desired["modes"]["light"] = "auto"
@@ -500,7 +500,7 @@ def test_auto_light_control_hysteresis() -> None:
 
     now = datetime(2026, 11, 21, 10, 0, 0, tzinfo=UTC)
 
-    # 1. lux = 60 < 100 -> BẬT đèn
+    # 1. lux = 60 < 100 -> BẬT đèn (bắt đầu chu kỳ 30 phút)
     r_dark = Reading(
         zone_id=zone_id,
         ts=now,
@@ -518,47 +518,119 @@ def test_auto_light_control_hysteresis() -> None:
     assert light_cmds[0].duration_s == 60
     assert "auto_light_on:lux_low:" in light_cmds[0].reason
 
-    # 2. Đang bật và lux = 120 (trong dải trễ 100..150) -> giữ nguyên trạng thái, không tắt
+    # 2. Khi đèn đang bật (chưa đủ 30 phút) và cảm biến đo được lux = 248 >= 150 (do chính ánh sáng đèn)
+    #    -> TUYỆT ĐỐI KHÔNG tắt đèn với lý do Đủ ánh sáng tự nhiên!
     created_commands.clear()
     dev_state.reported["actuators"]["light"] = "on"
-    r_mid = Reading(
+    t_during = now + timedelta(minutes=5)
+    r_lamp_lux = Reading(
         zone_id=zone_id,
-        ts=now + timedelta(seconds=10),
+        ts=t_during,
         air_temp=24.0,
         air_rh=65.0,
         vpd=1.0,
         soil_moisture=65.0,
-        lux=120.0,
+        lux=248.0,
         quality="ok",
     )
     _run_coro(
         engine.evaluate_zone_telemetry(
-            session, zone_id, gh_id, farm_id, r_mid, now=now + timedelta(seconds=10)
+            session, zone_id, gh_id, farm_id, r_lamp_lux, now=t_during
         )
     )
     assert not [c for c in created_commands if c.actuator == "light"]
 
-    # 3. Đang bật và lux = 180 >= 150 -> TẮT đèn
-    r_bright = Reading(
+    # 3. Nếu gateway tự ngắt đèn sau 60s khi mới chạy 10 phút (< 30 phút) -> server tự gia hạn bật tiếp
+    dev_state.reported["actuators"]["light"] = "off"
+    t_hold = now + timedelta(minutes=10)
+    r_hold = Reading(
         zone_id=zone_id,
-        ts=now + timedelta(seconds=20),
+        ts=t_hold,
         air_temp=24.0,
         air_rh=65.0,
         vpd=1.0,
         soil_moisture=65.0,
-        lux=180.0,
+        lux=248.0,
         quality="ok",
     )
     _run_coro(
         engine.evaluate_zone_telemetry(
-            session, zone_id, gh_id, farm_id, r_bright, now=now + timedelta(seconds=20)
+            session, zone_id, gh_id, farm_id, r_hold, now=t_hold
+        )
+    )
+    hold_cmds = [c for c in created_commands if c.actuator == "light"]
+    assert len(hold_cmds) == 1
+    assert hold_cmds[0].action == "on"
+    assert "auto_light_hold:" in hold_cmds[0].reason
+
+    # 4. Sau đủ 30 phút (1800s) -> server gửi lệnh TẮT đèn để kiểm tra lại ánh sáng tự nhiên
+    created_commands.clear()
+    dev_state.reported["actuators"]["light"] = "on"
+    t_30m = now + timedelta(minutes=30)
+    r_at_30m = Reading(
+        zone_id=zone_id,
+        ts=t_30m,
+        air_temp=24.0,
+        air_rh=65.0,
+        vpd=1.0,
+        soil_moisture=65.0,
+        lux=248.0,
+        quality="ok",
+    )
+    _run_coro(
+        engine.evaluate_zone_telemetry(
+            session, zone_id, gh_id, farm_id, r_at_30m, now=t_30m
         )
     )
     off_cmds = [c for c in created_commands if c.actuator == "light"]
     assert len(off_cmds) == 1
     assert off_cmds[0].action == "off"
     assert off_cmds[0].duration_s is None
-    assert "light_sufficient:" in off_cmds[0].reason
+    assert "light_cycle_recheck:" in off_cmds[0].reason
+
+    # 5. Sau khi đèn tắt và qua thời gian settle (15s), recheck điều kiện:
+    #    - Nếu ánh sáng tự nhiên đã đủ (lux = 220 >= 100) -> giữ đèn TẮT
+    created_commands.clear()
+    dev_state.reported["actuators"]["light"] = "off"
+    t_recheck_bright = t_30m + timedelta(seconds=20)
+    r_recheck_bright = Reading(
+        zone_id=zone_id,
+        ts=t_recheck_bright,
+        air_temp=24.0,
+        air_rh=65.0,
+        vpd=1.0,
+        soil_moisture=65.0,
+        lux=220.0,
+        quality="ok",
+    )
+    _run_coro(
+        engine.evaluate_zone_telemetry(
+            session, zone_id, gh_id, farm_id, r_recheck_bright, now=t_recheck_bright
+        )
+    )
+    assert not [c for c in created_commands if c.actuator == "light"]
+
+    #    - Nếu recheck thấy trời vẫn tối (lux = 50 < 100) -> BẬT lại đèn cho chu kỳ 30 phút mới
+    t_recheck_dark = t_30m + timedelta(seconds=30)
+    r_recheck_dark = Reading(
+        zone_id=zone_id,
+        ts=t_recheck_dark,
+        air_temp=24.0,
+        air_rh=65.0,
+        vpd=1.0,
+        soil_moisture=65.0,
+        lux=50.0,
+        quality="ok",
+    )
+    _run_coro(
+        engine.evaluate_zone_telemetry(
+            session, zone_id, gh_id, farm_id, r_recheck_dark, now=t_recheck_dark
+        )
+    )
+    re_on_cmds = [c for c in created_commands if c.actuator == "light"]
+    assert len(re_on_cmds) == 1
+    assert re_on_cmds[0].action == "on"
+    assert "auto_light_on:lux_low:" in re_on_cmds[0].reason
 
 
 def test_auto_duration_clamped_to_60s() -> None:
@@ -617,4 +689,7 @@ def test_auto_duration_clamped_to_60s() -> None:
     _run_coro(engine.evaluate_zone_telemetry(session, zone_id, gh_id, farm_id, r, now=now))
     assert {c.actuator for c in created_commands} == {"pump_1", "fan", "light"}
     for c in created_commands:
-        assert c.duration_s == 60
+        if c.actuator == "pump_1":
+            assert c.duration_s == 2
+        else:
+            assert c.duration_s == 60

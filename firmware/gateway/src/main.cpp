@@ -40,7 +40,11 @@ constexpr uint8_t ACT_PUMP_2 = 1;
 constexpr uint8_t ACT_FAN = 2;
 constexpr uint8_t ACT_LIGHT = 3;
 constexpr uint8_t ACT_COUNT = 4;
-constexpr uint8_t MOTOR_PWM_DUTY = 80;
+constexpr uint8_t MOTOR_PWM_DUTY = 120;
+constexpr uint8_t PUMP1_PWM_DUTY = 120;
+constexpr uint8_t PUMP2_PWM_DUTY = 90;
+constexpr uint32_t AUTO_PUMP1_RUN_MS = 2500;
+constexpr uint32_t AUTO_PUMP2_RUN_MS = 1500;
 
 constexpr uint8_t MAX_ZONES = 8;
 constexpr uint8_t MAX_NODES = 16;
@@ -303,12 +307,20 @@ void initActuatorsOff() {
   }
 }
 
+uint32_t getAutoPumpRunMs(uint8_t pump_idx) {
+  return (pump_idx == ACT_PUMP_2) ? AUTO_PUMP2_RUN_MS : AUTO_PUMP1_RUN_MS;
+}
+
 void setActuatorPin(uint8_t act_idx, bool turn_on) {
   if (act_idx >= ACT_COUNT) {
     return;
   }
   if (act_idx == ACT_LIGHT) {
     digitalWrite(ACTUATOR_PINS[act_idx], turn_on ? HIGH : LOW);
+  } else if (act_idx == ACT_PUMP_1) {
+    analogWrite(ACTUATOR_PINS[act_idx], turn_on ? PUMP1_PWM_DUTY : 0);
+  } else if (act_idx == ACT_PUMP_2) {
+    analogWrite(ACTUATOR_PINS[act_idx], turn_on ? PUMP2_PWM_DUTY : 0);
   } else {
     analogWrite(ACTUATOR_PINS[act_idx], turn_on ? MOTOR_PWM_DUTY : 0);
   }
@@ -868,19 +880,21 @@ uint16_t getMaxRunForActuator(uint8_t act_idx) {
   return 60;
 }
 
-bool tryTurnOnPump(uint8_t pump_idx, uint16_t req_dur_s, const char** out_reject_reason,
+bool tryTurnOnPump(uint8_t pump_idx, uint32_t req_dur_ms, const char** out_reject_reason,
                    uint16_t* out_eff_dur) {
   const ZoneConfig* zc = findZoneByPump(pump_idx);
   const uint16_t max_run = zc ? zc->irrigation_max_run_s : 15;
+  const uint32_t max_run_ms = static_cast<uint32_t>(max_run) * 1000UL;
   const uint16_t min_gap = zc ? zc->irrigation_min_gap_s : 90;
   const uint16_t max_total = zc ? zc->irrigation_max_total_s_per_hour : 120;
 
-  uint16_t eff = req_dur_s;
-  if (eff > max_run) eff = max_run;
-  if (eff == 0) {
+  uint32_t eff_ms = req_dur_ms;
+  if (eff_ms > max_run_ms) eff_ms = max_run_ms;
+  if (eff_ms == 0) {
     *out_reject_reason = "invalid";
     return false;
   }
+  const uint16_t eff = static_cast<uint16_t>((eff_ms + 999UL) / 1000UL);
 
   const uint64_t now_ms = millis64();
   const uint32_t now_s = static_cast<uint32_t>(now_ms / 1000ULL);
@@ -898,7 +912,7 @@ bool tryTurnOnPump(uint8_t pump_idx, uint16_t req_dur_s, const char** out_reject
   recordPumpRun(pump_idx, now_s, eff);
   setActuatorPin(pump_idx, true);
   g_has_off_deadline[pump_idx] = true;
-  g_off_deadline_ms[pump_idx] = now_ms + static_cast<uint64_t>(eff) * 1000ULL;
+  g_off_deadline_ms[pump_idx] = now_ms + static_cast<uint64_t>(eff_ms);
   *out_eff_dur = eff;
   return true;
 }
@@ -970,9 +984,11 @@ void handleCommandPayload(const uint8_t* raw, unsigned int len) {
   const char* side_effect = nullptr;
 
   if (act_idx == ACT_PUMP_1 || act_idx == ACT_PUMP_2) {
+    // Luôn cố định thời gian chạy của từng bơm (3s cho pump_1, 1.2s cho pump_2) bất kể duration_s từ web/backend
+    const uint32_t pump_req_ms = getAutoPumpRunMs(static_cast<uint8_t>(act_idx));
     const char* reject_reason = nullptr;
     uint16_t eff_dur = 0;
-    if (!tryTurnOnPump(static_cast<uint8_t>(act_idx), req_dur, &reject_reason, &eff_dur)) {
+    if (!tryTurnOnPump(static_cast<uint8_t>(act_idx), pump_req_ms, &reject_reason, &eff_dur)) {
       publishAck(cmd_id, "rejected", reject_reason, nullptr, nullptr);
       return;
     }
@@ -1569,7 +1585,7 @@ void tickFailsafeAndBuzzer() {
         !g_actuator_on[zc.pump_idx]) {
       const char* reject_reason = nullptr;
       uint16_t eff_dur = 0;
-      if (tryTurnOnPump(zc.pump_idx, zc.irrigation_max_run_s, &reject_reason, &eff_dur)) {
+      if (tryTurnOnPump(zc.pump_idx, getAutoPumpRunMs(zc.pump_idx), &reject_reason, &eff_dur)) {
         JsonDocument fs_detail;
         fs_detail["trigger"] = "soil_low";
         fs_detail["soil_m"] = zs.soil_pct;
